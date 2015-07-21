@@ -1,0 +1,8 @@
+{
+  "name": "yencode",
+  "version": "0.1",
+  "description": "Fast yEnc encoder using compiled code",
+  "license": "Public Domain",
+  "author": "Anime Tosho",
+  "main": "build/Release/obj.target/yencode.node"
+}
