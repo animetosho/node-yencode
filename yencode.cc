@@ -158,8 +158,11 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	int line_size = 128, col = 0;
 	if (args.Length() >= 2) {
 		line_size = args[1]->ToInteger()->Value();
-		if (args.Length() >= 3)
+		if (line_size < 1) line_size = 128;
+		if (args.Length() >= 3) {
 			col = args[2]->ToInteger()->Value();
+			if (col >= line_size) col = 0;
+		}
 	}
 	
 	unsigned long dest_len = arg_len * 2 + (arg_len / 32);
@@ -195,8 +198,11 @@ static Handle<Value> Encode(const Arguments& args) {
 	int line_size = 128, col = 0;
 	if (args.Length() >= 2) {
 		line_size = args[1]->ToInteger()->Value();
-		if (args.Length() >= 3)
+		if (line_size < 1) line_size = 128;
+		if (args.Length() >= 3) {
 			col = args[2]->ToInteger()->Value();
+			if (col >= line_size) col = 0;
+		}
 	}
 	
 	unsigned long dest_len = arg_len * 2 + (arg_len / 32);
