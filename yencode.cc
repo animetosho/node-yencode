@@ -8,6 +8,7 @@ using namespace v8;
 
 // TODO: alignment?
 unsigned char escapeLUT[256];
+uint16_t escapedLUT[256];
 // combine two 8-bit ints into a 16-bit one
 // TODO: support big endian
 /*#if (!*(unsigned char *)&(uint16_t){1})
@@ -18,35 +19,84 @@ unsigned char escapeLUT[256];
 #define UINT16_PACK(a, b) ((a) | ((b) << 8))
 //#endif
 
-// runs at around 225MB/s on 2.4GHz Silvermont
+// runs at around 270MB/s on 2.4GHz Silvermont
 static inline unsigned long do_encode(int line_size, int col, unsigned char* src, unsigned char* dest, unsigned long len) {
 	unsigned char *p = dest;
+	unsigned long i = 0;
+	unsigned char c, ec;
 	
-	for (unsigned long i = 0; i < len; i++) {
-		unsigned char c = src[i], ec = escapeLUT[c];
-		if (ec) {
-			*(p++) = ec;
-			col++;
+	if (col > 0) goto skip_first_char;
+	do {
+		// first char in line
+		c = src[i++];
+		if (escapedLUT[c]) {
+			*(uint16_t*)p = escapedLUT[c];
+			p += 2;
+			col = 2;
+		} else {
+			*(p++) = escapeLUT[c];
+			col = 1;
 		}
-		else {
-			if(((col > 0 && col < line_size) && (c == ' '+214 || c == '\t'+214)) || (col > 0 && c == '.'-42)) {
-				*(p++) = (c + 42) & 0xFF;
+		if (i >= len) goto end;
+		
+		skip_first_char:
+		// main line
+		while (len-i-1 > 8 && line_size-col-1 > 16) {
+			// fast 8 cycle unrolled version
+			unsigned char* sp = p;
+			#define DO_THING(n) \
+				c = src[i+n], ec = escapeLUT[c]; \
+				if (ec) \
+					*(p++) = ec; \
+				else { \
+					*(uint16_t*)p = escapedLUT[c]; \
+					p += 2; \
+				}
+			DO_THING(0);
+			DO_THING(1);
+			DO_THING(2);
+			DO_THING(3);
+			DO_THING(4);
+			DO_THING(5);
+			DO_THING(6);
+			DO_THING(7);
+			
+			i += 8;
+			col += p - sp;
+		}
+		while(col < line_size-1) {
+			c = src[i++], ec = escapeLUT[c];
+			if (ec) {
+				*(p++) = ec;
 				col++;
-			} else {
-				*(uint16_t*)p = UINT16_PACK('=', (c + 42+64) & 0xFF);
+			}
+			else {
+				*(uint16_t*)p = escapedLUT[c];
 				p += 2;
 				col += 2;
 			}
+			if (i >= len) goto end;
 		}
-		if(col >= line_size) {
-			*(uint16_t*)p = UINT16_PACK('\r', '\n');
-			p += 2;
-			col = 0;
+		
+		// last line char
+		if(col < line_size) {
+			c = src[i++];
+			if (escapedLUT[c] && c != '.'-42) {
+				*(uint16_t*)p = escapedLUT[c];
+				p += 2;
+			} else {
+				*(p++) = escapeLUT[c];
+			}
 		}
-	}
+		
+		*(uint16_t*)p = UINT16_PACK('\r', '\n');
+		p += 2;
+	} while (i < len);
 	
+	end:
 	return p - dest;
 }
+
 
 /*
 // simple naive implementation - most yEnc encoders I've seen do something like the following
@@ -162,15 +212,20 @@ static Handle<Value> Encode(const Arguments& args) {
 void init(Handle<Object> target) {
 	for (int i=0; i<256; i++) {
 		escapeLUT[i] = (i+42) & 0xFF;
+		escapedLUT[i] = 0;
 	}
 	escapeLUT[214 + '\0'] = 0;
 	escapeLUT[214 + '\r'] = 0;
 	escapeLUT[214 + '\n'] = 0;
 	escapeLUT['=' - 42	] = 0;
-	escapeLUT[214 + '\t'] = 0;
-	escapeLUT[214 + ' ' ] = 0;
-	escapeLUT['.' - 42	] = 0;
 	
+	escapedLUT[214 + '\0'] = UINT16_PACK('=', '\0'+64);
+	escapedLUT[214 + '\r'] = UINT16_PACK('=', '\r'+64);
+	escapedLUT[214 + '\n'] = UINT16_PACK('=', '\n'+64);
+	escapedLUT['=' - 42	] =  UINT16_PACK('=', '='+64);
+	escapedLUT[214 + '\t'] = UINT16_PACK('=', '\t'+64);
+	escapedLUT[214 + ' ' ] = UINT16_PACK('=', ' '+64);
+	escapedLUT['.' - 42	] =  UINT16_PACK('=', '.'+64);
 	NODE_SET_METHOD(target, "encode", Encode);
 }
 

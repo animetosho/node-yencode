@@ -8,8 +8,7 @@
       },
       "conditions": [
         [ "node_version == '0.10'", { "defines": ["NODE_010"] } ]
-      ],
-      "cflags": ["-funroll-loops"]
+      ]
     }
   ]
 }
