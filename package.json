@@ -4,5 +4,8 @@
   "description": "Fast yEnc encoder using compiled code",
   "license": "Public Domain",
   "author": "Anime Tosho",
-  "main": "build/Release/obj.target/yencode.node"
+  "main": "build/Release/obj.target/yencode.node",
+  "scripts": {
+    "test": "if [ -n `which nodejs` ]; then nodejs test; else node test; fi"
+  }
 }
