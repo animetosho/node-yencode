@@ -53,6 +53,17 @@ doTest('Short line + offset', [[0,1,2,3,4], 2, 1]);
 doTest('Short line (2) + offset', [[0,1,224,3,4], 2, 1]);
 doTest('Tab & lf around line break', [[223,224], 128, 127], '3d 49 0d 0a 3d 4a');
 
+// longer tests
+var b = new Buffer(256);
+b.fill(0);
+doTest('Long no escaping', [b]);
+b.fill(227);
+doTest('Long all escaping', [b]);
+b.fill(4);
+doTest('Long all dots', [b]);
+b.fill(223);
+doTest('Long all tabs', [b]);
+
 
 // random tests
 for(var i=0; i<16; i++) {
