@@ -33,11 +33,15 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 	
 	#ifdef __SSE2__
 	#define MM_FILL_BYTES(b) _mm_set_epi8(b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b)
+	__m128i mm_42 = MM_FILL_BYTES(42);
+	#ifdef __SSE4_2__
+	__m128i mm_mask = _mm_set_epi8(0,'\n','\r','=', 0,0,0,0, 0,0,0,0, 0,0,0,0);
+	#else
 	__m128i mm_null = _mm_setzero_si128(),
 	        mm_lf = MM_FILL_BYTES('\n'),
 	        mm_cr = MM_FILL_BYTES('\r'),
-	        mm_42 = MM_FILL_BYTES(42),
 	        mm_eq = MM_FILL_BYTES('=');
+	#endif
 	#endif
 	
 	if (col > 0) goto skip_first_char;
@@ -64,7 +68,10 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 				mm_42
 			);
 			// search for special chars
-			// TODO: consider SSE4.2 replacement for this search
+			#ifdef __SSE4_2__
+			int mask = _mm_cmpestri(data, sizeof(__m128i), mm_mask, 4, 0b0000);
+			// may wish to use proper mask instead of an index to be consistent with SSE2 version
+			#else
 			__m128i cmp = _mm_or_si128(
 				_mm_or_si128(
 					_mm_or_si128(
@@ -75,8 +82,10 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 				),
 				_mm_cmpeq_epi8(data, mm_eq)
 			);
-			int mask;
-			if ((mask = _mm_movemask_epi8(cmp)) != 0) {
+			
+			int mask = _mm_movemask_epi8(cmp);
+			#endif
+			if (mask != 0) {
 				// special characters exist
 				// revert to slow algo for now
 				#define DO_THING(n) \
