@@ -26,7 +26,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 	unsigned char c, ec;
 	
 	if (col > 0) goto skip_first_char;
-	do {
+	while(1) {
 		// first char in line
 		c = src[i++];
 		if (escapedLUT[c]) {
@@ -79,7 +79,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 		}
 		
 		// last line char
-		if(col < line_size) {
+		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
 			c = src[i++];
 			if (escapedLUT[c] && c != '.'-42) {
 				*(uint16_t*)p = escapedLUT[c];
@@ -89,9 +89,10 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 			}
 		}
 		
+		if (i >= len) goto end;
 		*(uint16_t*)p = UINT16_PACK('\r', '\n');
 		p += 2;
-	} while (i < len);
+	}
 	
 	end:
 	return p - dest;
@@ -110,7 +111,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 			case '.':
 				if(col > 0) break;
 			case '\t': case ' ':
-				if(col > 0 && col < line_size) break;
+				if(col > 0 && col < line_size-1) break;
 			case '\0': case '\r': case '\n': case '=':
 				*(p++) = '=';
 				c += 64;
@@ -118,7 +119,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 		}
 		*(p++) = c;
 		col++;
-		if(col >= line_size) {
+		if(col >= line_size && i+1 < len) {
 			*(uint16_t*)p = UINT16_PACK('\r', '\n');
 			p += 2;
 			col = 0;
@@ -165,7 +166,7 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 		}
 	}
 	
-	unsigned long dest_len = arg_len * 2 + (arg_len / 32);
+	unsigned long dest_len = arg_len * 2 + (arg_len / 32) + 2;
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
 	unsigned long len = do_encode(line_size, col, (unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
@@ -205,7 +206,7 @@ static Handle<Value> Encode(const Arguments& args) {
 		}
 	}
 	
-	unsigned long dest_len = arg_len * 2 + (arg_len / 32);
+	unsigned long dest_len = arg_len * 2 + (arg_len / 32) + 2;
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
 	unsigned long len = do_encode(line_size, col, (unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
