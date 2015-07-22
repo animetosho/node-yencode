@@ -19,11 +19,26 @@ uint16_t escapedLUT[256];
 #define UINT16_PACK(a, b) ((a) | ((b) << 8))
 //#endif
 
-// runs at around 270MB/s on 2.4GHz Silvermont
+#ifdef __SSE2__
+// may be different for MSVC
+#include <x86intrin.h>
+#define XMM_SIZE 16 /*== (signed int)sizeof(__m128i)*/
+#endif
+
+// runs at around 320MB/s on 2.4GHz Silvermont
 static inline unsigned long do_encode(int line_size, int col, unsigned char* src, unsigned char* dest, unsigned long len) {
 	unsigned char *p = dest;
 	unsigned long i = 0;
 	unsigned char c, ec;
+	
+	#ifdef __SSE2__
+	#define MM_FILL_BYTES(b) _mm_set_epi8(b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b)
+	__m128i mm_null = _mm_setzero_si128(),
+	        mm_lf = MM_FILL_BYTES('\n'),
+	        mm_cr = MM_FILL_BYTES('\r'),
+	        mm_42 = MM_FILL_BYTES(42),
+	        mm_eq = MM_FILL_BYTES('=');
+	#endif
 	
 	if (col > 0) goto skip_first_char;
 	while(1) {
@@ -41,6 +56,64 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 		
 		skip_first_char:
 		// main line
+		#ifdef __SSE2__
+		while (len-i-1 > XMM_SIZE && line_size-col-1 > XMM_SIZE*2) {
+			unsigned char* sp = p;
+			__m128i data = _mm_add_epi8(
+				_mm_loadu_si128((__m128i *)(src + i)), // TODO: consider alignment
+				mm_42
+			);
+			// search for special chars
+			// TODO: consider SSE4.2 replacement for this search
+			__m128i cmp = _mm_or_si128(
+				_mm_or_si128(
+					_mm_or_si128(
+						_mm_cmpeq_epi8(data, mm_null),
+						_mm_cmpeq_epi8(data, mm_lf)
+					),
+					_mm_cmpeq_epi8(data, mm_cr)
+				),
+				_mm_cmpeq_epi8(data, mm_eq)
+			);
+			int mask;
+			if ((mask = _mm_movemask_epi8(cmp)) != 0) {
+				// special characters exist
+				// revert to slow algo for now
+				#define DO_THING(n) \
+					c = src[i+n], ec = escapeLUT[c]; \
+					if (ec) \
+						*(p++) = ec; \
+					else { \
+						*(uint16_t*)p = escapedLUT[c]; \
+						p += 2; \
+					}
+				// iterations need to be == XMM_SIZE
+				DO_THING(0);
+				DO_THING(1);
+				DO_THING(2);
+				DO_THING(3);
+				DO_THING(4);
+				DO_THING(5);
+				DO_THING(6);
+				DO_THING(7);
+				DO_THING(8);
+				DO_THING(9);
+				DO_THING(10);
+				DO_THING(11);
+				DO_THING(12);
+				DO_THING(13);
+				DO_THING(14);
+				DO_THING(15);
+				
+			} else {
+				_mm_storeu_si128((__m128i*)p, data);
+				p += XMM_SIZE;
+			}
+			
+			i += XMM_SIZE;
+			col += p - sp;
+		}
+		#else
 		while (len-i-1 > 8 && line_size-col-1 > 16) {
 			// fast 8 cycle unrolled version
 			unsigned char* sp = p;
@@ -64,6 +137,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 			i += 8;
 			col += p - sp;
 		}
+		#endif
 		while(col < line_size-1) {
 			c = src[i++], ec = escapeLUT[c];
 			if (ec) {
