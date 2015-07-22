@@ -25,7 +25,7 @@ uint16_t escapedLUT[256];
 #define XMM_SIZE 16 /*== (signed int)sizeof(__m128i)*/
 #endif
 
-// runs at around 320MB/s on 2.4GHz Silvermont
+// runs at around 340MB/s on 2.4GHz Silvermont
 static inline unsigned long do_encode(int line_size, int col, unsigned char* src, unsigned char* dest, unsigned long len) {
 	unsigned char *p = dest;
 	unsigned long i = 0;
@@ -35,13 +35,14 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 	#define MM_FILL_BYTES(b) _mm_set_epi8(b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b)
 	__m128i mm_42 = MM_FILL_BYTES(42);
 	#ifdef __SSE4_2__
-	__m128i mm_mask = _mm_set_epi8(0,'\n','\r','=', 0,0,0,0, 0,0,0,0, 0,0,0,0);
+	__m128i mm_find = _mm_set_epi8(0,'\n','\r','=', 0,0,0,0, 0,0,0,0, 0,0,0,0);
 	#else
 	__m128i mm_null = _mm_setzero_si128(),
 	        mm_lf = MM_FILL_BYTES('\n'),
 	        mm_cr = MM_FILL_BYTES('\r'),
 	        mm_eq = MM_FILL_BYTES('=');
 	#endif
+	uint32_t mmTmp[4] __attribute__((aligned(16)));
 	#endif
 	
 	if (col > 0) goto skip_first_char;
@@ -69,8 +70,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 			);
 			// search for special chars
 			#ifdef __SSE4_2__
-			int mask = _mm_cmpestri(data, sizeof(__m128i), mm_mask, 4, 0b0000);
-			// may wish to use proper mask instead of an index to be consistent with SSE2 version
+			__m128i cmp = _mm_cmpestrm(data, sizeof(__m128i), mm_find, 4, 0b1000000);
 			#else
 			__m128i cmp = _mm_or_si128(
 				_mm_or_si128(
@@ -82,43 +82,38 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 				),
 				_mm_cmpeq_epi8(data, mm_eq)
 			);
+			#endif
 			
 			int mask = _mm_movemask_epi8(cmp);
-			#endif
 			if (mask != 0) {
 				// special characters exist
-				// revert to slow algo for now
+				_mm_store_si128((__m128i*)mmTmp, data);
 				#define DO_THING(n) \
 					c = src[i+n], ec = escapeLUT[c]; \
 					if (ec) \
-						*(p++) = ec; \
+						*(p+n) = ec; \
 					else { \
-						*(uint16_t*)p = escapedLUT[c]; \
-						p += 2; \
+						*(uint16_t*)(p+n) = escapedLUT[c]; \
+						p++; \
 					}
-				// iterations need to be == XMM_SIZE
-				DO_THING(0);
-				DO_THING(1);
-				DO_THING(2);
-				DO_THING(3);
-				DO_THING(4);
-				DO_THING(5);
-				DO_THING(6);
-				DO_THING(7);
-				DO_THING(8);
-				DO_THING(9);
-				DO_THING(10);
-				DO_THING(11);
-				DO_THING(12);
-				DO_THING(13);
-				DO_THING(14);
-				DO_THING(15);
-				
+				#define DO_THING_4(n) \
+					if(mask & (0xF << n)) { \
+						DO_THING(n); \
+						DO_THING(n+1); \
+						DO_THING(n+2); \
+						DO_THING(n+3); \
+					} else { \
+						*(uint32_t*)(p+n) = mmTmp[n>>2]; \
+					}
+				DO_THING_4(0);
+				DO_THING_4(4);
+				DO_THING_4(8);
+				DO_THING_4(12);
 			} else {
 				_mm_storeu_si128((__m128i*)p, data);
-				p += XMM_SIZE;
 			}
 			
+			p += XMM_SIZE;
 			i += XMM_SIZE;
 			col += p - sp;
 		}
