@@ -25,7 +25,7 @@ uint16_t escapedLUT[256];
 #define XMM_SIZE 16 /*== (signed int)sizeof(__m128i)*/
 #endif
 
-// runs at around 340MB/s on 2.4GHz Silvermont
+// runs at around 370MB/s on 2.4GHz Silvermont
 static inline unsigned long do_encode(int line_size, int col, unsigned char* src, unsigned char* dest, unsigned long len) {
 	unsigned char *p = dest;
 	unsigned long i = 0;
@@ -60,12 +60,13 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 		if (i >= len) goto end;
 		
 		skip_first_char:
+		unsigned char* sp = NULL;
 		// main line
 		#ifdef __SSE2__
-		while (len-i-1 > XMM_SIZE && line_size-col-1 > XMM_SIZE*2) {
-			unsigned char* sp = p;
+		while (len-i-1 > XMM_SIZE && line_size-col-1 > XMM_SIZE) {
+			sp = p;
 			__m128i data = _mm_add_epi8(
-				_mm_loadu_si128((__m128i *)(src + i)), // TODO: consider alignment
+				_mm_loadu_si128((__m128i *)(src + i)), // probably not worth the effort to align
 				mm_42
 			);
 			// search for special chars
@@ -117,10 +118,16 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 			i += XMM_SIZE;
 			col += p - sp;
 		}
+		if(sp && col >= line_size-1) {
+			// we overflowed - need to revert and use slower method :(
+			col -= p - sp;
+			p = sp;
+			i -= XMM_SIZE;
+		}
 		#else
-		while (len-i-1 > 8 && line_size-col-1 > 16) {
-			// fast 8 cycle unrolled version
-			unsigned char* sp = p;
+		while (len-i-1 > 8 && line_size-col-1 > 8) {
+			// 8 cycle unrolled version
+			sp = p;
 			#define DO_THING(n) \
 				c = src[i+n], ec = escapeLUT[c]; \
 				if (ec) \
@@ -140,6 +147,12 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 			
 			i += 8;
 			col += p - sp;
+		}
+		if(sp && col >= line_size-1) {
+			// we overflowed - need to revert and use slower method :(
+			col -= p - sp;
+			p = sp;
+			i -= 8;
 		}
 		#endif
 		while(col < line_size-1) {
@@ -244,7 +257,13 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 		}
 	}
 	
-	unsigned long dest_len = arg_len * 2 + (arg_len / 32) + 2;
+	// allocate enough memory to handle worst case requirements
+	unsigned long dest_len =
+		  arg_len * 2    // all characters escaped
+		+ ((arg_len*4) / line_size) // newlines, considering the possibility of all chars escaped
+		+ 2 // allocation for offset and that a newline may occur early
+		+ 32 // allocation for XMM overflowing
+	;
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
 	unsigned long len = do_encode(line_size, col, (unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
@@ -284,7 +303,13 @@ static Handle<Value> Encode(const Arguments& args) {
 		}
 	}
 	
-	unsigned long dest_len = arg_len * 2 + (arg_len / 32) + 2;
+	// allocate enough memory to handle worst case requirements
+	unsigned long dest_len =
+		  arg_len * 2    // all characters escaped
+		+ ((arg_len*4) / line_size) // newlines, considering the possibility of all chars escaped
+		+ 2 // allocation for offset and that a newline may occur early
+		+ 32 // allocation for XMM overflowing
+	;
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
 	unsigned long len = do_encode(line_size, col, (unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
