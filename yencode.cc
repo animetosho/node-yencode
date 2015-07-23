@@ -6,18 +6,14 @@
 
 using namespace v8;
 
-// TODO: alignment?
 unsigned char escapeLUT[256];
 uint16_t escapedLUT[256];
 // combine two 8-bit ints into a 16-bit one
-// TODO: support big endian
-/*#if (!*(unsigned char *)&(uint16_t){1})
-// big endian
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 #define UINT16_PACK(a, b) (((a) << 8) | (b))
-#else*/
-// little endian
+#else
 #define UINT16_PACK(a, b) ((a) | ((b) << 8))
-//#endif
+#endif
 
 #ifdef __SSE2__
 // may be different for MSVC
@@ -122,7 +118,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 		// perhaps try moving remaining parts w/ 32-bit copies?  doesn't seem to have any improvement :|
 		if (len-i-1 > XMM_SIZE && line_size-col-1 > 8) {
 			__m128i data = _mm_add_epi8(
-				_mm_loadu_si128((__m128i *)(src + i)), // TODO: consider alignment
+				_mm_loadu_si128((__m128i *)(src + i)),
 				mm_42
 			);
 			_mm_store_si128((__m128i*)mmTmp, data);
