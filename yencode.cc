@@ -239,7 +239,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 
 /*
 // simple naive implementation - most yEnc encoders I've seen do something like the following
-// runs at around 144MB/s on 2.4GHz Silvermont
+// runs at around 145MB/s on 2.4GHz Silvermont (worst: 135MB/s, best: 158MB/s)
 static inline unsigned long do_encode(int line_size, int col, unsigned char* src, unsigned char* dest, unsigned long len) {
 	unsigned char *p = dest;
 	
