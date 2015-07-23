@@ -25,7 +25,7 @@ uint16_t escapedLUT[256];
 #define XMM_SIZE 16 /*== (signed int)sizeof(__m128i)*/
 #endif
 
-// runs at around 370MB/s on 2.4GHz Silvermont
+// runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
 static inline unsigned long do_encode(int line_size, int col, unsigned char* src, unsigned char* dest, unsigned long len) {
 	unsigned char *p = dest;
 	unsigned long i = 0;
@@ -116,6 +116,61 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 			p = sp;
 			i -= XMM_SIZE;
 		}
+		
+		/*
+		// NOTE: this code doesn't work
+		// perhaps try moving remaining parts w/ 32-bit copies?  doesn't seem to have any improvement :|
+		if (len-i-1 > XMM_SIZE && line_size-col-1 > 8) {
+			__m128i data = _mm_add_epi8(
+				_mm_loadu_si128((__m128i *)(src + i)), // TODO: consider alignment
+				mm_42
+			);
+			_mm_store_si128((__m128i*)mmTmp, data);
+			// search for special chars
+			__m128i cmp = _mm_or_si128(
+				_mm_or_si128(
+					_mm_or_si128(
+						_mm_cmpeq_epi8(data, mm_null),
+						_mm_cmpeq_epi8(data, mm_lf)
+					),
+					_mm_cmpeq_epi8(data, mm_cr)
+				),
+				_mm_cmpeq_epi8(data, mm_eq)
+			);
+			
+			int mask = _mm_movemask_epi8(cmp);
+			
+			#define DO_THING_4b(n) \
+				if(line_size - col - 1 > n+8) { \
+					if(mask & (0xF << (n/4))) { \
+						sp = p; \
+						DO_THING(n); \
+						DO_THING(n+1); \
+						DO_THING(n+2); \
+						DO_THING(n+3); \
+						col += p - sp; \
+					} else { \
+						*(uint32_t*)(p + n) = mmTmp[n/4]; \
+					}
+			#define DO_THING_4c(n) \
+				} else { \
+					i += n; \
+					p += n; \
+					col += n; \
+				}
+			DO_THING_4b(0);
+				DO_THING_4b(4);
+					DO_THING_4b(8);
+						DO_THING_4b(12);
+							i += 16;
+							p += 16;
+							col += 16;
+						DO_THING_4c(12);
+					DO_THING_4c(8);
+				DO_THING_4c(4);
+			DO_THING_4c(0);
+		}
+		*/
 		#else
 		while (len-i-1 > 8 && line_size-col-1 > 8) {
 			// 8 cycle unrolled version
