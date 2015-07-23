@@ -49,7 +49,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 			*(p++) = escapeLUT[c];
 			col = 1;
 		}
-		if (i >= len) goto end;
+		if (i >= len) break;
 		
 		skip_first_char:
 		unsigned char* sp = NULL;
@@ -198,6 +198,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 			i -= 8;
 		}
 		#endif
+		// handle remaining chars
 		while(col < line_size-1) {
 			c = src[i++], ec = escapeLUT[c];
 			if (ec) {
@@ -223,7 +224,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 			}
 		}
 		
-		if (i >= len) goto end;
+		if (i >= len) break;
 		*(uint16_t*)p = UINT16_PACK('\r', '\n');
 		p += 2;
 	}
