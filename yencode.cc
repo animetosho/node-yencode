@@ -34,14 +34,10 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 	#ifdef __SSE2__
 	#define MM_FILL_BYTES(b) _mm_set_epi8(b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b)
 	__m128i mm_42 = MM_FILL_BYTES(42);
-	#ifdef __SSE4_2__
-	__m128i mm_find = _mm_set_epi8(0,'\n','\r','=', 0,0,0,0, 0,0,0,0, 0,0,0,0);
-	#else
 	__m128i mm_null = _mm_setzero_si128(),
 	        mm_lf = MM_FILL_BYTES('\n'),
 	        mm_cr = MM_FILL_BYTES('\r'),
 	        mm_eq = MM_FILL_BYTES('=');
-	#endif
 	uint32_t mmTmp[4] __attribute__((aligned(16)));
 	#endif
 	
@@ -70,9 +66,6 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 				mm_42
 			);
 			// search for special chars
-			#ifdef __SSE4_2__
-			__m128i cmp = _mm_cmpestrm(data, sizeof(__m128i), mm_find, 4, 0b1000000);
-			#else
 			__m128i cmp = _mm_or_si128(
 				_mm_or_si128(
 					_mm_or_si128(
@@ -83,7 +76,6 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 				),
 				_mm_cmpeq_epi8(data, mm_eq)
 			);
-			#endif
 			
 			int mask = _mm_movemask_epi8(cmp);
 			if (mask != 0) {
