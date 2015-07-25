@@ -322,12 +322,15 @@ bool Crc32cSSE4::IsSSE42Available() {
     "push ebx\n"
     "cpuid\n"
     "pop ebx\n"
+#define EBX_CLOBBER
+// ^ GCC complains if we say we're clobbering ebx...
 #else
     "cpuid\n"
+#define EBX_CLOBBER "%ebx"
 #endif  // HAVE_I386 && defined(__PIC__)
     : "=a" (eax), "=c" (ecx), "=d" (edx)
     : "a" (1), "2" (0)
-    : "%ebx"
+    : EBX_CLOBBER
   );
   return ((ecx & (1 << 20)) != 0);
 #else

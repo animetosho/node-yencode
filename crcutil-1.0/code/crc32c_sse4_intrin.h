@@ -54,18 +54,21 @@ extern __inline unsigned int __attribute__((
     __gnu_inline__, __always_inline__, __artificial__))
 _mm_crc32_u8(unsigned int __C, unsigned char __V) {
   //return __builtin_ia32_crc32qi(__C, __V);
+  return 0;
 }
 #ifdef __x86_64__
 extern __inline unsigned long long __attribute__((
     __gnu_inline__, __always_inline__, __artificial__))
 _mm_crc32_u64(unsigned long long __C, unsigned long long __V) {
   //return __builtin_ia32_crc32di(__C, __V);
+  return 0;
 }
 #else
 extern __inline unsigned int __attribute__((
     __gnu_inline__, __always_inline__, __artificial__))
 _mm_crc32_u32(unsigned int __C, unsigned int __V) {
-  return __builtin_ia32_crc32si (__C, __V);
+  //return __builtin_ia32_crc32si (__C, __V);
+  return 0;
 }
 #endif  // __x86_64__
 
