@@ -283,10 +283,13 @@ void do_crc32(const void* data, size_t length, unsigned char init[4]) {
 	init[3] = (unsigned char)tmp & 0xFF;
 }
 
-
-
-void free_buffer(char* data, void* ignore) {
-	// TODO: AdjustAmountOfExternalAllocatedMemory
+void free_buffer(char* data, void* _size) {
+	int size = (size_t)_size;
+#ifndef NODE_010
+	Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(-size);
+#else
+	V8::AdjustAmountOfExternalAllocatedMemory(-size);
+#endif
 	free(data);
 }
 
@@ -332,8 +335,8 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	unsigned char *result = (unsigned char*) malloc(dest_len);
 	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
 	realloc(result, len);
-	//isolate->AdjustAmountOfExternalAllocatedMemory(sizeof(node::Buffer) + len);
-	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)result, len, free_buffer, NULL) );
+	isolate->AdjustAmountOfExternalAllocatedMemory(len);
+	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)result, len, free_buffer, (void*)len) );
 }
 
 static void CRC32(const FunctionCallbackInfo<Value>& args) {
@@ -409,8 +412,8 @@ static Handle<Value> Encode(const Arguments& args) {
 	unsigned char *result = (unsigned char*) malloc(dest_len);
 	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
 	realloc(result, len);
-	//V8::AdjustAmountOfExternalAllocatedMemory(sizeof(node::Buffer) + len);
-	ReturnBuffer(node::Buffer::New((char*)result, len, free_buffer, NULL), len, 0);
+	V8::AdjustAmountOfExternalAllocatedMemory(len);
+	ReturnBuffer(node::Buffer::New((char*)result, len, free_buffer, (void*)len), len, 0);
 }
 
 static Handle<Value> CRC32(const Arguments& args) {
