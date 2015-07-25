@@ -19,13 +19,14 @@ uint16_t escapedLUT[256];
 // may be different for MSVC
 #include <x86intrin.h>
 #define XMM_SIZE 16 /*== (signed int)sizeof(__m128i)*/
+#define ALIGN_16(v) v __attribute__((aligned(16)))
 #endif
 
 // runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
-static inline unsigned long do_encode(int line_size, int col, unsigned char* src, unsigned char* dest, unsigned long len) {
-	unsigned char *p = dest;
-	unsigned long i = 0;
-	unsigned char c, ec;
+static inline size_t do_encode(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
+	unsigned char *p = dest; // destination pointer
+	unsigned long i = 0; // input position
+	unsigned char c, ec; // input character; escaped input character
 	
 	#ifdef __SSE2__
 	#define MM_FILL_BYTES(b) _mm_set_epi8(b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b)
@@ -34,7 +35,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 	        mm_lf = MM_FILL_BYTES('\n'),
 	        mm_cr = MM_FILL_BYTES('\r'),
 	        mm_eq = MM_FILL_BYTES('=');
-	uint32_t mmTmp[4] __attribute__((aligned(16)));
+	ALIGN_16(uint32_t mmTmp[4]);
 	#endif
 	
 	if (col > 0) goto skip_first_char;
@@ -73,7 +74,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 				_mm_cmpeq_epi8(data, mm_eq)
 			);
 			
-			int mask = _mm_movemask_epi8(cmp);
+			unsigned int mask = _mm_movemask_epi8(cmp);
 			if (mask != 0) {
 				// special characters exist
 				_mm_store_si128((__m128i*)mmTmp, data);
@@ -134,7 +135,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 				_mm_cmpeq_epi8(data, mm_eq)
 			);
 			
-			int mask = _mm_movemask_epi8(cmp);
+			unsigned int mask = _mm_movemask_epi8(cmp);
 			
 			#define DO_THING_4b(n) \
 				if(line_size - col - 1 > n+8) { \
@@ -237,7 +238,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 /*
 // simple naive implementation - most yEnc encoders I've seen do something like the following
 // runs at around 145MB/s on 2.4GHz Silvermont (worst: 135MB/s, best: 158MB/s)
-static inline unsigned long do_encode(int line_size, int col, unsigned char* src, unsigned char* dest, unsigned long len) {
+static inline unsigned long do_encode(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char *p = dest;
 	
 	for (unsigned long i = 0; i < len; i++) {
@@ -268,7 +269,7 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 
 #include "./crcutil-1.0/examples/interface.h"
 crcutil_interface::CRC* crc = NULL;
-void do_crc32(const void* data, int length, unsigned char init[4]) {
+void do_crc32(const void* data, size_t length, unsigned char init[4]) {
 	if(!crc) {
 		crc = crcutil_interface::CRC::Create(
 			0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
@@ -303,7 +304,7 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 		return;
 	}
 	
-	unsigned long arg_len = node::Buffer::Length(args[0]);
+	size_t arg_len = node::Buffer::Length(args[0]);
 	if (arg_len == 0) {
 		args.GetReturnValue().Set( node::Buffer::New(isolate, 0) );
 		return;
@@ -311,6 +312,7 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	
 	int line_size = 128, col = 0;
 	if (args.Length() >= 2) {
+		// TODO: probably should throw errors instead of transparently fixing these...
 		line_size = args[1]->ToInteger()->Value();
 		if (line_size < 1) line_size = 128;
 		if (args.Length() >= 3) {
@@ -320,7 +322,7 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	}
 	
 	// allocate enough memory to handle worst case requirements
-	unsigned long dest_len =
+	size_t dest_len =
 		  arg_len * 2    // all characters escaped
 		+ ((arg_len*4) / line_size) // newlines, considering the possibility of all chars escaped
 		+ 2 // allocation for offset and that a newline may occur early
@@ -328,7 +330,7 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	;
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
-	unsigned long len = do_encode(line_size, col, (unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
+	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
 	realloc(result, len);
 	//isolate->AdjustAmountOfExternalAllocatedMemory(sizeof(node::Buffer) + len);
 	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)result, len, free_buffer, NULL) );
@@ -356,8 +358,11 @@ static void CRC32(const FunctionCallbackInfo<Value>& args) {
 		*(uint32_t*)init = *(uint32_t*)node::Buffer::Data(args[1]);
 	}
 	
-	unsigned long arg_len = node::Buffer::Length(args[0]);
-	do_crc32((const void*)node::Buffer::Data(args[0]), arg_len, init);
+	do_crc32(
+		(const void*)node::Buffer::Data(args[0]),
+		node::Buffer::Length(args[0]),
+		init
+	);
 	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)init, 4) );
 }
 #else
@@ -377,13 +382,14 @@ static Handle<Value> Encode(const Arguments& args) {
 		);
 	}
 	
-	unsigned long arg_len = node::Buffer::Length(args[0]);
+	size_t arg_len = node::Buffer::Length(args[0]);
 	if (arg_len == 0) {
 		ReturnBuffer(node::Buffer::New(0), 0, 0);
 	}
 	
 	int line_size = 128, col = 0;
 	if (args.Length() >= 2) {
+		// TODO: probably should throw errors instead of transparently fixing these...
 		line_size = args[1]->ToInteger()->Value();
 		if (line_size < 1) line_size = 128;
 		if (args.Length() >= 3) {
@@ -393,7 +399,7 @@ static Handle<Value> Encode(const Arguments& args) {
 	}
 	
 	// allocate enough memory to handle worst case requirements
-	unsigned long dest_len =
+	size_t dest_len =
 		  arg_len * 2    // all characters escaped
 		+ ((arg_len*4) / line_size) // newlines, considering the possibility of all chars escaped
 		+ 2 // allocation for offset and that a newline may occur early
@@ -401,7 +407,7 @@ static Handle<Value> Encode(const Arguments& args) {
 	;
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
-	unsigned long len = do_encode(line_size, col, (unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
+	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
 	realloc(result, len);
 	//V8::AdjustAmountOfExternalAllocatedMemory(sizeof(node::Buffer) + len);
 	ReturnBuffer(node::Buffer::New((char*)result, len, free_buffer, NULL), len, 0);
@@ -427,8 +433,11 @@ static Handle<Value> CRC32(const Arguments& args) {
 		*(uint32_t*)init = *(uint32_t*)node::Buffer::Data(args[1]);
 	}
 	
-	unsigned long arg_len = node::Buffer::Length(args[0]);
-	do_crc32((const void*)node::Buffer::Data(args[0]), arg_len, init);
+	do_crc32(
+		(const void*)node::Buffer::Data(args[0]),
+		node::Buffer::Length(args[0]),
+		init
+	);
 	ReturnBuffer(node::Buffer::New((char*)init, 4), 4, 0);
 }
 #endif
