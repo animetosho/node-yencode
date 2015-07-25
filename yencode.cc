@@ -266,6 +266,23 @@ static inline unsigned long do_encode(int line_size, int col, unsigned char* src
 */
 
 
+#include "./crcutil-1.0/examples/interface.h"
+crcutil_interface::CRC* crc = NULL;
+void do_crc32(const void* data, int length, unsigned char init[4]) {
+	if(!crc) {
+		crc = crcutil_interface::CRC::Create(
+			0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
+		// instance never deleted... oh well...
+	}
+	crcutil_interface::UINT64 tmp = (init[0] << 24) | (init[1] << 16) | (init[2] << 8) | init[3];
+	crc->Compute(data, length, &tmp);
+	init[0] = (unsigned char)(tmp >> 24) & 0xFF;
+	init[1] = (unsigned char)(tmp >> 16) & 0xFF;
+	init[2] = (unsigned char)(tmp >>  8) & 0xFF;
+	init[3] = (unsigned char)tmp & 0xFF;
+}
+
+
 
 void free_buffer(char* data, void* ignore) {
 	// TODO: AdjustAmountOfExternalAllocatedMemory
@@ -273,6 +290,7 @@ void free_buffer(char* data, void* ignore) {
 }
 
 // encode(str, line_size, col)
+// crc32(str, init)
 #ifndef NODE_010
 // node 0.12 version
 static void Encode(const FunctionCallbackInfo<Value>& args) {
@@ -314,6 +332,33 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	realloc(result, len);
 	//isolate->AdjustAmountOfExternalAllocatedMemory(sizeof(node::Buffer) + len);
 	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)result, len, free_buffer, NULL) );
+}
+
+static void CRC32(const FunctionCallbackInfo<Value>& args) {
+	Isolate* isolate = Isolate::GetCurrent();
+	
+	if (args.Length() == 0 || !node::Buffer::HasInstance(args[0])) {
+		isolate->ThrowException(Exception::Error(
+			String::NewFromUtf8(isolate, "You must supply a Buffer"))
+		);
+		return;
+	}
+	// TODO: support string args??
+	
+	unsigned char init[4] = {0,0,0,0};
+	if (args.Length() >= 2) {
+		if (!node::Buffer::HasInstance(args[1]) || node::Buffer::Length(args[1]) != 4) {
+			isolate->ThrowException(Exception::Error(
+				String::NewFromUtf8(isolate, "Second argument must be a 4 byte buffer"))
+			);
+			return;
+		}
+		*(uint32_t*)init = *(uint32_t*)node::Buffer::Data(args[1]);
+	}
+	
+	unsigned long arg_len = node::Buffer::Length(args[0]);
+	do_crc32((const void*)node::Buffer::Data(args[0]), arg_len, init);
+	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)init, 4) );
 }
 #else
 // node 0.10 version
@@ -361,6 +406,31 @@ static Handle<Value> Encode(const Arguments& args) {
 	//V8::AdjustAmountOfExternalAllocatedMemory(sizeof(node::Buffer) + len);
 	ReturnBuffer(node::Buffer::New((char*)result, len, free_buffer, NULL), len, 0);
 }
+
+static Handle<Value> CRC32(const Arguments& args) {
+	HandleScope scope;
+	
+	if (args.Length() == 0 || !node::Buffer::HasInstance(args[0])) {
+		return ThrowException(Exception::Error(
+			String::New("You must supply a Buffer"))
+		);
+	}
+	// TODO: support string args??
+	
+	unsigned char init[4] = {0,0,0,0};
+	if (args.Length() >= 2) {
+		if (!node::Buffer::HasInstance(args[1]) || node::Buffer::Length(args[1]) != 4)
+			return ThrowException(Exception::Error(
+				String::New("Second argument must be a 4 byte buffer"))
+			);
+		
+		*(uint32_t*)init = *(uint32_t*)node::Buffer::Data(args[1]);
+	}
+	
+	unsigned long arg_len = node::Buffer::Length(args[0]);
+	do_crc32((const void*)node::Buffer::Data(args[0]), arg_len, init);
+	ReturnBuffer(node::Buffer::New((char*)init, 4), 4, 0);
+}
 #endif
 
 void init(Handle<Object> target) {
@@ -381,6 +451,7 @@ void init(Handle<Object> target) {
 	escapedLUT[214 + ' ' ] = UINT16_PACK('=', ' '+64);
 	escapedLUT['.' - 42	] =  UINT16_PACK('=', '.'+64);
 	NODE_SET_METHOD(target, "encode", Encode);
+	NODE_SET_METHOD(target, "crc32", CRC32);
 }
 
 NODE_MODULE(yencode, init);
