@@ -267,6 +267,14 @@ static inline unsigned long do_encode(int line_size, int col, const unsigned cha
 */
 
 
+#define PACK_4(arr) (arr[0] << 24) | (arr[1] << 16) | (arr[2] << 8) | arr[3]
+#define UNPACK_4(arr, val) { \
+	arr[0] = (unsigned char)(val >> 24) & 0xFF; \
+	arr[1] = (unsigned char)(val >> 16) & 0xFF; \
+	arr[2] = (unsigned char)(val >>  8) & 0xFF; \
+	arr[3] = (unsigned char)val & 0xFF; \
+}
+
 #include "./crcutil-1.0/examples/interface.h"
 crcutil_interface::CRC* crc = NULL;
 void do_crc32(const void* data, size_t length, unsigned char init[4]) {
@@ -275,12 +283,16 @@ void do_crc32(const void* data, size_t length, unsigned char init[4]) {
 			0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
 		// instance never deleted... oh well...
 	}
-	crcutil_interface::UINT64 tmp = (init[0] << 24) | (init[1] << 16) | (init[2] << 8) | init[3];
+	crcutil_interface::UINT64 tmp = PACK_4(init);
 	crc->Compute(data, length, &tmp);
-	init[0] = (unsigned char)(tmp >> 24) & 0xFF;
-	init[1] = (unsigned char)(tmp >> 16) & 0xFF;
-	init[2] = (unsigned char)(tmp >>  8) & 0xFF;
-	init[3] = (unsigned char)tmp & 0xFF;
+	UNPACK_4(init, tmp);
+}
+
+#include "crc32_combine.c"
+void do_crc32_combine(unsigned char crc1[4], const unsigned char crc2[4], size_t len2) {
+	uLong crc1_ = PACK_4(crc1), crc2_ = PACK_4(crc2);
+	uLong crc = crc32_combine(crc1_, crc2_, len2);
+	UNPACK_4(crc1, crc);
 }
 
 void free_buffer(char* data, void* _size) {
@@ -292,6 +304,10 @@ void free_buffer(char* data, void* _size) {
 #endif
 	free(data);
 }
+
+// TODO: encode should return col num for incremental processing
+//       line limit + return input consumed
+//       async processing?
 
 // encode(str, line_size, col)
 // crc32(str, init)
@@ -368,6 +384,33 @@ static void CRC32(const FunctionCallbackInfo<Value>& args) {
 	);
 	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)init, 4) );
 }
+
+static void CRC32Combine(const FunctionCallbackInfo<Value>& args) {
+	Isolate* isolate = Isolate::GetCurrent();
+	
+	if (args.Length() < 3) {
+		isolate->ThrowException(Exception::Error(
+			String::NewFromUtf8(isolate, "At least 3 arguments required"))
+		);
+		return;
+	}
+	if (!node::Buffer::HasInstance(args[0]) || node::Buffer::Length(args[0]) != 4
+	|| !node::Buffer::HasInstance(args[1]) || node::Buffer::Length(args[1]) != 4) {
+		isolate->ThrowException(Exception::Error(
+			String::NewFromUtf8(isolate, "You must supply a 4 byte Buffer for the first two arguments"))
+		);
+		return;
+	}
+	
+	unsigned char crc1[4], crc2[4];
+	size_t len = args[2]->ToInteger()->Value();
+	
+	*(uint32_t*)crc1 = *(uint32_t*)node::Buffer::Data(args[0]);
+	*(uint32_t*)crc2 = *(uint32_t*)node::Buffer::Data(args[1]);
+	
+	do_crc32_combine(crc1, crc2, len);
+	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)crc1, 4) );
+}
 #else
 // node 0.10 version
 // convert SlowBuffer to JS Buffer object and return it
@@ -443,6 +486,31 @@ static Handle<Value> CRC32(const Arguments& args) {
 	);
 	ReturnBuffer(node::Buffer::New((char*)init, 4), 4, 0);
 }
+
+static Handle<Value> CRC32Combine(const Arguments& args) {
+	HandleScope scope;
+	
+	if (args.Length() < 3) {
+		return ThrowException(Exception::Error(
+			String::New("At least 3 arguments required"))
+		);
+	}
+	if (!node::Buffer::HasInstance(args[0]) || node::Buffer::Length(args[0]) != 4
+	|| !node::Buffer::HasInstance(args[1]) || node::Buffer::Length(args[1]) != 4) {
+		return ThrowException(Exception::Error(
+			String::New("You must supply a 4 byte Buffer for the first two arguments"))
+		);
+	}
+	
+	unsigned char crc1[4], crc2[4];
+	size_t len = args[2]->ToInteger()->Value();
+	
+	*(uint32_t*)crc1 = *(uint32_t*)node::Buffer::Data(args[0]);
+	*(uint32_t*)crc2 = *(uint32_t*)node::Buffer::Data(args[1]);
+	
+	do_crc32_combine(crc1, crc2, len);
+	ReturnBuffer(node::Buffer::New((char*)crc1, 4), 4, 0);
+}
 #endif
 
 void init(Handle<Object> target) {
@@ -464,6 +532,7 @@ void init(Handle<Object> target) {
 	escapedLUT['.' - 42	] =  UINT16_PACK('=', '.'+64);
 	NODE_SET_METHOD(target, "encode", Encode);
 	NODE_SET_METHOD(target, "crc32", CRC32);
+	NODE_SET_METHOD(target, "crc32_combine", CRC32Combine);
 }
 
 NODE_MODULE(yencode, init);
