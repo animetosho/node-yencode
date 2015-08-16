@@ -267,7 +267,7 @@ static inline unsigned long do_encode(int line_size, int col, const unsigned cha
 */
 
 
-#define PACK_4(arr) ((arr[0] << 24) | (arr[1] << 16) | (arr[2] << 8) | arr[3])
+#define PACK_4(arr) (((uint_fast32_t)arr[0] << 24) | ((uint_fast32_t)arr[1] << 16) | ((uint_fast32_t)arr[2] << 8) | (uint_fast32_t)arr[3])
 #define UNPACK_4(arr, val) { \
 	arr[0] = (unsigned char)(val >> 24) & 0xFF; \
 	arr[1] = (unsigned char)(val >> 16) & 0xFF; \
@@ -301,11 +301,17 @@ static inline void do_crc32_incremental(const void* data, size_t length, unsigne
 	UNPACK_4(init, tmp);
 }
 
-#include "crc32_combine.c"
 static inline void do_crc32_combine(unsigned char crc1[4], const unsigned char crc2[4], size_t len2) {
-	uLong crc1_ = PACK_4(crc1), crc2_ = PACK_4(crc2);
-	uLong crc = crc32_combine(crc1_, crc2_, len2);
-	UNPACK_4(crc1, crc);
+	if(!crc) {
+		crc = crcutil_interface::CRC::Create(
+			0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
+		// instance never deleted... oh well...
+	}
+	crcutil_interface::UINT64 crc1_ = PACK_4(crc1), crc2_ = PACK_4(crc2);
+	// dunno why concatenate doesn't work :(
+	//crc->Concatenate(crc1_, 0, len2, &crc2_);
+	crc->ChangeStartValue(0, 0, crc1_, 0, len2, &crc2_);
+	UNPACK_4(crc1, crc2_);
 }
 
 void free_buffer(char* data, void* _size) {
