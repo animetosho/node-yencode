@@ -1,5 +1,7 @@
+// a basic script to test that raw yEnc works as expected
+
 var assert = require('assert');
-var y = require('./build/Release/obj.target/yencode.node');
+var y = require('./build/Release/yencode.node');
 
 // slow reference yEnc implementation
 var refYEnc = function(src, line_size, col) {
