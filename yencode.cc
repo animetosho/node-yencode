@@ -277,14 +277,27 @@ static inline unsigned long do_encode(int line_size, int col, const unsigned cha
 
 #include "./crcutil-1.0/examples/interface.h"
 crcutil_interface::CRC* crc = NULL;
-static inline void do_crc32(const void* data, size_t length, unsigned char init[4]) {
+static inline void do_crc32(const void* data, size_t length, unsigned char out[4]) {
 	if(!crc) {
 		crc = crcutil_interface::CRC::Create(
 			0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
 		// instance never deleted... oh well...
 	}
-	crcutil_interface::UINT64 tmp = PACK_4(init);
+	crcutil_interface::UINT64 tmp = 0;
 	crc->Compute(data, length, &tmp);
+	UNPACK_4(out, tmp);
+}
+
+crcutil_interface::CRC* crcI = NULL;
+static inline void do_crc32_incremental(const void* data, size_t length, unsigned char init[4]) {
+	if(!crcI) {
+		crcI = crcutil_interface::CRC::Create(
+			0xEDB88320, 0, 32, false, 0, 0, 0, 0, NULL);
+		// instance never deleted... oh well...
+	}
+	crcutil_interface::UINT64 tmp = PACK_4(init) ^ 0xffffffff;
+	crcI->Compute(data, length, &tmp);
+	tmp ^= 0xffffffff;
 	UNPACK_4(init, tmp);
 }
 
@@ -376,13 +389,18 @@ static void CRC32(const FunctionCallbackInfo<Value>& args) {
 			return;
 		}
 		*(uint32_t*)init = *(uint32_t*)node::Buffer::Data(args[1]);
+		do_crc32_incremental(
+			(const void*)node::Buffer::Data(args[0]),
+			node::Buffer::Length(args[0]),
+			init
+		);
+	} else {
+		do_crc32(
+			(const void*)node::Buffer::Data(args[0]),
+			node::Buffer::Length(args[0]),
+			init
+		);
 	}
-	
-	do_crc32(
-		(const void*)node::Buffer::Data(args[0]),
-		node::Buffer::Length(args[0]),
-		init
-	);
 	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)init, 4) );
 }
 
@@ -479,13 +497,18 @@ static Handle<Value> CRC32(const Arguments& args) {
 			);
 		
 		*(uint32_t*)init = *(uint32_t*)node::Buffer::Data(args[1]);
+		do_crc32_incremental(
+			(const void*)node::Buffer::Data(args[0]),
+			node::Buffer::Length(args[0]),
+			init
+		);
+	} else {
+		do_crc32(
+			(const void*)node::Buffer::Data(args[0]),
+			node::Buffer::Length(args[0]),
+			init
+		);
 	}
-	
-	do_crc32(
-		(const void*)node::Buffer::Data(args[0]),
-		node::Buffer::Length(args[0]),
-		init
-	);
 	ReturnBuffer(node::Buffer::New((char*)init, 4), 4, 0);
 }
 
