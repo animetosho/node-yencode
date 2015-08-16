@@ -277,15 +277,31 @@ static inline unsigned long do_encode(int line_size, int col, const unsigned cha
 
 #include "./crcutil-1.0/examples/interface.h"
 crcutil_interface::CRC* crc = NULL;
+
+#ifdef __SSSE3__
+bool x86_cpu_has_pclmulqdq = false;
+#define X86_PCLMULQDQ_CRC
+#include "crc_folding.c"
+#else
+#define x86_cpu_has_pclmulqdq false
+#define crc_fold(a, b) 0
+#endif
+
 static inline void do_crc32(const void* data, size_t length, unsigned char out[4]) {
-	if(!crc) {
-		crc = crcutil_interface::CRC::Create(
-			0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
-		// instance never deleted... oh well...
+	// if we have the pclmulqdq instruction, use the insanely fast folding method
+	if(x86_cpu_has_pclmulqdq) {
+		uint32_t tmp = crc_fold((const unsigned char*)data, length);
+		UNPACK_4(out, tmp);
+	} else {
+		if(!crc) {
+			crc = crcutil_interface::CRC::Create(
+				0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
+			// instance never deleted... oh well...
+		}
+		crcutil_interface::UINT64 tmp = 0;
+		crc->Compute(data, length, &tmp);
+		UNPACK_4(out, tmp);
 	}
-	crcutil_interface::UINT64 tmp = 0;
-	crc->Compute(data, length, &tmp);
-	UNPACK_4(out, tmp);
 }
 
 crcutil_interface::CRC* crcI = NULL;
@@ -295,10 +311,19 @@ static inline void do_crc32_incremental(const void* data, size_t length, unsigne
 			0xEDB88320, 0, 32, false, 0, 0, 0, 0, NULL);
 		// instance never deleted... oh well...
 	}
-	crcutil_interface::UINT64 tmp = PACK_4(init) ^ 0xffffffff;
-	crcI->Compute(data, length, &tmp);
-	tmp ^= 0xffffffff;
-	UNPACK_4(init, tmp);
+	
+	if(x86_cpu_has_pclmulqdq) {
+		// TODO: think of a nicer way to do this than a combine
+		crcutil_interface::UINT64 crc1_ = PACK_4(init);
+		crcutil_interface::UINT64 crc2_ = crc_fold((const unsigned char*)data, length);
+		crcI->Concatenate(crc2_, 0, length, &crc1_);
+		UNPACK_4(init, crc1_);
+	} else {
+		crcutil_interface::UINT64 tmp = PACK_4(init) ^ 0xffffffff;
+		crcI->Compute(data, length, &tmp);
+		tmp ^= 0xffffffff;
+		UNPACK_4(init, tmp);
+	}
 }
 
 static inline void do_crc32_combine(unsigned char crc1[4], const unsigned char crc2[4], size_t len2) {
@@ -562,6 +587,30 @@ void init(Handle<Object> target) {
 	NODE_SET_METHOD(target, "encode", Encode);
 	NODE_SET_METHOD(target, "crc32", CRC32);
 	NODE_SET_METHOD(target, "crc32_combine", CRC32Combine);
+	
+	
+#if (defined(__x86_64__) || defined(__i386__)) && defined(__SSSE3__)
+	// conveniently stolen from zlib-ng
+	unsigned eax, ebx, ecx, edx;
+
+	eax = 1;
+	__asm__ __volatile__ (
+#ifdef X86
+		"xchg %%ebx, %1\n\t"
+#endif
+		"cpuid\n\t"
+#ifdef X86
+		"xchg %1, %%ebx\n\t"
+	: "+a" (eax), "=S" (ebx), "=c" (ecx), "=d" (edx)
+#else
+	: "+a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx)
+#endif
+	);
+
+	//x86_cpu_has_sse2 = edx & 0x4000000;
+	//x86_cpu_has_sse42 = ecx & 0x100000;
+	x86_cpu_has_pclmulqdq = ecx & 0x2;
+#endif
 }
 
 NODE_MODULE(yencode, init);
