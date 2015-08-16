@@ -308,10 +308,8 @@ static inline void do_crc32_combine(unsigned char crc1[4], const unsigned char c
 		// instance never deleted... oh well...
 	}
 	crcutil_interface::UINT64 crc1_ = PACK_4(crc1), crc2_ = PACK_4(crc2);
-	// dunno why concatenate doesn't work :(
-	//crc->Concatenate(crc1_, 0, len2, &crc2_);
-	crc->ChangeStartValue(0, 0, crc1_, 0, len2, &crc2_);
-	UNPACK_4(crc1, crc2_);
+	crc->Concatenate(crc2_, 0, len2, &crc1_);
+	UNPACK_4(crc1, crc1_);
 }
 
 void free_buffer(char* data, void* _size) {
