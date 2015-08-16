@@ -4,12 +4,19 @@
       "target_name": "yencode",
       "dependencies": ["crcutil"],
       "sources": ["yencode.cc"],
-      "variables": {
-        "node_version": '<!((if [ -n `which nodejs` ]; then nodejs --version; else node --version; fi) | sed -e "s/^v\([0-9]*\\.[0-9]*\).*$/\\1/")',
-      },
-      "cflags": ["-msse2", "-mpclmul", "-march=native"],
       "conditions": [
-        [ "node_version == '0.10'", { "defines": ["NODE_010"] } ]
+        ['OS=="win"', {
+          "cflags": ["/arch:SSE2"],
+          "defines": ["__SSSE3__=1", "__i386__=1"],
+          "variables": {"node_version": '<!(node -e "console.log(process.version.match(/^v(0\.\d+)/)[1])")'},
+          "conditions": [ ["node_version == '0.10'", { "defines": ["NODE_010"] } ] ]
+        }, {
+          "variables": {
+            "node_version": '<!((if [ -n `which nodejs` ]; then nodejs --version; else node --version; fi) | sed -e "s/^v\([0-9]*\\.[0-9]*\).*$/\\1/")',
+          },
+          "cflags": ["-msse2", "-mpclmul", "-march=native"],
+          "conditions": [ [ "node_version == '0.10'", { "defines": ["NODE_010"] } ] ]
+        }]
       ],
       "include_dirs": ["crcutil-1.0/code"]
     },
@@ -24,6 +31,13 @@
         "crcutil-1.0/code/multiword_64_64_intrinsic_i386_mmx.cc",
         "crcutil-1.0/code/multiword_128_64_gcc_amd64_sse2.cc",
         "crcutil-1.0/examples/interface.cc"
+      ],
+      "conditions": [
+        ['OS=="win"', {
+          "cflags": ["/arch:SSE2"],
+        }, {
+          "cflags": ["-march=native"]
+        }]
       ],
       "include_dirs": ["crcutil-1.0/code", "crcutil-1.0/tests"],
       "defines": ["CRCUTIL_USE_MM_CRC32=0"]

@@ -25,6 +25,12 @@
 
 #define local static
 
+#ifdef _MSC_VER
+#define ALIGN(_a, v) __declspec(align(_a)) v
+#else
+#define ALIGN(_a, v) v __attribute__((aligned(_a)))
+#endif
+
 
 local void fold_1(__m128i *xmm_crc0, __m128i *xmm_crc1, __m128i *xmm_crc2, __m128i *xmm_crc3) {
     const __m128i xmm_fold4 = _mm_set_epi32(
@@ -162,7 +168,7 @@ local void fold_4(__m128i *xmm_crc0, __m128i *xmm_crc1, __m128i *xmm_crc2, __m12
     *xmm_crc3 = _mm_castps_si128(ps_res3);
 }
 
-local const unsigned __attribute__((aligned(32))) pshufb_shf_table[60] = {
+ALIGN(32, local const unsigned  pshufb_shf_table[60]) = {
     0x84838281, 0x88878685, 0x8c8b8a89, 0x008f8e8d, /* shl 15 (16 - 1)/shr1 */
     0x85848382, 0x89888786, 0x8d8c8b8a, 0x01008f8e, /* shl 14 (16 - 3)/shr2 */
     0x86858483, 0x8a898887, 0x8e8d8c8b, 0x0201008f, /* shl 13 (16 - 4)/shr3 */
@@ -227,7 +233,7 @@ local void partial_fold(const size_t len, __m128i *xmm_crc0, __m128i *xmm_crc1,
     *xmm_crc3 = _mm_castps_si128(ps_res);
 }
 
-local const unsigned __attribute__((aligned(16))) crc_k[] = {
+ALIGN(16, local const unsigned crc_k[]) = {
     0xccaa009e, 0x00000000, /* rk1 */
     0x751997d0, 0x00000001, /* rk2 */
     0xccaa009e, 0x00000000, /* rk5 */
@@ -236,11 +242,11 @@ local const unsigned __attribute__((aligned(16))) crc_k[] = {
     0xdb710640, 0x00000001  /* rk8 */
 };
 
-local const unsigned __attribute__((aligned(16))) crc_mask[4] = {
+ALIGN(16, local const unsigned crc_mask[4]) = {
     0xFFFFFFFF, 0xFFFFFFFF, 0x00000000, 0x00000000
 };
 
-local const unsigned __attribute__((aligned(16))) crc_mask2[4] = {
+ALIGN(16, local const unsigned crc_mask2[4]) = {
     0x00000000, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF
 };
 

@@ -6,6 +6,16 @@
 
 using namespace v8;
 
+// MSVC compatibility
+#if defined(_M_IX86_FP) && _M_IX86_FP == 2
+#define __SSE2__ 1
+#endif
+#ifdef _MSC_VER
+#define __BYTE_ORDER__ 1234
+#define __ORDER_BIG_ENDIAN__ 4321
+#include <intrin.h>
+#endif
+
 static unsigned char escapeLUT[256]; // whether or not the character is critical
 static uint16_t escapedLUT[256]; // escaped sequences for characters that need escaping
 // combine two 8-bit ints into a 16-bit one
@@ -16,10 +26,15 @@ static uint16_t escapedLUT[256]; // escaped sequences for characters that need e
 #endif
 
 #ifdef __SSE2__
-// may be different for MSVC
-#include <x86intrin.h>
+#include <emmintrin.h>
 #define XMM_SIZE 16 /*== (signed int)sizeof(__m128i)*/
+
+#ifdef _MSC_VER
+#define ALIGN_16(v) __declspec(align(16)) v
+#else
 #define ALIGN_16(v) v __attribute__((aligned(16)))
+#endif
+
 #endif
 
 // runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
@@ -290,7 +305,7 @@ bool x86_cpu_has_pclmulqdq = false;
 static inline void do_crc32(const void* data, size_t length, unsigned char out[4]) {
 	// if we have the pclmulqdq instruction, use the insanely fast folding method
 	if(x86_cpu_has_pclmulqdq) {
-		uint32_t tmp = crc_fold((const unsigned char*)data, length);
+		uint32_t tmp = crc_fold((const unsigned char*)data, (long)length);
 		UNPACK_4(out, tmp);
 	} else {
 		if(!crc) {
@@ -315,7 +330,7 @@ static inline void do_crc32_incremental(const void* data, size_t length, unsigne
 	if(x86_cpu_has_pclmulqdq) {
 		// TODO: think of a nicer way to do this than a combine
 		crcutil_interface::UINT64 crc1_ = PACK_4(init);
-		crcutil_interface::UINT64 crc2_ = crc_fold((const unsigned char*)data, length);
+		crcutil_interface::UINT64 crc2_ = crc_fold((const unsigned char*)data, (long)length);
 		crcI->Concatenate(crc2_, 0, length, &crc1_);
 		UNPACK_4(init, crc1_);
 	} else {
@@ -452,7 +467,7 @@ static void CRC32Combine(const FunctionCallbackInfo<Value>& args) {
 	}
 	
 	unsigned char crc1[4], crc2[4];
-	size_t len = args[2]->ToInteger()->Value();
+	size_t len = (size_t)args[2]->ToInteger()->Value();
 	
 	*(uint32_t*)crc1 = *(uint32_t*)node::Buffer::Data(args[0]);
 	*(uint32_t*)crc2 = *(uint32_t*)node::Buffer::Data(args[1]);
@@ -557,7 +572,7 @@ static Handle<Value> CRC32Combine(const Arguments& args) {
 	}
 	
 	unsigned char crc1[4], crc2[4];
-	size_t len = args[2]->ToInteger()->Value();
+	size_t len = (size_t)args[2]->ToInteger()->Value();
 	
 	*(uint32_t*)crc1 = *(uint32_t*)node::Buffer::Data(args[0]);
 	*(uint32_t*)crc2 = *(uint32_t*)node::Buffer::Data(args[1]);
@@ -591,25 +606,22 @@ void init(Handle<Object> target) {
 	
 #if (defined(__x86_64__) || defined(__i386__)) && defined(__SSSE3__)
 	// conveniently stolen from zlib-ng
-	unsigned eax, ebx, ecx, edx;
+	uint32_t flags;
 
-	eax = 1;
-	__asm__ __volatile__ (
-#ifdef X86
-		"xchg %%ebx, %1\n\t"
-#endif
-		"cpuid\n\t"
-#ifdef X86
-		"xchg %1, %%ebx\n\t"
-	: "+a" (eax), "=S" (ebx), "=c" (ecx), "=d" (edx)
+#ifdef _MSC_VER
+	int cpuInfo[4];
+	__cpuid(cpuInfo, 1);
+	flags = (uint32_t)cpuInfo[2];
 #else
-	: "+a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx)
-#endif
+	__asm__ __volatile__ (
+		"cpuid"
+	: "=c" (flags)
+	: "a" (1)
+	: "%edx", "%ebx"
 	);
+#endif
 
-	//x86_cpu_has_sse2 = edx & 0x4000000;
-	//x86_cpu_has_sse42 = ecx & 0x100000;
-	x86_cpu_has_pclmulqdq = ecx & 0x2;
+	x86_cpu_has_pclmulqdq = (flags & 0x202) == 0x202; // SSSE3 + CLMUL
 #endif
 }
 
