@@ -6,8 +6,8 @@
 
 using namespace v8;
 
-unsigned char escapeLUT[256];
-uint16_t escapedLUT[256];
+static unsigned char escapeLUT[256]; // whether or not the character is critical
+static uint16_t escapedLUT[256]; // escaped sequences for characters that need escaping
 // combine two 8-bit ints into a 16-bit one
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 #define UINT16_PACK(a, b) (((a) << 8) | (b))
@@ -26,7 +26,7 @@ uint16_t escapedLUT[256];
 static inline size_t do_encode(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
-	unsigned char c, ec; // input character; escaped input character
+	unsigned char c, escaped; // input character; escaped input character
 	
 	#ifdef __SSE2__
 	#define MM_FILL_BYTES(b) _mm_set_epi8(b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b)
@@ -79,9 +79,9 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 				// special characters exist
 				_mm_store_si128((__m128i*)mmTmp, data);
 				#define DO_THING(n) \
-					c = src[i+n], ec = escapeLUT[c]; \
-					if (ec) \
-						*(p+n) = ec; \
+					c = src[i+n], escaped = escapeLUT[c]; \
+					if (escaped) \
+						*(p+n) = escaped; \
 					else { \
 						*(uint16_t*)(p+n) = escapedLUT[c]; \
 						p++; \
@@ -105,11 +105,11 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 			
 			p += XMM_SIZE;
 			i += XMM_SIZE;
-			col += p - sp;
+			col += (int)(p - sp);
 		}
 		if(sp && col >= line_size-1) {
 			// we overflowed - need to revert and use slower method :(
-			col -= p - sp;
+			col -= (int)(p - sp);
 			p = sp;
 			i -= XMM_SIZE;
 		}
@@ -173,9 +173,9 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 			// 8 cycle unrolled version
 			sp = p;
 			#define DO_THING(n) \
-				c = src[i+n], ec = escapeLUT[c]; \
-				if (ec) \
-					*(p++) = ec; \
+				c = src[i+n], escaped = escapeLUT[c]; \
+				if (escaped) \
+					*(p++) = escaped; \
 				else { \
 					*(uint16_t*)p = escapedLUT[c]; \
 					p += 2; \
@@ -190,20 +190,20 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 			DO_THING(7);
 			
 			i += 8;
-			col += p - sp;
+			col += (int)(p - sp);
 		}
 		if(sp && col >= line_size-1) {
 			// we overflowed - need to revert and use slower method :(
-			col -= p - sp;
+			col -= (int)(p - sp);
 			p = sp;
 			i -= 8;
 		}
 		#endif
 		// handle remaining chars
 		while(col < line_size-1) {
-			c = src[i++], ec = escapeLUT[c];
-			if (ec) {
-				*(p++) = ec;
+			c = src[i++], escaped = escapeLUT[c];
+			if (escaped) {
+				*(p++) = escaped;
 				col++;
 			}
 			else {
@@ -267,7 +267,7 @@ static inline unsigned long do_encode(int line_size, int col, const unsigned cha
 */
 
 
-#define PACK_4(arr) (arr[0] << 24) | (arr[1] << 16) | (arr[2] << 8) | arr[3]
+#define PACK_4(arr) ((arr[0] << 24) | (arr[1] << 16) | (arr[2] << 8) | arr[3])
 #define UNPACK_4(arr, val) { \
 	arr[0] = (unsigned char)(val >> 24) & 0xFF; \
 	arr[1] = (unsigned char)(val >> 16) & 0xFF; \
@@ -277,7 +277,7 @@ static inline unsigned long do_encode(int line_size, int col, const unsigned cha
 
 #include "./crcutil-1.0/examples/interface.h"
 crcutil_interface::CRC* crc = NULL;
-void do_crc32(const void* data, size_t length, unsigned char init[4]) {
+static inline void do_crc32(const void* data, size_t length, unsigned char init[4]) {
 	if(!crc) {
 		crc = crcutil_interface::CRC::Create(
 			0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
@@ -289,17 +289,16 @@ void do_crc32(const void* data, size_t length, unsigned char init[4]) {
 }
 
 #include "crc32_combine.c"
-void do_crc32_combine(unsigned char crc1[4], const unsigned char crc2[4], size_t len2) {
+static inline void do_crc32_combine(unsigned char crc1[4], const unsigned char crc2[4], size_t len2) {
 	uLong crc1_ = PACK_4(crc1), crc2_ = PACK_4(crc2);
 	uLong crc = crc32_combine(crc1_, crc2_, len2);
 	UNPACK_4(crc1, crc);
 }
 
 void free_buffer(char* data, void* _size) {
-	int size = (size_t)_size;
-#ifndef NODE_010
-	Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(-size);
-#else
+	int size = (int)(size_t)_size;
+	//Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(-size);
+#ifdef NODE_010
 	V8::AdjustAmountOfExternalAllocatedMemory(-size);
 #endif
 	free(data);
@@ -315,6 +314,7 @@ void free_buffer(char* data, void* _size) {
 // node 0.12 version
 static void Encode(const FunctionCallbackInfo<Value>& args) {
 	Isolate* isolate = Isolate::GetCurrent();
+	HandleScope scope(isolate);
 	
 	if (args.Length() == 0 || !node::Buffer::HasInstance(args[0])) {
 		isolate->ThrowException(Exception::Error(
@@ -332,10 +332,10 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	int line_size = 128, col = 0;
 	if (args.Length() >= 2) {
 		// TODO: probably should throw errors instead of transparently fixing these...
-		line_size = args[1]->ToInteger()->Value();
+		line_size = args[1]->ToInt32()->Value();
 		if (line_size < 1) line_size = 128;
 		if (args.Length() >= 3) {
-			col = args[2]->ToInteger()->Value();
+			col = args[2]->ToInt32()->Value();
 			if (col >= line_size) col = 0;
 		}
 	}
@@ -351,12 +351,13 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	unsigned char *result = (unsigned char*) malloc(dest_len);
 	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
 	realloc(result, len);
-	isolate->AdjustAmountOfExternalAllocatedMemory(len);
+	//isolate->AdjustAmountOfExternalAllocatedMemory(len);
 	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)result, len, free_buffer, (void*)len) );
 }
 
 static void CRC32(const FunctionCallbackInfo<Value>& args) {
 	Isolate* isolate = Isolate::GetCurrent();
+	HandleScope scope(isolate);
 	
 	if (args.Length() == 0 || !node::Buffer::HasInstance(args[0])) {
 		isolate->ThrowException(Exception::Error(
@@ -387,6 +388,7 @@ static void CRC32(const FunctionCallbackInfo<Value>& args) {
 
 static void CRC32Combine(const FunctionCallbackInfo<Value>& args) {
 	Isolate* isolate = Isolate::GetCurrent();
+	HandleScope scope(isolate);
 	
 	if (args.Length() < 3) {
 		isolate->ThrowException(Exception::Error(
@@ -436,10 +438,10 @@ static Handle<Value> Encode(const Arguments& args) {
 	int line_size = 128, col = 0;
 	if (args.Length() >= 2) {
 		// TODO: probably should throw errors instead of transparently fixing these...
-		line_size = args[1]->ToInteger()->Value();
+		line_size = args[1]->ToInt32()->Value();
 		if (line_size < 1) line_size = 128;
 		if (args.Length() >= 3) {
-			col = args[2]->ToInteger()->Value();
+			col = args[2]->ToInt32()->Value();
 			if (col >= line_size) col = 0;
 		}
 	}
