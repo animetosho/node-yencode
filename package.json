@@ -1,10 +1,10 @@
 {
   "name": "yencode",
-  "version": "0.1",
-  "description": "Fast yEnc encoder using compiled code",
+  "version": "1.0.0",
+  "description": "Fast yEnc encoder and CRC32 calculator using compiled code",
   "license": "Public Domain",
   "author": "Anime Tosho",
-  "main": "build/Release/obj.target/yencode.node",
+  "main": "index.js",
   "scripts": {
     "test": "if [ -n `which nodejs` ]; then nodejs test; else node test; fi"
   }
