@@ -2,10 +2,27 @@
   "name": "yencode",
   "version": "1.0.0",
   "description": "Fast yEnc encoder and CRC32 calculator using compiled code",
-  "keywords": ["yenc", "yencode", "crc32"],
-  "license": "Public Domain",
+  "keywords": [
+    "yenc",
+    "yencode",
+    "crc32"
+  ],
+  "license": "CC0-1.0",
   "author": "Anime Tosho",
-  "repository": {"type": "git", "url": "https://github.com/animetosho/node-yencode"},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/animetosho/node-yencode.git"
+  },
   "main": "index.js",
-  "engines": {"node": ">=0.10"}
+  "engines": {
+    "node": ">=0.10"
+  },
+  "scripts": {
+    "install": "node-gyp rebuild"
+  },
+  "gypfile": true,
+  "bugs": {
+    "url": "https://github.com/animetosho/node-yencode/issues"
+  },
+  "homepage": "https://github.com/animetosho/node-yencode#readme"
 }
