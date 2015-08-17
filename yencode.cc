@@ -402,7 +402,7 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
 	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
-	realloc(result, len);
+	result = (unsigned char*)realloc(result, len);
 	//isolate->AdjustAmountOfExternalAllocatedMemory(len);
 	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)result, len, free_buffer, (void*)len) );
 }
@@ -513,7 +513,7 @@ static Handle<Value> Encode(const Arguments& args) {
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
 	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
-	realloc(result, len);
+	result = (unsigned char*)realloc(result, len);
 	V8::AdjustAmountOfExternalAllocatedMemory(len);
 	ReturnBuffer(node::Buffer::New((char*)result, len, free_buffer, (void*)len), len, 0);
 }
