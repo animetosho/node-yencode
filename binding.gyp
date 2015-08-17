@@ -7,14 +7,13 @@
       "conditions": [
         ['OS=="win"', {
           "cflags": ["/arch:SSE2"],
-          "defines": ["__SSSE3__=1", "__i386__=1"],
           "variables": {"node_version": '<!(node -e "console.log(process.version.match(/^v(0\.\d+)/)[1])")'},
           "conditions": [ ["node_version == '0.10'", { "defines": ["NODE_010"] } ] ]
         }, {
           "variables": {
             "node_version": '<!((if [ -n `which nodejs` ]; then nodejs --version; else node --version; fi) | sed -e "s/^v\([0-9]*\\.[0-9]*\).*$/\\1/")',
           },
-          "cflags": ["-msse2", "-mpclmul", "-march=native"],
+          "cflags": ["-march=native", "-mssse3", "-mpclmul", "-msse4.1"],
           "conditions": [ [ "node_version == '0.10'", { "defines": ["NODE_010"] } ] ]
         }]
       ],

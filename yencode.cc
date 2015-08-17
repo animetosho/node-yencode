@@ -293,14 +293,9 @@ static inline unsigned long do_encode(int line_size, int col, const unsigned cha
 #include "./crcutil-1.0/examples/interface.h"
 crcutil_interface::CRC* crc = NULL;
 
-#ifdef __SSSE3__
 bool x86_cpu_has_pclmulqdq = false;
 #define X86_PCLMULQDQ_CRC
 #include "crc_folding.c"
-#else
-#define x86_cpu_has_pclmulqdq false
-#define crc_fold(a, b) 0
-#endif
 
 static inline void do_crc32(const void* data, size_t length, unsigned char out[4]) {
 	// if we have the pclmulqdq instruction, use the insanely fast folding method
@@ -604,24 +599,21 @@ void init(Handle<Object> target) {
 	NODE_SET_METHOD(target, "crc32_combine", CRC32Combine);
 	
 	
-#if (defined(__x86_64__) || defined(__i386__)) && defined(__SSSE3__)
-	// conveniently stolen from zlib-ng
-	uint32_t flags;
-
 #ifdef _MSC_VER
 	int cpuInfo[4];
 	__cpuid(cpuInfo, 1);
-	flags = (uint32_t)cpuInfo[2];
-#else
+	x86_cpu_has_pclmulqdq = (cpuInfo[2] & 0x80202) == 0x80202; // SSE4.1 + SSSE3 + CLMUL
+#elif defined(__x86_64__) || defined(__i386__)
+	// conveniently stolen from zlib-ng
+	uint32_t flags;
+
 	__asm__ __volatile__ (
 		"cpuid"
 	: "=c" (flags)
 	: "a" (1)
 	: "%edx", "%ebx"
 	);
-#endif
-
-	x86_cpu_has_pclmulqdq = (flags & 0x202) == 0x202; // SSSE3 + CLMUL
+	x86_cpu_has_pclmulqdq = (flags & 0x80202) == 0x80202; // SSE4.1 + SSSE3 + CLMUL
 #endif
 }
 
