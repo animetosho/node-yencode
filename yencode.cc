@@ -293,9 +293,14 @@ static inline unsigned long do_encode(int line_size, int col, const unsigned cha
 #include "./crcutil-1.0/examples/interface.h"
 crcutil_interface::CRC* crc = NULL;
 
+#if !defined(_MSC_VER) || _MSC_VER >= 1600
 bool x86_cpu_has_pclmulqdq = false;
 #define X86_PCLMULQDQ_CRC
 #include "crc_folding.c"
+#else
+#define x86_cpu_has_pclmulqdq false
+#define crc_fold() 0
+#endif
 
 static inline void do_crc32(const void* data, size_t length, unsigned char out[4]) {
 	// if we have the pclmulqdq instruction, use the insanely fast folding method
@@ -600,9 +605,11 @@ void init(Handle<Object> target) {
 	
 	
 #ifdef _MSC_VER
+	#if _MSC_VER >= 1600 // doesn't work on MSVC 2008, maybe works on 2010?
 	int cpuInfo[4];
 	__cpuid(cpuInfo, 1);
 	x86_cpu_has_pclmulqdq = (cpuInfo[2] & 0x80202) == 0x80202; // SSE4.1 + SSSE3 + CLMUL
+	#endif
 #elif defined(__x86_64__) || defined(__i386__)
 	// conveniently stolen from zlib-ng
 	uint32_t flags;

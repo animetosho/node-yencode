@@ -6,7 +6,7 @@
       "sources": ["yencode.cc"],
       "conditions": [
         ['OS=="win"', {
-          "cflags": ["/arch:SSE2"],
+          "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}},
           "variables": {"node_version": '<!(node -e "console.log(process.version.match(/^v(0\.\d+)/)[1])")'},
           "conditions": [ ["node_version == '0.10'", { "defines": ["NODE_010"] } ] ]
         }, {
@@ -33,7 +33,7 @@
       ],
       "conditions": [
         ['OS=="win"', {
-          "cflags": ["/arch:SSE2"],
+          "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
         }, {
           "cflags": ["-march=native"]
         }]

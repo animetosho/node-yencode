@@ -36,7 +36,7 @@ node-gyp rebuild
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Note, Windows builds are always compiled with SSE2 support. If you can’t have
-this, delete all instances of `"/arch:SSE2"` in *binding.gyp* before compiling.
+this, delete all instances of `"msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}},` in *binding.gyp* before compiling.
 
 API
 ===
