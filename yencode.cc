@@ -7,7 +7,7 @@
 using namespace v8;
 
 // MSVC compatibility
-#if defined(_M_IX86_FP) && _M_IX86_FP == 2
+#if (defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(_M_X64)
 #define __SSE2__ 1
 #endif
 #ifdef _MSC_VER
