@@ -16,6 +16,10 @@ using namespace v8;
 #include <intrin.h>
 #endif
 
+#if defined(__x86_64__) || defined(__i386__) || defined(_MSC_VER)
+#define _IS_X86 1
+#endif
+
 static unsigned char escapeLUT[256]; // whether or not the character is critical
 static uint16_t escapedLUT[256]; // escaped sequences for characters that need escaping
 // combine two 8-bit ints into a 16-bit one
@@ -293,7 +297,7 @@ static inline unsigned long do_encode(int line_size, int col, const unsigned cha
 #include "./crcutil-1.0/examples/interface.h"
 crcutil_interface::CRC* crc = NULL;
 
-#if !defined(_MSC_VER) || _MSC_VER >= 1600
+#if defined(_IS_X86) && (!defined(_MSC_VER) || _MSC_VER >= 1600)
 bool x86_cpu_has_pclmulqdq = false;
 #define X86_PCLMULQDQ_CRC
 #include "crc_folding.c"
@@ -610,7 +614,7 @@ void init(Handle<Object> target) {
 	__cpuid(cpuInfo, 1);
 	x86_cpu_has_pclmulqdq = (cpuInfo[2] & 0x80202) == 0x80202; // SSE4.1 + SSSE3 + CLMUL
 	#endif
-#elif defined(__x86_64__) || defined(__i386__)
+#elif defined(_IS_X86)
 	// conveniently stolen from zlib-ng
 	uint32_t flags;
 
