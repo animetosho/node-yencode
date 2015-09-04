@@ -481,11 +481,7 @@ static void CRC32Combine(const FunctionCallbackInfo<Value>& args) {
 }
 #else
 // node 0.10 version
-// convert SlowBuffer to JS Buffer object and return it
-#define ReturnBuffer(buffer, size, offset) {\
-	Handle<Value> _tmp[] = {(buffer)->handle_, Integer::New(size), Integer::New(offset)}; \
-	return scope.Close(Local<Function>::Cast(Context::GetCurrent()->Global()->Get(String::New("Buffer")))->NewInstance(3, _tmp)); \
-}
+#define ReturnBuffer(buffer, size, offset) return scope.Close(Local<Object>::New((buffer)->handle_))
 
 static Handle<Value> Encode(const Arguments& args) {
 	HandleScope scope;
