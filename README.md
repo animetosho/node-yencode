@@ -36,10 +36,16 @@ node-gyp rebuild
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Note, Windows builds are always compiled with SSE2 support. If you can’t have
-this, delete all instances of `"msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}},` in *binding.gyp* before compiling.
+this, delete all instances of `"msvs_settings": {"VCCLCompilerTool":
+{"EnableEnhancedInstructionSet": "2"}},` in *binding.gyp* before compiling.
 
 API
 ===
+
+Note that for the *encode*, *crc32* and *crc32\_combine* functions, the *data*
+parameter must be a Buffer and not a string. Also, on node v0.10, these
+functions actually return a *SlowBuffer* object, similar to how node’s crypto
+functions work.
 
 Buffer encode(Buffer data, int line\_size=128, int column\_offset=0)
 --------------------------------------------------------------------
