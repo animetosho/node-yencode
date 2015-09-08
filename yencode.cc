@@ -287,6 +287,11 @@ static inline unsigned long do_encode(int line_size, int col, const unsigned cha
 */
 
 
+union crc32 {
+	uint32_t u32;
+	unsigned char u8a[4];
+};
+
 #define PACK_4(arr) (((uint_fast32_t)arr[0] << 24) | ((uint_fast32_t)arr[1] << 16) | ((uint_fast32_t)arr[2] << 8) | (uint_fast32_t)arr[3])
 #define UNPACK_4(arr, val) { \
 	arr[0] = (unsigned char)(val >> 24) & 0xFF; \
@@ -358,11 +363,11 @@ static inline void do_crc32_combine(unsigned char crc1[4], const unsigned char c
 }
 
 void free_buffer(char* data, void* _size) {
-	int size = (int)(size_t)_size;
-	//Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(-size);
 #if NODE_MAJOR_VERSION == 0 && NODE_MINOR_VERSION == 10
+	int size = (int)(size_t)_size;
 	V8::AdjustAmountOfExternalAllocatedMemory(-size);
 #endif
+	//Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(-size);
 	free(data);
 }
 
@@ -436,7 +441,8 @@ static void CRC32(const FunctionCallbackInfo<Value>& args) {
 	}
 	// TODO: support string args??
 	
-	unsigned char init[4] = {0,0,0,0};
+	union crc32 init;
+	init.u32 = 0;
 	if (args.Length() >= 2) {
 		if (!node::Buffer::HasInstance(args[1]) || node::Buffer::Length(args[1]) != 4) {
 			isolate->ThrowException(Exception::Error(
@@ -444,20 +450,20 @@ static void CRC32(const FunctionCallbackInfo<Value>& args) {
 			);
 			return;
 		}
-		*(uint32_t*)init = *(uint32_t*)node::Buffer::Data(args[1]);
+		init.u32 = *(uint32_t*)node::Buffer::Data(args[1]);
 		do_crc32_incremental(
 			(const void*)node::Buffer::Data(args[0]),
 			node::Buffer::Length(args[0]),
-			init
+			init.u8a
 		);
 	} else {
 		do_crc32(
 			(const void*)node::Buffer::Data(args[0]),
 			node::Buffer::Length(args[0]),
-			init
+			init.u8a
 		);
 	}
-	args.GetReturnValue().Set( BUFFER_NEW((char*)init, 4) );
+	args.GetReturnValue().Set( BUFFER_NEW((char*)init.u8a, 4) );
 }
 
 static void CRC32Combine(const FunctionCallbackInfo<Value>& args) {
@@ -478,14 +484,14 @@ static void CRC32Combine(const FunctionCallbackInfo<Value>& args) {
 		return;
 	}
 	
-	unsigned char crc1[4], crc2[4];
+	union crc32 crc1, crc2;
 	size_t len = (size_t)args[2]->ToInteger()->Value();
 	
-	*(uint32_t*)crc1 = *(uint32_t*)node::Buffer::Data(args[0]);
-	*(uint32_t*)crc2 = *(uint32_t*)node::Buffer::Data(args[1]);
+	crc1.u32 = *(uint32_t*)node::Buffer::Data(args[0]);
+	crc2.u32 = *(uint32_t*)node::Buffer::Data(args[1]);
 	
-	do_crc32_combine(crc1, crc2, len);
-	args.GetReturnValue().Set( BUFFER_NEW((char*)crc1, 4) );
+	do_crc32_combine(crc1.u8a, crc2.u8a, len);
+	args.GetReturnValue().Set( BUFFER_NEW((char*)crc1.u8a, 4) );
 }
 #else
 // node 0.10 version
@@ -541,27 +547,28 @@ static Handle<Value> CRC32(const Arguments& args) {
 	}
 	// TODO: support string args??
 	
-	unsigned char init[4] = {0,0,0,0};
+	union crc32 init;
+	init.u32 = 0;
 	if (args.Length() >= 2) {
 		if (!node::Buffer::HasInstance(args[1]) || node::Buffer::Length(args[1]) != 4)
 			return ThrowException(Exception::Error(
 				String::New("Second argument must be a 4 byte buffer"))
 			);
 		
-		*(uint32_t*)init = *(uint32_t*)node::Buffer::Data(args[1]);
+		init.u32 = *(uint32_t*)node::Buffer::Data(args[1]);
 		do_crc32_incremental(
 			(const void*)node::Buffer::Data(args[0]),
 			node::Buffer::Length(args[0]),
-			init
+			init.u8a
 		);
 	} else {
 		do_crc32(
 			(const void*)node::Buffer::Data(args[0]),
 			node::Buffer::Length(args[0]),
-			init
+			init.u8a
 		);
 	}
-	ReturnBuffer(node::Buffer::New((char*)init, 4), 4, 0);
+	ReturnBuffer(node::Buffer::New((char*)init.u8a, 4), 4, 0);
 }
 
 static Handle<Value> CRC32Combine(const Arguments& args) {
@@ -579,14 +586,14 @@ static Handle<Value> CRC32Combine(const Arguments& args) {
 		);
 	}
 	
-	unsigned char crc1[4], crc2[4];
+	union crc32 crc1, crc2;
 	size_t len = (size_t)args[2]->ToInteger()->Value();
 	
-	*(uint32_t*)crc1 = *(uint32_t*)node::Buffer::Data(args[0]);
-	*(uint32_t*)crc2 = *(uint32_t*)node::Buffer::Data(args[1]);
+	crc1.u32 = *(uint32_t*)node::Buffer::Data(args[0]);
+	crc2.u32 = *(uint32_t*)node::Buffer::Data(args[1]);
 	
-	do_crc32_combine(crc1, crc2, len);
-	ReturnBuffer(node::Buffer::New((char*)crc1, 4), 4, 0);
+	do_crc32_combine(crc1.u8a, crc2.u8a, len);
+	ReturnBuffer(node::Buffer::New((char*)crc1.u8a, 4), 4, 0);
 }
 #endif
 
