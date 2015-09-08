@@ -363,7 +363,7 @@ static inline void do_crc32_combine(unsigned char crc1[4], const unsigned char c
 }
 
 void free_buffer(char* data, void* _size) {
-#if NODE_MAJOR_VERSION == 0 && NODE_MINOR_VERSION == 10
+#if !NODE_VERSION_AT_LEAST(0, 11, 0)
 	int size = (int)(size_t)_size;
 	V8::AdjustAmountOfExternalAllocatedMemory(-size);
 #endif
@@ -429,6 +429,17 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	args.GetReturnValue().Set( BUFFER_NEW((char*)result, len, free_buffer, (void*)len) );
 }
 
+#if NODE_VERSION_AT_LEAST(3, 0, 0)
+// for whatever reason, iojs 3 gives buffer corruption if you pass in a pointer without a free function
+#define RETURN_CRC(x) do { \
+	Local<Object> buff = BUFFER_NEW(4); \
+	*(uint32_t*)node::Buffer::Data(buff) = x.u32; \
+	args.GetReturnValue().Set( buff ); \
+} while(0)
+#else
+#define RETURN_CRC(x) args.GetReturnValue().Set( BUFFER_NEW((char*)x.u8a, 4) )
+#endif
+
 static void CRC32(const FunctionCallbackInfo<Value>& args) {
 	Isolate* isolate = Isolate::GetCurrent();
 	HandleScope scope(isolate);
@@ -463,7 +474,7 @@ static void CRC32(const FunctionCallbackInfo<Value>& args) {
 			init.u8a
 		);
 	}
-	args.GetReturnValue().Set( BUFFER_NEW((char*)init.u8a, 4) );
+	RETURN_CRC(init);
 }
 
 static void CRC32Combine(const FunctionCallbackInfo<Value>& args) {
@@ -491,7 +502,7 @@ static void CRC32Combine(const FunctionCallbackInfo<Value>& args) {
 	crc2.u32 = *(uint32_t*)node::Buffer::Data(args[1]);
 	
 	do_crc32_combine(crc1.u8a, crc2.u8a, len);
-	args.GetReturnValue().Set( BUFFER_NEW((char*)crc1.u8a, 4) );
+	RETURN_CRC(crc1);
 }
 #else
 // node 0.10 version
