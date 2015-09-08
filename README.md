@@ -24,8 +24,8 @@ Supports:
 
 -   (may eventually support) yEnc decoding
 
-Only tested with node 0.10 and 0.12 with an x86 CPU. Tests and fixes for other
-platforms welcome.
+Only tested with nodejs v0.10, nodejs v0.12 and iojs v3.x. Tests and fixes for
+other platforms welcome.
 
 Building
 ========
@@ -39,10 +39,10 @@ Note, Windows builds are always compiled with SSE2 support. If you can’t have
 this, delete all instances of `"msvs_settings": {"VCCLCompilerTool":
 {"EnableEnhancedInstructionSet": "2"}},` in *binding.gyp* before compiling.
 
-Some versions of GCC/Clang don't like the `-march=native` switch. If you're having
-build issues with these compilers, try removing all instances of `"-march=native",`
-from *binding.gyp* and recompiling. Note that some CPU specific optimisations may
-not be enabled if the flag is removed.
+Some versions of GCC/Clang don't like the `-march=native` switch. If you're
+having build issues with these compilers, try removing all instances of
+`"-march=native",` from *binding.gyp* and recompiling. Note that some CPU
+specific optimisations may not be enabled if the flag is removed.
 
 API
 ===
