@@ -6,15 +6,9 @@
       "sources": ["yencode.cc"],
       "conditions": [
         ['OS=="win"', {
-          "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}},
-          "variables": {"node_version": '<!(node -e "console.log(process.version.match(/^v(0\.\d+)/)[1])")'},
-          "conditions": [ ["node_version == '0.10'", { "defines": ["NODE_010"] } ] ]
+          "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
         }, {
-          "variables": {
-            "node_version": '<!((if hash nodejs 2>/dev/null; then nodejs --version; else node --version; fi) | sed -e "s/^v\([0-9]*\\.[0-9]*\).*$/\\1/")',
-          },
-          "cflags": ["-march=native", "-mssse3", "-mpclmul", "-msse4.1"],
-          "conditions": [ [ "node_version == '0.10'", { "defines": ["NODE_010"] } ] ]
+          "cflags": ["-march=native", "-mssse3", "-mpclmul", "-msse4.1"]
         }]
       ],
       "include_dirs": ["crcutil-1.0/code"]

@@ -1,6 +1,7 @@
 
 #include <node.h>
 #include <node_buffer.h>
+#include <node_version.h>
 #include <v8.h>
 #include <stdlib.h>
 
@@ -359,7 +360,7 @@ static inline void do_crc32_combine(unsigned char crc1[4], const unsigned char c
 void free_buffer(char* data, void* _size) {
 	int size = (int)(size_t)_size;
 	//Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(-size);
-#ifdef NODE_010
+#if NODE_MAJOR_VERSION == 0 && NODE_MINOR_VERSION == 10
 	V8::AdjustAmountOfExternalAllocatedMemory(-size);
 #endif
 	free(data);
@@ -371,9 +372,9 @@ void free_buffer(char* data, void* _size) {
 
 // encode(str, line_size, col)
 // crc32(str, init)
-#ifndef NODE_010
+#if NODE_VERSION_AT_LEAST(0, 11, 0)
 
-#ifdef IOJS_3
+#if NODE_VERSION_AT_LEAST(3, 0, 0) // iojs3
 #define BUFFER_NEW(...) node::Buffer::New(isolate, __VA_ARGS__).ToLocalChecked()
 #else
 #define BUFFER_NEW(...) node::Buffer::New(isolate, __VA_ARGS__)
