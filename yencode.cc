@@ -309,7 +309,7 @@ bool x86_cpu_has_pclmulqdq = false;
 #include "crc_folding.c"
 #else
 #define x86_cpu_has_pclmulqdq false
-#define crc_fold() 0
+#define crc_fold(a, b) 0
 #endif
 
 static inline void do_crc32(const void* data, size_t length, unsigned char out[4]) {
