@@ -372,6 +372,13 @@ void free_buffer(char* data, void* _size) {
 // encode(str, line_size, col)
 // crc32(str, init)
 #ifndef NODE_010
+
+#ifdef IOJS_3
+#define BUFFER_NEW(...) node::Buffer::New(isolate, __VA_ARGS__).ToLocalChecked()
+#else
+#define BUFFER_NEW(...) node::Buffer::New(isolate, __VA_ARGS__)
+#endif
+
 // node 0.12 version
 static void Encode(const FunctionCallbackInfo<Value>& args) {
 	Isolate* isolate = Isolate::GetCurrent();
@@ -386,7 +393,7 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	
 	size_t arg_len = node::Buffer::Length(args[0]);
 	if (arg_len == 0) {
-		args.GetReturnValue().Set( node::Buffer::New(isolate, 0) );
+		args.GetReturnValue().Set( BUFFER_NEW(0) );
 		return;
 	}
 	
@@ -413,7 +420,7 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
 	result = (unsigned char*)realloc(result, len);
 	//isolate->AdjustAmountOfExternalAllocatedMemory(len);
-	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)result, len, free_buffer, (void*)len) );
+	args.GetReturnValue().Set( BUFFER_NEW((char*)result, len, free_buffer, (void*)len) );
 }
 
 static void CRC32(const FunctionCallbackInfo<Value>& args) {
@@ -449,7 +456,7 @@ static void CRC32(const FunctionCallbackInfo<Value>& args) {
 			init
 		);
 	}
-	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)init, 4) );
+	args.GetReturnValue().Set( BUFFER_NEW((char*)init, 4) );
 }
 
 static void CRC32Combine(const FunctionCallbackInfo<Value>& args) {
@@ -477,7 +484,7 @@ static void CRC32Combine(const FunctionCallbackInfo<Value>& args) {
 	*(uint32_t*)crc2 = *(uint32_t*)node::Buffer::Data(args[1]);
 	
 	do_crc32_combine(crc1, crc2, len);
-	args.GetReturnValue().Set( node::Buffer::New(isolate, (char*)crc1, 4) );
+	args.GetReturnValue().Set( BUFFER_NEW((char*)crc1, 4) );
 }
 #else
 // node 0.10 version
