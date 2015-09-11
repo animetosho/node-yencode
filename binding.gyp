@@ -8,13 +8,7 @@
         ['OS=="win"', {
           "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
         }, {
-          "conditons": [
-            ['target_arch=="ia32" or target_arch=="x64"', {
-              "cflags": ["-march=native", "-mssse3", "-mpclmul", "-msse4.1"]
-            }, {
-              "cflags": ["-march=native"]
-            }]
-          ]
+          "cflags": ["-march=native"]
         }]
       ],
       "include_dirs": ["crcutil-1.0/code"]

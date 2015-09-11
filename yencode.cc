@@ -9,7 +9,10 @@ using namespace v8;
 
 // MSVC compatibility
 #if (defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(_M_X64)
-#define __SSE2__ 1
+	#define __SSE2__ 1
+	#if defined(_MSC_VER) && _MSC_VER >= 1600
+		#define X86_PCLMULQDQ_CRC 1
+	#endif
 #endif
 #ifdef _MSC_VER
 #define __BYTE_ORDER__ 1234
@@ -17,9 +20,12 @@ using namespace v8;
 #include <intrin.h>
 #endif
 
-#if defined(__x86_64__) || defined(__i386__) || defined(_MSC_VER)
-#define _IS_X86 1
+#if defined(__x86_64__) || defined(__i386__)
+#if !defined(X86_PCLMULQDQ_CRC) && defined(__PCLMUL__) && defined(__SSSE3__) && defined(__SSE4_1__)
+	#define X86_PCLMULQDQ_CRC 1
 #endif
+#endif
+
 
 static unsigned char escapeLUT[256]; // whether or not the character is critical
 static uint16_t escapedLUT[256]; // escaped sequences for characters that need escaping
@@ -303,9 +309,8 @@ union crc32 {
 #include "./crcutil-1.0/examples/interface.h"
 crcutil_interface::CRC* crc = NULL;
 
-#if defined(_IS_X86) && (!defined(_MSC_VER) || _MSC_VER >= 1600)
+#ifdef X86_PCLMULQDQ_CRC
 bool x86_cpu_has_pclmulqdq = false;
-#define X86_PCLMULQDQ_CRC
 #include "crc_folding.c"
 #else
 #define x86_cpu_has_pclmulqdq false
@@ -629,14 +634,12 @@ void init(Handle<Object> target) {
 	NODE_SET_METHOD(target, "crc32", CRC32);
 	NODE_SET_METHOD(target, "crc32_combine", CRC32Combine);
 	
-	
+#ifdef X86_PCLMULQDQ_CRC
 #ifdef _MSC_VER
-	#if _MSC_VER >= 1600 // doesn't work on MSVC 2008, maybe works on 2010?
 	int cpuInfo[4];
 	__cpuid(cpuInfo, 1);
 	x86_cpu_has_pclmulqdq = (cpuInfo[2] & 0x80202) == 0x80202; // SSE4.1 + SSSE3 + CLMUL
-	#endif
-#elif defined(_IS_X86)
+#else
 	// conveniently stolen from zlib-ng
 	uint32_t flags;
 
@@ -647,6 +650,7 @@ void init(Handle<Object> target) {
 	: "%edx", "%ebx"
 	);
 	x86_cpu_has_pclmulqdq = (flags & 0x80202) == 0x80202; // SSE4.1 + SSSE3 + CLMUL
+#endif
 #endif
 }
 
