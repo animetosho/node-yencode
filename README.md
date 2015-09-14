@@ -24,11 +24,16 @@ Supports:
 
 -   (may eventually support) yEnc decoding
 
-Only tested with nodejs v0.10, nodejs v0.12 and iojs v3.x. Tests and fixes for
-other platforms welcome.
+Should work on nodejs 0.10.x and later.
 
-Building
-========
+Installing
+==========
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+npm install yencode
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Or you can download the package and run
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 npm install -g node-gyp # if you don't have it already
