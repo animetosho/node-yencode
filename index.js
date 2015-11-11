@@ -11,6 +11,7 @@ module.exports = {
 	// TODO: check ordering of CRC32
 	crc32: y.crc32,
 	crc32_combine: y.crc32_combine,
+	crc32_zeroes: y.crc32_zeroes,
 	
 	post: function(filename, data, line_size) {
 		if(!line_size) line_size = 128;

@@ -367,6 +367,17 @@ static inline void do_crc32_combine(unsigned char crc1[4], const unsigned char c
 	UNPACK_4(crc1, crc1_);
 }
 
+static inline void do_crc32_zeros(unsigned char crc1[4], size_t len) {
+	if(!crc) {
+		crc = crcutil_interface::CRC::Create(
+			0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
+		// instance never deleted... oh well...
+	}
+	crcutil_interface::UINT64 crc_ = 0;
+	crc->CrcOfZeroes(len, &crc_);
+	UNPACK_4(crc1, crc_);
+}
+
 void free_buffer(char* data, void* _size) {
 #if !NODE_VERSION_AT_LEAST(0, 11, 0)
 	int size = (int)(size_t)_size;
@@ -509,6 +520,23 @@ static void CRC32Combine(const FunctionCallbackInfo<Value>& args) {
 	do_crc32_combine(crc1.u8a, crc2.u8a, len);
 	RETURN_CRC(crc1);
 }
+
+static void CRC32Zeroes(const FunctionCallbackInfo<Value>& args) {
+	Isolate* isolate = Isolate::GetCurrent();
+	HandleScope scope(isolate);
+	
+	if (args.Length() < 1) {
+		isolate->ThrowException(Exception::Error(
+			String::NewFromUtf8(isolate, "At least 1 argument required"))
+		);
+		return;
+	}
+	
+	union crc32 crc1;
+	size_t len = (size_t)args[0]->ToInteger()->Value();
+	do_crc32_zeros(crc1.u8a, len);
+	RETURN_CRC(crc1);
+}
 #else
 // node 0.10 version
 #define ReturnBuffer(buffer, size, offset) return scope.Close(Local<Object>::New((buffer)->handle_))
@@ -611,6 +639,21 @@ static Handle<Value> CRC32Combine(const Arguments& args) {
 	do_crc32_combine(crc1.u8a, crc2.u8a, len);
 	ReturnBuffer(node::Buffer::New((char*)crc1.u8a, 4), 4, 0);
 }
+
+static Handle<Value> CRC32Zeroes(const Arguments& args) {
+	HandleScope scope;
+	
+	if (args.Length() < 1) {
+		return ThrowException(Exception::Error(
+			String::New("At least 1 argument required"))
+		);
+	}
+	union crc32 crc1;
+	size_t len = (size_t)args[0]->ToInteger()->Value();
+	
+	do_crc32_zeros(crc1.u8a, len);
+	ReturnBuffer(node::Buffer::New((char*)crc1.u8a, 4), 4, 0);
+}
 #endif
 
 void init(Handle<Object> target) {
@@ -633,6 +676,7 @@ void init(Handle<Object> target) {
 	NODE_SET_METHOD(target, "encode", Encode);
 	NODE_SET_METHOD(target, "crc32", CRC32);
 	NODE_SET_METHOD(target, "crc32_combine", CRC32Combine);
+	NODE_SET_METHOD(target, "crc32_zeroes", CRC32Zeroes);
 	
 #ifdef X86_PCLMULQDQ_CRC
 #ifdef _MSC_VER
