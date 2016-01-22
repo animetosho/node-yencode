@@ -18,6 +18,12 @@
 
 #if defined(__GNUC__) && CRCUTIL_USE_ASM && HAVE_I386 && HAVE_MMX
 
+#if defined(__PIC__) && __GNUC__ < 5
+/* workaround for issue with PIC reserving ebx: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=54232 */
+/* a little dangerous otherwise, since the compiler could allocate ebx to something else, so we only do it for GCC < 5.0 */
+#define PIC_WORKAROUND
+#endif
+
 namespace crcutil {
 
 template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
@@ -86,7 +92,9 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
   uint32 tmp0;
   uint32 tmp1;
   uint32 tmp2;
+#ifndef PIC_WORKAROUND
   uint32 tmp3;
+#endif
 
   uint32 temp;
 
@@ -95,6 +103,14 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
   const uint64 *table_word = &this->crc_word_[0][0];
 
   asm(
+#ifdef PIC_WORKAROUND
+    "push %%ebx\n"
+    #define TMP3 "%%ebx"
+    #define TMP3b "%%bl"
+#else
+    #define TMP3 "%[tmp3]"
+    #define TMP3b "%b[tmp3]"
+#endif
     "sub $2*4*8 - 1, %[end]\n"
     "cmpl  %[src], %[end]\n"
     "jbe 2f\n"
@@ -124,7 +140,7 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "psrlq $32, %[buf1]\n"
     "movd %[buf2], %[tmp2]\n"
     "psrlq $32, %[buf2]\n"
-    "movd %[buf3], %[tmp3]\n"
+    "movd %[buf3], "TMP3"\n"
     "psrlq $32, %[buf3]\n"
 
     "movzbl %b[tmp0], %[temp]\n"
@@ -136,8 +152,8 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "movzbl %b[tmp2], %[temp]\n"
     "shrl $8, %[tmp2]\n"
     "movq (%[table], %[temp], 8), %[crc2]\n"
-    "movzbl %b[tmp3], %[temp]\n"
-    "shrl $8, %[tmp3]\n"
+    "movzbl "TMP3b", %[temp]\n"
+    "shrl $8, "TMP3"\n"
     "movq (%[table], %[temp], 8), %[crc3]\n"
 
 #define XOR(byte) \
@@ -150,8 +166,8 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "movzbl %b[tmp2], %[temp]\n" \
     "shrl $8, %[tmp2]\n" \
     "pxor " #byte "*256*8(%[table], %[temp], 8), %[crc2]\n" \
-    "movzbl %b[tmp3], %[temp]\n" \
-    "shrl $8, %[tmp3]\n" \
+    "movzbl "TMP3b", %[temp]\n" \
+    "shrl $8, "TMP3"\n" \
     "pxor " #byte "*256*8(%[table], %[temp], 8), %[crc3]\n"
 
     XOR(1)
@@ -163,8 +179,8 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "movd %[buf1], %[tmp1]\n"
     "pxor 3*256*8(%[table], %[tmp2], 8), %[crc2]\n"
     "movd %[buf2], %[tmp2]\n"
-    "pxor 3*256*8(%[table], %[tmp3], 8), %[crc3]\n"
-    "movd %[buf3], %[tmp3]\n"
+    "pxor 3*256*8(%[table], "TMP3", 8), %[crc3]\n"
+    "movd %[buf3], "TMP3"\n"
 
     XOR(4)
     XOR(5)
@@ -176,7 +192,7 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "movq 1*8(%[src]), %[buf1]\n"
     "pxor 7*256*8(%[table], %[tmp2], 8), %[crc2]\n"
     "movq 2*8(%[src]), %[buf2]\n"
-    "pxor 7*256*8(%[table], %[tmp3], 8), %[crc3]\n"
+    "pxor 7*256*8(%[table], "TMP3", 8), %[crc3]\n"
     "movq 3*8(%[src]), %[buf3]\n"
     "cmpl %[src], %[end]\n"
     "ja 1b\n"
@@ -229,6 +245,11 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
 
     "6:\n"
 
+#ifdef PIC_WORKAROUND
+    "pop %%ebx\n"
+#endif
+#undef TMP3
+
     :   // outputs
       [src] "+r" (src),
       [end] "+m" (end),
@@ -243,7 +264,9 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
       [tmp0] "=&q" (tmp0),
       [tmp1] "=&q" (tmp1),
       [tmp2] "=&q" (tmp2),
+#ifndef PIC_WORKAROUND
       [tmp3] "=&q" (tmp3),
+#endif
       [temp] "=&r" (temp),
       [table] "=&r" (table_ptr)
 

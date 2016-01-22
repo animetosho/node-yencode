@@ -8,7 +8,8 @@
         ['OS=="win"', {
           "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
         }, {
-          "cflags": ["-march=native"]
+          "cflags": ["-march=native", "-O2"],
+          "cxxflags": ["-march=native", "-O2"]
         }]
       ],
       "include_dirs": ["crcutil-1.0/code"]
@@ -29,7 +30,7 @@
         ['OS=="win"', {
           "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
         }, {
-          "cflags": ["-march=native", "-fomit-frame-pointer"]
+          "cxxflags": ["-march=native", "-O3", "-fomit-frame-pointer"]
         }]
       ],
       "include_dirs": ["crcutil-1.0/code", "crcutil-1.0/tests"],
