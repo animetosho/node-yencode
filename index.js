@@ -8,6 +8,16 @@ module.exports = {
 	encoding: 'utf8',
 	
 	encode: y.encode,
+	encodeTo: y.encodeTo,
+	maxSize: function(length, line_size) {
+		if(!length) return 0;
+		return Math.floor(
+			  length*2 // all characters escaped
+			+ ((length*4) / (line_size||128)) // newlines, considering the possibility of all chars escaped
+			+ 2 // allocation for offset and that a newline may occur early
+			+ 32 // extra space just in case things go awry... just kidding, it's just extra padding to make SIMD logic easier
+		);
+	},
 	// TODO: check ordering of CRC32
 	crc32: y.crc32,
 	crc32_combine: y.crc32_combine,

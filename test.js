@@ -43,6 +43,9 @@ var doTest = function(msg, test, expected) {
 	if(!expected) expected = refYEnc.apply(null, test).toString('hex');
 	else expected = expected.replace(/ /g, '');
 	assert.equal(y.encode.apply(null, test).toString('hex'), expected, msg);
+	var buf = new Buffer(require('./').maxSize(test[0].length, test[1]));
+	var len = y.encodeTo.apply(null, [test[0], buf].concat(test.slice(1)));
+	assert.equal(buf.slice(0, len).toString('hex'), expected, msg);
 };
 
 

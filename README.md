@@ -65,6 +65,25 @@ Performs raw yEnc encoding on *data* returning the result.
 specifications, it's possible to have lines longer than this length)  
 *column\_offset* is the column of the first character
 
+int encodeTo(Buffer data, Buffer output, int line\_size=128, int column\_offset=0)
+----------------------------------------------------------------------------------
+
+Same as above, but instead of returning a Buffer, writes it to the supplied
+*output* Buffer. Returns the length of the encoded data.  
+Note that the *output* Buffer must be at least large enough to hold the largest
+possible output size (use the *maxSize* function to determine this), otherwise
+the function returns 0 and does not encode anything. Whilst this amount of space
+is usually not required, for performance reasons this is not checked during
+encoding, so the space is needed to prevent possible overflow conditions.
+
+int maxSize(int length, int line\_size=128)
+-------------------------------------------
+
+Returns the maximum possible size for a raw yEnc encoded message of *length*
+bytes. Note that this does include some provision for dealing with alignment
+issues specific to *yencode*‘s implementation; in other words, the returned
+value is actually an over-estimate for the maximum size.
+
 Buffer(4) crc32(Buffer data, Buffer(4) initial=false)
 -----------------------------------------------------
 

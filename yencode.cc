@@ -391,6 +391,14 @@ void free_buffer(char* data, void* _size) {
 //       line limit + return input consumed
 //       async processing?
 
+#define YENC_MAX_SIZE(len, line_size) ( \
+		  len * 2    /* all characters escaped */ \
+		+ ((len*4) / line_size) /* newlines, considering the possibility of all chars escaped */ \
+		+ 2 /* allocation for offset and that a newline may occur early */ \
+		+ 32 /* allocation for XMM overflowing */ \
+	)
+
+
 // encode(str, line_size, col)
 // crc32(str, init)
 #if NODE_VERSION_AT_LEAST(0, 11, 0)
@@ -431,18 +439,52 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	}
 	
 	// allocate enough memory to handle worst case requirements
-	size_t dest_len =
-		  arg_len * 2    // all characters escaped
-		+ ((arg_len*4) / line_size) // newlines, considering the possibility of all chars escaped
-		+ 2 // allocation for offset and that a newline may occur early
-		+ 32 // allocation for XMM overflowing
-	;
+	size_t dest_len = YENC_MAX_SIZE(arg_len, line_size);
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
 	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
 	result = (unsigned char*)realloc(result, len);
 	//isolate->AdjustAmountOfExternalAllocatedMemory(len);
 	args.GetReturnValue().Set( BUFFER_NEW((char*)result, len, free_buffer, (void*)len) );
+}
+
+static void EncodeTo(const FunctionCallbackInfo<Value>& args) {
+	Isolate* isolate = Isolate::GetCurrent();
+	HandleScope scope(isolate);
+	
+	if (args.Length() < 2 || !node::Buffer::HasInstance(args[0]) || !node::Buffer::HasInstance(args[1])) {
+		isolate->ThrowException(Exception::Error(
+			String::NewFromUtf8(isolate, "You must supply two Buffers"))
+		);
+		return;
+	}
+	
+	size_t arg_len = node::Buffer::Length(args[0]);
+	if (arg_len == 0) {
+		args.GetReturnValue().Set( Integer::New(isolate, 0) );
+		return;
+	}
+	
+	int line_size = 128, col = 0;
+	if (args.Length() >= 3) {
+		// TODO: probably should throw errors instead of transparently fixing these...
+		line_size = args[2]->ToInt32()->Value();
+		if (line_size < 1) line_size = 128;
+		if (args.Length() >= 4) {
+			col = args[3]->ToInt32()->Value();
+			if (col >= line_size) col = 0;
+		}
+	}
+	
+	// check that destination buffer has enough space
+	size_t dest_len = YENC_MAX_SIZE(arg_len, line_size);
+	if(node::Buffer::Length(args[1]) < dest_len) {
+		args.GetReturnValue().Set( Integer::New(isolate, 0) );
+		return;
+	}
+	
+	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len);
+	args.GetReturnValue().Set( Integer::New(isolate, len) );
 }
 
 #if NODE_VERSION_AT_LEAST(3, 0, 0)
@@ -567,18 +609,48 @@ static Handle<Value> Encode(const Arguments& args) {
 	}
 	
 	// allocate enough memory to handle worst case requirements
-	size_t dest_len =
-		  arg_len * 2    // all characters escaped
-		+ ((arg_len*4) / line_size) // newlines, considering the possibility of all chars escaped
-		+ 2 // allocation for offset and that a newline may occur early
-		+ 32 // allocation for XMM overflowing
-	;
+	size_t dest_len = YENC_MAX_SIZE(arg_len, line_size);
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
 	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
 	result = (unsigned char*)realloc(result, len);
 	V8::AdjustAmountOfExternalAllocatedMemory(len);
 	ReturnBuffer(node::Buffer::New((char*)result, len, free_buffer, (void*)len), len, 0);
+}
+
+static Handle<Value> EncodeTo(const Arguments& args) {
+	HandleScope scope;
+	
+	if (args.Length() < 2 || !node::Buffer::HasInstance(args[0]) || !node::Buffer::HasInstance(args[1])) {
+		return ThrowException(Exception::Error(
+			String::New("You must supply two Buffers"))
+		);
+	}
+	
+	size_t arg_len = node::Buffer::Length(args[0]);
+	if (arg_len == 0) {
+		return scope.Close(Integer::New(0));
+	}
+	
+	int line_size = 128, col = 0;
+	if (args.Length() >= 3) {
+		// TODO: probably should throw errors instead of transparently fixing these...
+		line_size = args[2]->ToInt32()->Value();
+		if (line_size < 1) line_size = 128;
+		if (args.Length() >= 4) {
+			col = args[3]->ToInt32()->Value();
+			if (col >= line_size) col = 0;
+		}
+	}
+	
+	// check that destination buffer has enough space
+	size_t dest_len = YENC_MAX_SIZE(arg_len, line_size);
+	if(node::Buffer::Length(args[1]) < dest_len) {
+		return scope.Close(Integer::New(0));
+	}
+	
+	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len);
+	return scope.Close(Integer::New(len));
 }
 
 static Handle<Value> CRC32(const Arguments& args) {
@@ -674,6 +746,7 @@ void init(Handle<Object> target) {
 	escapedLUT[214 + ' ' ] = UINT16_PACK('=', ' '+64);
 	escapedLUT['.' - 42	] =  UINT16_PACK('=', '.'+64);
 	NODE_SET_METHOD(target, "encode", Encode);
+	NODE_SET_METHOD(target, "encodeTo", EncodeTo);
 	NODE_SET_METHOD(target, "crc32", CRC32);
 	NODE_SET_METHOD(target, "crc32_combine", CRC32Combine);
 	NODE_SET_METHOD(target, "crc32_zeroes", CRC32Zeroes);

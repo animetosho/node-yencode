@@ -1,6 +1,6 @@
 {
   "name": "yencode",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Fast yEnc encoder and CRC32 calculator using compiled code",
   "keywords": [
     "yenc",
