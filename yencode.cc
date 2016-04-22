@@ -55,12 +55,6 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 	unsigned char c, escaped; // input character; escaped input character
 	
 	#ifdef __SSE2__
-	#define MM_FILL_BYTES(b) _mm_set_epi8(b,b,b,b,b,b,b,b,b,b,b,b,b,b,b,b)
-	__m128i mm_42 = MM_FILL_BYTES(42);
-	__m128i mm_null = _mm_setzero_si128(),
-	        mm_lf = MM_FILL_BYTES('\n'),
-	        mm_cr = MM_FILL_BYTES('\r'),
-	        mm_eq = MM_FILL_BYTES('=');
 	ALIGN_16(uint32_t mmTmp[4]);
 	#endif
 	
@@ -86,18 +80,18 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 			sp = p;
 			__m128i data = _mm_add_epi8(
 				_mm_loadu_si128((__m128i *)(src + i)), // probably not worth the effort to align
-				mm_42
+				_mm_set1_epi8(42)
 			);
 			// search for special chars
 			__m128i cmp = _mm_or_si128(
 				_mm_or_si128(
-					_mm_or_si128(
-						_mm_cmpeq_epi8(data, mm_null),
-						_mm_cmpeq_epi8(data, mm_lf)
-					),
-					_mm_cmpeq_epi8(data, mm_cr)
+					_mm_cmpeq_epi8(data, _mm_setzero_si128()),
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
 				),
-				_mm_cmpeq_epi8(data, mm_eq)
+				_mm_or_si128(
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('='))
+				)
 			);
 			
 			unsigned int mask = _mm_movemask_epi8(cmp);
@@ -139,61 +133,6 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 			p = sp;
 			i -= XMM_SIZE;
 		}
-		
-		/*
-		// NOTE: this code doesn't work
-		// perhaps try moving remaining parts w/ 32-bit copies?  doesn't seem to have any improvement :|
-		if (len-i-1 > XMM_SIZE && line_size-col-1 > 8) {
-			__m128i data = _mm_add_epi8(
-				_mm_loadu_si128((__m128i *)(src + i)),
-				mm_42
-			);
-			_mm_store_si128((__m128i*)mmTmp, data);
-			// search for special chars
-			__m128i cmp = _mm_or_si128(
-				_mm_or_si128(
-					_mm_or_si128(
-						_mm_cmpeq_epi8(data, mm_null),
-						_mm_cmpeq_epi8(data, mm_lf)
-					),
-					_mm_cmpeq_epi8(data, mm_cr)
-				),
-				_mm_cmpeq_epi8(data, mm_eq)
-			);
-			
-			unsigned int mask = _mm_movemask_epi8(cmp);
-			
-			#define DO_THING_4b(n) \
-				if(line_size - col - 1 > n+8) { \
-					if(mask & (0xF << (n/4))) { \
-						sp = p; \
-						DO_THING(n); \
-						DO_THING(n+1); \
-						DO_THING(n+2); \
-						DO_THING(n+3); \
-						col += p - sp; \
-					} else { \
-						*(uint32_t*)(p + n) = mmTmp[n/4]; \
-					}
-			#define DO_THING_4c(n) \
-				} else { \
-					i += n; \
-					p += n; \
-					col += n; \
-				}
-			DO_THING_4b(0);
-				DO_THING_4b(4);
-					DO_THING_4b(8);
-						DO_THING_4b(12);
-							i += 16;
-							p += 16;
-							col += 16;
-						DO_THING_4c(12);
-					DO_THING_4c(8);
-				DO_THING_4c(4);
-			DO_THING_4c(0);
-		}
-		*/
 		#else
 		while (len-i-1 > 8 && line_size-col-1 > 8) {
 			// 8 cycle unrolled version
