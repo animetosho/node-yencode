@@ -27,7 +27,6 @@ using namespace v8;
 #endif
 #endif
 
-
 static unsigned char escapeLUT[256]; // whether or not the character is critical
 static uint16_t escapedLUT[256]; // escaped sequences for characters that need escaping
 // combine two 8-bit ints into a 16-bit one
@@ -49,6 +48,9 @@ static uint16_t escapedLUT[256]; // escaped sequences for characters that need e
 
 #ifdef __SSE4_1__
 #include <smmintrin.h>
+#endif
+#ifdef __POPCNT__
+#include <nmmintrin.h>
 #endif
 #endif
 
@@ -206,13 +208,25 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 
 // requires SSE4.1, SSSE3 & 64-bit preferred
 #ifdef __SSE4_1__
-uint64_t shufLUT[256];
+ALIGN_32(__m128i shufLUT[256]);
+#ifndef __POPCNT__
+// table from http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetTable
+static const unsigned char BitsSetTable256[256] = 
+{
+#   define B2(n) n,     n+1,     n+1,     n+2
+#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+    B6(0), B6(1), B6(1), B6(2)
+#undef B2
+#undef B4
+#undef B6
+};
+#endif
 static inline size_t do_encode_fast(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
 	unsigned char c, escaped; // input character; escaped input character
 	
-	__m128i lmask = _mm_set1_epi8(0xF);
 	__m128i numbers = _mm_set_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
 	
 	if (col > 0) goto skip_first_char;
@@ -239,7 +253,6 @@ static inline size_t do_encode_fast(int line_size, int col, const unsigned char*
 				_mm_set1_epi8(42)
 			);
 			// search for special chars
-			// TODO: for some reason, GCC feels obliged to spill `data` onto the stack, then _load_ from it!
 			__m128i cmp = _mm_or_si128(
 				_mm_or_si128(
 					_mm_cmpeq_epi8(data, _mm_setzero_si128()),
@@ -254,30 +267,10 @@ static inline size_t do_encode_fast(int line_size, int col, const unsigned char*
 			unsigned int mask = _mm_movemask_epi8(cmp);
 			if (mask != 0) {
 				// perform lookup for shuffle mask
-				// TODO: better handling for 32-bit mode?
 				// TODO: consider doing only 1 set of shuffles?
-				// TODO: consider storing masks as 128-bit, and doing a bit count for lengths
 				
-				// lookup 16x4bit shuffle mask - need two of them for the two 8-bit halves of the mask
-				uint64_t shufA = shufLUT[mask & 0xFF];
-				// since first 4 bits are guaranteed to be zero, we abuse it to store the length
-				int shufALen = (shufA & 0xF) + 1; // length of shufA
-				uint64_t shufB = shufLUT[mask >> 8];
-				int shufBLen = (shufB & 0xF) + 1;
-				shufA &= ~0xF;
-				shufB &= ~0xF;
-				
-				// convert 4-bit -> 8-bit
-				__m128i shufMA = _mm_cvtsi64_si128(shufA);
-				shufMA = _mm_unpacklo_epi8(
-					_mm_and_si128(lmask, shufMA),
-					_mm_and_si128(lmask, _mm_srli_epi16(shufMA, 4))
-				);
-				__m128i shufMB = _mm_cvtsi64_si128(shufB);
-				shufMB = _mm_unpacklo_epi8(
-					_mm_and_si128(lmask, shufMB),
-					_mm_and_si128(lmask, _mm_srli_epi16(shufMB, 4))
-				);
+				__m128i shufMA = _mm_load_si128(shufLUT + (mask & 0xFF));
+				__m128i shufMB = _mm_load_si128(shufLUT + (mask >> 8));
 				
 				// create actual shuffle masks
 				shufMA = _mm_sub_epi8(numbers, shufMA);
@@ -321,6 +314,13 @@ static inline size_t do_encode_fast(int line_size, int col, const unsigned char*
 				);
 #endif
 				// store out
+#ifdef __POPCNT__
+				unsigned char shufALen = _mm_popcnt_u32(mask & 0xFF) + 8;
+				unsigned char shufBLen = _mm_popcnt_u32(mask >> 8) + 8;
+#else
+				unsigned char shufALen = BitsSetTable256[mask & 0xFF] + 8;
+				unsigned char shufBLen = BitsSetTable256[mask >> 8] + 8;
+#endif
 				_mm_storeu_si128((__m128i*)p, data);
 				p += shufALen;
 				_mm_storeu_si128((__m128i*)p, data2);
@@ -872,21 +872,20 @@ void init(Handle<Object> target) {
 #ifdef __SSE4_1__
 	// generate shuf LUT
 	for(int i=0; i<256; i++) {
-		int k = i, len = 0;
-		uint64_t res = 0;
-		uint64_t p = 0;
+		int k = i;
+		uint8_t res[16];
+		int p = 0;
 		for(int j=0; j<8; j++) {
-			res |= (p<<len);
-			len += 4;
+			res[j+p] = p;
 			if(k & 1) {
-				res |= ((++p)<<len);
-				len += 4;
+				p++;
+				res[j+p] = p;
 			}
 			k >>= 1;
 		}
-		// first 4-bits is always zero; abuse this and stick in the length there
-		res |= (len>>2) -1;
-		shufLUT[i] = res;
+		for(; p<8; p++)
+			res[8+p] = 0;
+		_mm_store_si128(shufLUT + i, _mm_loadu_si128((__m128i*)res));
 	}
 #endif
 	
