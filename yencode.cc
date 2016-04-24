@@ -82,8 +82,7 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 		unsigned char* sp = NULL;
 		// main line
 		#ifdef __SSE2__
-		while (len-i-1 > XMM_SIZE && line_size-col-1 > XMM_SIZE) {
-			sp = p;
+		while (len-i-1 > XMM_SIZE && col < line_size-1) {
 			__m128i data = _mm_add_epi8(
 				_mm_loadu_si128((__m128i *)(src + i)), // probably not worth the effort to align
 				_mm_set1_epi8(42)
@@ -103,6 +102,7 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 			
 			unsigned int mask = _mm_movemask_epi8(cmp);
 			if (mask != 0) {
+				sp = p;
 				ALIGN_32(uint32_t mmTmp[4]);
 				// special characters exist
 				_mm_store_si128((__m128i*)mmTmp, data);
@@ -129,19 +129,26 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 				DO_THING_4(12);
 				p += XMM_SIZE;
 				col += (int)(p - sp);
+				
+				if(col > line_size-1) {
+					// we overflowed - need to revert and use slower method :(
+					col -= (int)(p - sp);
+					p = sp;
+					break;
+				}
 			} else {
 				_mm_storeu_si128((__m128i*)p, data);
 				p += XMM_SIZE;
 				col += XMM_SIZE;
+				if(col > line_size-1) {
+					p -= col - (line_size-1);
+					i += XMM_SIZE - (col - (line_size-1));
+					col = line_size-1;
+					goto last_char;
+				}
 			}
 			
 			i += XMM_SIZE;
-		}
-		if(sp && col > line_size-1) {
-			// we overflowed - need to revert and use slower method :(
-			col -= (int)(p - sp);
-			p = sp;
-			i -= XMM_SIZE;
 		}
 		#else
 		while (len-i-1 > 8 && line_size-col-1 > 8) {
@@ -189,6 +196,7 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 			if (i >= len) goto end;
 		}
 		
+		last_char:
 		// last line char
 		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
 			c = src[i++];
@@ -237,7 +245,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 	__m128i numbers = _mm_set_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
 	__m128i equals = _mm_set1_epi8('=');
 	
-	if (col > 0) goto skip_first_char;
+	if (col > 0) goto skip_first_char_fast;
 	while(1) {
 		// first char in line
 		c = src[i++];
@@ -251,15 +259,14 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 		}
 		if (i >= len) break;
 		
-		skip_first_char:
-		unsigned char* sp = NULL;
+		skip_first_char_fast:
 		// main line
-		while (len-i-1 > XMM_SIZE && line_size-col-1 > XMM_SIZE) {
-			sp = p;
+		while (len-i-1 > XMM_SIZE && col < line_size-1) {
 			__m128i data = _mm_add_epi8(
 				_mm_loadu_si128((__m128i *)(src + i)), // probably not worth the effort to align
 				_mm_set1_epi8(42)
 			);
+			i += XMM_SIZE;
 			// search for special chars
 			__m128i cmp = _mm_or_si128(
 				_mm_or_si128(
@@ -333,20 +340,26 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				p += shufALen;
 				_mm_storeu_si128((__m128i*)p, data2);
 				p += shufBLen;
-				col += (int)(p - sp);
+				col += shufALen + shufBLen;
+				
+				if(col > line_size-1) {
+					// we overflowed - need to revert and use slower method :(
+					col -= shufALen + shufBLen;
+					p -= shufALen + shufBLen;
+					i -= XMM_SIZE;
+					break;
+				}
 			} else {
 				_mm_storeu_si128((__m128i*)p, data);
 				p += XMM_SIZE;
 				col += XMM_SIZE;
+				if(col > line_size-1) {
+					p -= col - (line_size-1);
+					i -= col - (line_size-1);
+					col = line_size-1;
+					goto last_char_fast;
+				}
 			}
-			
-			i += XMM_SIZE;
-		}
-		if(sp && col > line_size-1) {
-			// we overflowed - need to revert and use slower method :(
-			col -= (int)(p - sp);
-			p = sp;
-			i -= XMM_SIZE;
 		}
 		// handle remaining chars
 		while(col < line_size-1) {
@@ -363,6 +376,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 			if (i >= len) goto end;
 		}
 		
+		last_char_fast:
 		// last line char
 		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
 			c = src[i++];
