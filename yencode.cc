@@ -10,7 +10,8 @@ using namespace v8;
 // MSVC compatibility
 #if (defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(_M_X64)
 	#define __SSE2__ 1
-	#define __SSE4_1__ 1
+	#define __SSSE3__ 1
+	//#define __SSE4_1__ 1
 	#if defined(_MSC_VER) && _MSC_VER >= 1600
 		#define X86_PCLMULQDQ_CRC 1
 	#endif
@@ -46,6 +47,9 @@ static uint16_t escapedLUT[256]; // escaped sequences for characters that need e
 #define ALIGN_32(v) v __attribute__((aligned(32)))
 #endif
 
+#ifdef __SSSE3__
+#include <tmmintrin.h>
+#endif
 #ifdef __SSE4_1__
 #include <smmintrin.h>
 #endif
@@ -55,7 +59,7 @@ static uint16_t escapedLUT[256]; // escaped sequences for characters that need e
 #endif
 
 // runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
-static inline size_t do_encode(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
+static size_t do_encode_slow(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
 	unsigned char c, escaped; // input character; escaped input character
@@ -206,8 +210,11 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 }
 
 
-// requires SSE4.1, SSSE3 & 64-bit preferred
-#ifdef __SSE4_1__
+// slightly faster version which improves the worst case scenario significantly; since worst case doesn't happen often, overall speedup is relatively minor
+// requires PSHUFB (SSSE3) instruction, but will use PBLENDV (SSE4.1) and POPCNT (SSE4.2 (or AMD's ABM, but Phenom doesn't support SSSE3 so doesn't matter)) if available (these only seem to give minor speedups, so considered optional)
+#ifdef __SSSE3__
+size_t (*_do_encode)(int, int, const unsigned char*, unsigned char*, size_t) = &do_encode_slow;
+#define do_encode (*_do_encode)
 ALIGN_32(__m128i shufLUT[256]);
 #ifndef __POPCNT__
 // table from http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetTable
@@ -222,7 +229,7 @@ static const unsigned char BitsSetTable256[256] =
 #undef B6
 };
 #endif
-static inline size_t do_encode_fast(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
+static size_t do_encode_fast(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
 	unsigned char c, escaped; // input character; escaped input character
@@ -266,9 +273,9 @@ static inline size_t do_encode_fast(int line_size, int col, const unsigned char*
 			
 			unsigned int mask = _mm_movemask_epi8(cmp);
 			if (mask != 0) {
-				// perform lookup for shuffle mask
 				// TODO: consider doing only 1 set of shuffles?
 				
+				// perform lookup for shuffle mask
 				__m128i shufMA = _mm_load_si128(shufLUT + (mask & 0xFF));
 				__m128i shufMB = _mm_load_si128(shufLUT + (mask >> 8));
 				
@@ -374,6 +381,8 @@ static inline size_t do_encode_fast(int line_size, int col, const unsigned char*
 	end:
 	return p - dest;
 }
+#else
+#define do_encode do_encode_slow
 #endif
 
 
@@ -868,44 +877,54 @@ void init(Handle<Object> target) {
 	NODE_SET_METHOD(target, "crc32_zeroes", CRC32Zeroes);
 	
 	
-	// TODO: only use this if CPU is 64-bit
-#ifdef __SSE4_1__
-	// generate shuf LUT
-	for(int i=0; i<256; i++) {
-		int k = i;
-		uint8_t res[16];
-		int p = 0;
-		for(int j=0; j<8; j++) {
-			res[j+p] = p;
-			if(k & 1) {
-				p++;
-				res[j+p] = p;
-			}
-			k >>= 1;
-		}
-		for(; p<8; p++)
-			res[8+p] = 0;
-		_mm_store_si128(shufLUT + i, _mm_loadu_si128((__m128i*)res));
-	}
-#endif
 	
-#ifdef X86_PCLMULQDQ_CRC
+#ifdef __SSSE3__
+	uint32_t flags;
 #ifdef _MSC_VER
 	int cpuInfo[4];
 	__cpuid(cpuInfo, 1);
-	x86_cpu_has_pclmulqdq = (cpuInfo[2] & 0x80202) == 0x80202; // SSE4.1 + SSSE3 + CLMUL
+	flags = cpuInfo[2];
 #else
 	// conveniently stolen from zlib-ng
-	uint32_t flags;
-
 	__asm__ __volatile__ (
 		"cpuid"
 	: "=c" (flags)
 	: "a" (1)
 	: "%edx", "%ebx"
 	);
+#endif
+#ifdef X86_PCLMULQDQ_CRC
 	x86_cpu_has_pclmulqdq = (flags & 0x80202) == 0x80202; // SSE4.1 + SSSE3 + CLMUL
 #endif
+	
+	uint32_t fastYencMask = 0x200;
+#ifdef __POPCNT__
+	fastYencMask |= 0x800000;
+#endif
+#ifdef __SSE4_1__
+	fastYencMask |= 0x80000;
+#endif
+	_do_encode = ((flags & fastYencMask) == fastYencMask) ? &do_encode_fast : &do_encode_slow; // SSSE3 + required stuff based on compiler flags
+	
+	if((flags & fastYencMask) == fastYencMask) {
+		// generate shuf LUT
+		for(int i=0; i<256; i++) {
+			int k = i;
+			uint8_t res[16];
+			int p = 0;
+			for(int j=0; j<8; j++) {
+				res[j+p] = p;
+				if(k & 1) {
+					p++;
+					res[j+p] = p;
+				}
+				k >>= 1;
+			}
+			for(; p<8; p++)
+				res[8+p] = 0;
+			_mm_store_si128(shufLUT + i, _mm_loadu_si128((__m128i*)res));
+		}
+	}
 #endif
 }
 
