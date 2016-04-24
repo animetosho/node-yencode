@@ -137,7 +137,7 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 			
 			i += XMM_SIZE;
 		}
-		if(sp && col >= line_size-1) {
+		if(sp && col > line_size-1) {
 			// we overflowed - need to revert and use slower method :(
 			col -= (int)(p - sp);
 			p = sp;
@@ -235,6 +235,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 	unsigned char c, escaped; // input character; escaped input character
 	
 	__m128i numbers = _mm_set_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+	__m128i equals = _mm_set1_epi8('=');
 	
 	if (col > 0) goto skip_first_char;
 	while(1) {
@@ -267,7 +268,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				),
 				_mm_or_si128(
 					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
-					_mm_cmpeq_epi8(data, _mm_set1_epi8('='))
+					_mm_cmpeq_epi8(data, equals)
 				)
 			);
 			
@@ -296,18 +297,18 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				__m128i tmp1 = _mm_add_epi8(data, _mm_set1_epi8(64));
 				__m128i tmp2 = _mm_add_epi8(data2, _mm_set1_epi8(64));
 #ifdef __SSE4_1__
-				data = _mm_blendv_epi8(data, _mm_set1_epi8('='), maskEscA);
-				data2 = _mm_blendv_epi8(data2, _mm_set1_epi8('='), maskEscB);
+				data = _mm_blendv_epi8(data, equals, maskEscA);
+				data2 = _mm_blendv_epi8(data2, equals, maskEscB);
 				data = _mm_blendv_epi8(data, tmp1, _mm_slli_si128(maskEscA, 1));
 				data2 = _mm_blendv_epi8(data2, tmp2, _mm_slli_si128(maskEscB, 1));
 #else
 				data = _mm_or_si128(
 					_mm_andnot_si128(maskEscA, data),
-					_mm_and_si128   (maskEscA, _mm_set1_epi8('='))
+					_mm_and_si128   (maskEscA, equals)
 				);
 				data2 = _mm_or_si128(
 					_mm_andnot_si128(maskEscB, data2),
-					_mm_and_si128   (maskEscB, _mm_set1_epi8('='))
+					_mm_and_si128   (maskEscB, equals)
 				);
 				maskEscA = _mm_slli_si128(maskEscA, 1);
 				maskEscB = _mm_slli_si128(maskEscB, 1);
@@ -341,7 +342,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 			
 			i += XMM_SIZE;
 		}
-		if(sp && col >= line_size-1) {
+		if(sp && col > line_size-1) {
 			// we overflowed - need to revert and use slower method :(
 			col -= (int)(p - sp);
 			p = sp;
