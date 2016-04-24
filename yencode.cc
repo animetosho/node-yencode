@@ -10,6 +10,7 @@ using namespace v8;
 // MSVC compatibility
 #if (defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(_M_X64)
 	#define __SSE2__ 1
+	#define __SSE4_1__ 1
 	#if defined(_MSC_VER) && _MSC_VER >= 1600
 		#define X86_PCLMULQDQ_CRC 1
 	#endif
@@ -41,11 +42,14 @@ static uint16_t escapedLUT[256]; // escaped sequences for characters that need e
 #define XMM_SIZE 16 /*== (signed int)sizeof(__m128i)*/
 
 #ifdef _MSC_VER
-#define ALIGN_16(v) __declspec(align(16)) v
+#define ALIGN_32(v) __declspec(align(32)) v
 #else
-#define ALIGN_16(v) v __attribute__((aligned(16)))
+#define ALIGN_32(v) v __attribute__((aligned(32)))
 #endif
 
+#ifdef __SSE4_1__
+#include <smmintrin.h>
+#endif
 #endif
 
 // runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
@@ -53,10 +57,6 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
 	unsigned char c, escaped; // input character; escaped input character
-	
-	#ifdef __SSE2__
-	ALIGN_16(uint32_t mmTmp[4]);
-	#endif
 	
 	if (col > 0) goto skip_first_char;
 	while(1) {
@@ -83,6 +83,7 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 				_mm_set1_epi8(42)
 			);
 			// search for special chars
+			// TODO: for some reason, GCC feels obliged to spill `data` onto the stack, then _load_ from it!
 			__m128i cmp = _mm_or_si128(
 				_mm_or_si128(
 					_mm_cmpeq_epi8(data, _mm_setzero_si128()),
@@ -96,6 +97,7 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 			
 			unsigned int mask = _mm_movemask_epi8(cmp);
 			if (mask != 0) {
+				ALIGN_32(uint32_t mmTmp[4]);
 				// special characters exist
 				_mm_store_si128((__m128i*)mmTmp, data);
 				#define DO_THING(n) \
@@ -119,13 +121,15 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 				DO_THING_4(4);
 				DO_THING_4(8);
 				DO_THING_4(12);
+				p += XMM_SIZE;
+				col += (int)(p - sp);
 			} else {
 				_mm_storeu_si128((__m128i*)p, data);
+				p += XMM_SIZE;
+				col += XMM_SIZE;
 			}
 			
-			p += XMM_SIZE;
 			i += XMM_SIZE;
-			col += (int)(p - sp);
 		}
 		if(sp && col >= line_size-1) {
 			// we overflowed - need to revert and use slower method :(
@@ -198,6 +202,179 @@ static inline size_t do_encode(int line_size, int col, const unsigned char* src,
 	end:
 	return p - dest;
 }
+
+
+// requires SSE4.1, SSSE3 & 64-bit preferred
+#ifdef __SSE4_1__
+uint64_t shufLUT[256];
+static inline size_t do_encode_fast(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
+	unsigned char *p = dest; // destination pointer
+	unsigned long i = 0; // input position
+	unsigned char c, escaped; // input character; escaped input character
+	
+	__m128i lmask = _mm_set1_epi8(0xF);
+	__m128i numbers = _mm_set_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+	
+	if (col > 0) goto skip_first_char;
+	while(1) {
+		// first char in line
+		c = src[i++];
+		if (escapedLUT[c]) {
+			*(uint16_t*)p = escapedLUT[c];
+			p += 2;
+			col = 2;
+		} else {
+			*(p++) = escapeLUT[c];
+			col = 1;
+		}
+		if (i >= len) break;
+		
+		skip_first_char:
+		unsigned char* sp = NULL;
+		// main line
+		while (len-i-1 > XMM_SIZE && line_size-col-1 > XMM_SIZE) {
+			sp = p;
+			__m128i data = _mm_add_epi8(
+				_mm_loadu_si128((__m128i *)(src + i)), // probably not worth the effort to align
+				_mm_set1_epi8(42)
+			);
+			// search for special chars
+			// TODO: for some reason, GCC feels obliged to spill `data` onto the stack, then _load_ from it!
+			__m128i cmp = _mm_or_si128(
+				_mm_or_si128(
+					_mm_cmpeq_epi8(data, _mm_setzero_si128()),
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
+				),
+				_mm_or_si128(
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('='))
+				)
+			);
+			
+			unsigned int mask = _mm_movemask_epi8(cmp);
+			if (mask != 0) {
+				// perform lookup for shuffle mask
+				// TODO: better handling for 32-bit mode?
+				// TODO: consider doing only 1 set of shuffles?
+				// TODO: consider storing masks as 128-bit, and doing a bit count for lengths
+				
+				// lookup 16x4bit shuffle mask - need two of them for the two 8-bit halves of the mask
+				uint64_t shufA = shufLUT[mask & 0xFF];
+				// since first 4 bits are guaranteed to be zero, we abuse it to store the length
+				int shufALen = (shufA & 0xF) + 1; // length of shufA
+				uint64_t shufB = shufLUT[mask >> 8];
+				int shufBLen = (shufB & 0xF) + 1;
+				shufA &= ~0xF;
+				shufB &= ~0xF;
+				
+				// convert 4-bit -> 8-bit
+				__m128i shufMA = _mm_cvtsi64_si128(shufA);
+				shufMA = _mm_unpacklo_epi8(
+					_mm_and_si128(lmask, shufMA),
+					_mm_and_si128(lmask, _mm_srli_epi16(shufMA, 4))
+				);
+				__m128i shufMB = _mm_cvtsi64_si128(shufB);
+				shufMB = _mm_unpacklo_epi8(
+					_mm_and_si128(lmask, shufMB),
+					_mm_and_si128(lmask, _mm_srli_epi16(shufMB, 4))
+				);
+				
+				// create actual shuffle masks
+				shufMA = _mm_sub_epi8(numbers, shufMA);
+				shufMB = _mm_sub_epi8(_mm_add_epi8(numbers, _mm_set1_epi8(8)), shufMB);
+				
+				// expand halves
+				//shuf = _mm_or_si128(_mm_cmpgt_epi8(shuf, _mm_set1_epi8(15)), shuf);
+				__m128i data2 = _mm_shuffle_epi8(data, shufMB);
+				data = _mm_shuffle_epi8(data, shufMA);
+				
+				// get the maskEsc for the escaped chars
+				__m128i maskEscA = _mm_cmpeq_epi8(shufMA, _mm_srli_si128(shufMA, 1));
+				__m128i maskEscB = _mm_cmpeq_epi8(shufMB, _mm_srli_si128(shufMB, 1));
+				
+				// blend escape chars in
+				__m128i tmp1 = _mm_add_epi8(data, _mm_set1_epi8(64));
+				__m128i tmp2 = _mm_add_epi8(data2, _mm_set1_epi8(64));
+#ifdef __SSE4_1__
+				data = _mm_blendv_epi8(data, _mm_set1_epi8('='), maskEscA);
+				data2 = _mm_blendv_epi8(data2, _mm_set1_epi8('='), maskEscB);
+				data = _mm_blendv_epi8(data, tmp1, _mm_slli_si128(maskEscA, 1));
+				data2 = _mm_blendv_epi8(data2, tmp2, _mm_slli_si128(maskEscB, 1));
+#else
+				data = _mm_or_si128(
+					_mm_andnot_si128(maskEscA, data),
+					_mm_and_si128   (maskEscA, _mm_set1_epi8('='))
+				);
+				data2 = _mm_or_si128(
+					_mm_andnot_si128(maskEscB, data2),
+					_mm_and_si128   (maskEscB, _mm_set1_epi8('='))
+				);
+				maskEscA = _mm_slli_si128(maskEscA, 1);
+				maskEscB = _mm_slli_si128(maskEscB, 1);
+				data = _mm_or_si128(
+					_mm_andnot_si128(maskEscA, data),
+					_mm_and_si128   (maskEscA, tmp1)
+				);
+				data2 = _mm_or_si128(
+					_mm_andnot_si128(maskEscB, data2),
+					_mm_and_si128   (maskEscB, tmp2)
+				);
+#endif
+				// store out
+				_mm_storeu_si128((__m128i*)p, data);
+				p += shufALen;
+				_mm_storeu_si128((__m128i*)p, data2);
+				p += shufBLen;
+				col += (int)(p - sp);
+			} else {
+				_mm_storeu_si128((__m128i*)p, data);
+				p += XMM_SIZE;
+				col += XMM_SIZE;
+			}
+			
+			i += XMM_SIZE;
+		}
+		if(sp && col >= line_size-1) {
+			// we overflowed - need to revert and use slower method :(
+			col -= (int)(p - sp);
+			p = sp;
+			i -= XMM_SIZE;
+		}
+		// handle remaining chars
+		while(col < line_size-1) {
+			c = src[i++], escaped = escapeLUT[c];
+			if (escaped) {
+				*(p++) = escaped;
+				col++;
+			}
+			else {
+				*(uint16_t*)p = escapedLUT[c];
+				p += 2;
+				col += 2;
+			}
+			if (i >= len) goto end;
+		}
+		
+		// last line char
+		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
+			c = src[i++];
+			if (escapedLUT[c] && c != '.'-42) {
+				*(uint16_t*)p = escapedLUT[c];
+				p += 2;
+			} else {
+				*(p++) = escapeLUT[c];
+			}
+		}
+		
+		if (i >= len) break;
+		*(uint16_t*)p = UINT16_PACK('\r', '\n');
+		p += 2;
+	}
+	
+	end:
+	return p - dest;
+}
+#endif
 
 
 /*
@@ -689,6 +866,29 @@ void init(Handle<Object> target) {
 	NODE_SET_METHOD(target, "crc32", CRC32);
 	NODE_SET_METHOD(target, "crc32_combine", CRC32Combine);
 	NODE_SET_METHOD(target, "crc32_zeroes", CRC32Zeroes);
+	
+	
+	// TODO: only use this if CPU is 64-bit
+#ifdef __SSE4_1__
+	// generate shuf LUT
+	for(int i=0; i<256; i++) {
+		int k = i, len = 0;
+		uint64_t res = 0;
+		uint64_t p = 0;
+		for(int j=0; j<8; j++) {
+			res |= (p<<len);
+			len += 4;
+			if(k & 1) {
+				res |= ((++p)<<len);
+				len += 4;
+			}
+			k >>= 1;
+		}
+		// first 4-bits is always zero; abuse this and stick in the length there
+		res |= (len>>2) -1;
+		shufLUT[i] = res;
+	}
+#endif
 	
 #ifdef X86_PCLMULQDQ_CRC
 #ifdef _MSC_VER
