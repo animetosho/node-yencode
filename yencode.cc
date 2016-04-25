@@ -204,9 +204,9 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 			if (i >= len) goto end;
 		}
 		
-		last_char:
 		// last line char
 		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
+			last_char:
 			c = src[i++];
 			if (escapedLUT[c] && c != '.'-42) {
 				*(uint16_t*)p = escapedLUT[c];
@@ -290,10 +290,12 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 			unsigned int mask = _mm_movemask_epi8(cmp);
 			if (mask != 0) {
 				// TODO: consider doing only 1 set of shuffles?
+				uint8_t m1 = mask & 0xFF;
+				uint8_t m2 = mask >> 8;
 				
 				// perform lookup for shuffle mask
-				__m128i shufMA = _mm_load_si128(shufLUT + (mask & 0xFF));
-				__m128i shufMB = _mm_load_si128(shufLUT + (mask >> 8));
+				__m128i shufMA = _mm_load_si128(shufLUT + m1);
+				__m128i shufMB = _mm_load_si128(shufLUT + m2);
 				
 				// create actual shuffle masks
 				shufMA = _mm_sub_epi8(numbers, shufMA);
@@ -338,11 +340,11 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 #endif
 				// store out
 #ifdef __POPCNT__
-				unsigned char shufALen = _mm_popcnt_u32(mask & 0xFF) + 8;
-				unsigned char shufBLen = _mm_popcnt_u32(mask >> 8) + 8;
+				unsigned char shufALen = _mm_popcnt_u32(m1) + 8;
+				unsigned char shufBLen = _mm_popcnt_u32(m2) + 8;
 #else
-				unsigned char shufALen = BitsSetTable256[mask & 0xFF] + 8;
-				unsigned char shufBLen = BitsSetTable256[mask >> 8] + 8;
+				unsigned char shufALen = BitsSetTable256[m1] + 8;
+				unsigned char shufBLen = BitsSetTable256[m2] + 8;
 #endif
 				_mm_storeu_si128((__m128i*)p, data);
 				p += shufALen;
@@ -351,10 +353,30 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				col += shufALen + shufBLen;
 				
 				if(col > line_size-1) {
-					// we overflowed - need to revert and use slower method :(
-					col -= shufALen + shufBLen;
-					p -= shufALen + shufBLen;
-					i -= XMM_SIZE;
+					// we overflowed - may need to revert and use slower method :(
+					if(col-shufBLen > line_size-1) {
+						if(m1) {
+							col -= shufALen + shufBLen;
+							p -= shufALen + shufBLen;
+							i -= XMM_SIZE;
+						} else {
+							p -= col - (line_size-1);
+							i -= col - (line_size-1) + (8 - shufBLen);
+							col = line_size-1;
+							goto last_char_fast;
+						}
+					} else {
+						if(m2) {
+							col -= shufBLen;
+							p -= shufBLen;
+							i -= XMM_SIZE/2;
+						} else {
+							p -= col - (line_size-1);
+							i -= col - (line_size-1);
+							col = line_size-1;
+							goto last_char_fast;
+						}
+					}
 					break;
 				}
 			} else {
@@ -384,9 +406,9 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 			if (i >= len) goto end;
 		}
 		
-		last_char_fast:
 		// last line char
 		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
+			last_char_fast:
 			c = src[i++];
 			if (escapedLUT[c] && c != '.'-42) {
 				*(uint16_t*)p = escapedLUT[c];
