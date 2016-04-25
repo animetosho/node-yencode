@@ -73,7 +73,7 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 			p += 2;
 			col = 2;
 		} else {
-			*(p++) = escapeLUT[c];
+			*(p++) = c + 42;
 			col = 1;
 		}
 		if (i >= len) break;
@@ -193,6 +193,14 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 				p += 2;
 				col += 2;
 			}
+			/* experimental branchless version 
+			*p = '=';
+			c = (src[i++] + 42) & 0xFF;
+			int cond = (c=='\0' || c=='=' || c=='\r' || c=='\n');
+			*(p+cond) = c + (cond << 6);
+			p += 1+cond;
+			col += 1+cond;
+			*/
 			if (i >= len) goto end;
 		}
 		
@@ -204,7 +212,7 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 				*(uint16_t*)p = escapedLUT[c];
 				p += 2;
 			} else {
-				*(p++) = escapeLUT[c];
+				*(p++) = c + 42;
 			}
 		}
 		
@@ -254,7 +262,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 			p += 2;
 			col = 2;
 		} else {
-			*(p++) = escapeLUT[c];
+			*(p++) = c + 42;
 			col = 1;
 		}
 		if (i >= len) break;
@@ -384,7 +392,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				*(uint16_t*)p = escapedLUT[c];
 				p += 2;
 			} else {
-				*(p++) = escapeLUT[c];
+				*(p++) = c + 42;
 			}
 		}
 		
