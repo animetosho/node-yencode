@@ -250,7 +250,6 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 	unsigned long i = 0; // input position
 	unsigned char c, escaped; // input character; escaped input character
 	
-	__m128i numbers = _mm_set_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
 	__m128i equals = _mm_set1_epi8('=');
 	
 	if (col > 0) goto skip_first_char_fast;
@@ -297,9 +296,8 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				__m128i shufMA = _mm_load_si128(shufLUT + m1);
 				__m128i shufMB = _mm_load_si128(shufLUT + m2);
 				
-				// create actual shuffle masks
-				shufMA = _mm_sub_epi8(numbers, shufMA);
-				shufMB = _mm_sub_epi8(_mm_add_epi8(numbers, _mm_set1_epi8(8)), shufMB);
+				// second mask processes on second half, so add to the offsets
+				shufMB = _mm_add_epi8(shufMB, _mm_set1_epi8(8));
 				
 				// expand halves
 				//shuf = _mm_or_si128(_mm_cmpgt_epi8(shuf, _mm_set1_epi8(15)), shuf);
@@ -958,15 +956,15 @@ void init(Handle<Object> target) {
 			uint8_t res[16];
 			int p = 0;
 			for(int j=0; j<8; j++) {
-				res[j+p] = p;
+				res[j+p] = j;
 				if(k & 1) {
 					p++;
-					res[j+p] = p;
+					res[j+p] = j;
 				}
 				k >>= 1;
 			}
 			for(; p<8; p++)
-				res[8+p] = 0;
+				res[8+p] = 8+p;
 			_mm_store_si128(shufLUT + i, _mm_loadu_si128((__m128i*)res));
 		}
 	}
