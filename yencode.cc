@@ -56,6 +56,9 @@ static uint16_t escapedLUT[256]; // escaped sequences for characters that need e
 #ifdef __POPCNT__
 #include <nmmintrin.h>
 #endif
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 #endif
 
 // runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
@@ -424,6 +427,164 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 	end:
 	return p - dest;
 }
+
+#ifdef __AVX2__
+#define YMM_SIZE 32
+static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
+	unsigned char *p = dest; // destination pointer
+	unsigned long i = 0; // input position
+	unsigned char c, escaped; // input character; escaped input character
+	
+	__m256i equals = _mm256_set1_epi8('=');
+	
+	if (col > 0) goto skip_first_char_avx2;
+	while(1) {
+		// first char in line
+		c = src[i++];
+		if (escapedLUT[c]) {
+			*(uint16_t*)p = escapedLUT[c];
+			p += 2;
+			col = 2;
+		} else {
+			*(p++) = c + 42;
+			col = 1;
+		}
+		if (i >= len) break;
+		
+		skip_first_char_avx2:
+		// main line
+		while (len-i-1 > YMM_SIZE && col < line_size-1) {
+			__m256i data = _mm256_add_epi8(
+				_mm256_loadu_si256((__m256i *)(src + i)),
+				_mm256_set1_epi8(42)
+			);
+			i += YMM_SIZE;
+			// search for special chars
+			__m256i cmp = _mm256_or_si256(
+				_mm256_or_si256(
+					_mm256_cmpeq_epi8(data, _mm256_setzero_si256()),
+					_mm256_cmpeq_epi8(data, _mm256_set1_epi8('\n'))
+				),
+				_mm256_or_si256(
+					_mm256_cmpeq_epi8(data, _mm256_set1_epi8('\r')),
+					_mm256_cmpeq_epi8(data, equals)
+				)
+			);
+			
+			unsigned int mask = _mm256_movemask_epi8(cmp);
+			if (mask != 0) {
+				uint8_t m1 = mask & 0xFF;
+				uint8_t m2 = (mask >> 8) & 0xFF;
+				uint8_t m3 = (mask >> 16) & 0xFF;
+				uint8_t m4 = mask >> 24;
+				
+				// perform lookup for shuffle mask
+				// note that we interlave 1/3, 2/4 to make processing easier
+				// TODO: any way to ensure that these loads use AVX?
+				__m256i shufMA = _mm256_inserti128_si256(
+					_mm256_castsi128_si256(shufLUT[m1]),
+					shufLUT[m3],
+					1
+				);
+				__m256i shufMB = _mm256_inserti128_si256(
+					_mm256_castsi128_si256(shufLUT[m2]),
+					shufLUT[m4],
+					1
+				);
+				
+				// offset second mask
+				shufMB = _mm256_add_epi8(shufMB, _mm256_set1_epi8(8));
+				
+				// expand halves
+				__m256i data1 = _mm256_shuffle_epi8(data, shufMA);
+				__m256i data2 = _mm256_shuffle_epi8(data, shufMB);
+				
+				// get the maskEsc for the escaped chars
+				__m256i maskEscA = _mm256_cmpeq_epi8(shufMA, _mm256_srli_si256(shufMA, 1));
+				__m256i maskEscB = _mm256_cmpeq_epi8(shufMB, _mm256_srli_si256(shufMB, 1));
+				
+				// blend escape chars in
+				__m256i tmp1 = _mm256_add_epi8(data1, _mm256_set1_epi8(64));
+				__m256i tmp2 = _mm256_add_epi8(data2, _mm256_set1_epi8(64));
+				data1 = _mm256_blendv_epi8(data1, equals, maskEscA);
+				data2 = _mm256_blendv_epi8(data2, equals, maskEscB);
+				data1 = _mm256_blendv_epi8(data1, tmp1, _mm256_slli_si256(maskEscA, 1));
+				data2 = _mm256_blendv_epi8(data2, tmp2, _mm256_slli_si256(maskEscB, 1));
+				// store out
+				unsigned char shuf1Len = _mm_popcnt_u32(m1) + 8;
+				unsigned char shuf2Len = _mm_popcnt_u32(m2) + 8;
+				unsigned char shuf3Len = _mm_popcnt_u32(m3) + 8;
+				unsigned char shuf4Len = _mm_popcnt_u32(m4) + 8;
+				// TODO: do these stores use AVX?
+				_mm_storeu_si128((__m128i*)p, _mm256_castsi256_si128(data1));
+				p += shuf1Len;
+				_mm_storeu_si128((__m128i*)p, _mm256_castsi256_si128(data2));
+				p += shuf2Len;
+				_mm_storeu_si128((__m128i*)p, _mm256_extracti128_si256(data1, 1));
+				p += shuf3Len;
+				_mm_storeu_si128((__m128i*)p, _mm256_extracti128_si256(data2, 1));
+				p += shuf4Len;
+				col += shuf1Len + shuf2Len + shuf3Len + shuf4Len;
+				
+				if(col > line_size-1) {
+					// we overflowed - may need to revert and use slower method :(
+					// TODO: optimize this
+					col -= shuf1Len + shuf2Len + shuf3Len + shuf4Len;
+					p -= shuf1Len + shuf2Len + shuf3Len + shuf4Len;
+					i -= YMM_SIZE;
+					break;
+				}
+			} else {
+				_mm256_storeu_si256((__m256i*)p, data);
+				p += YMM_SIZE;
+				col += YMM_SIZE;
+				if(col > line_size-1) {
+					p -= col - (line_size-1);
+					i -= col - (line_size-1);
+					col = line_size-1;
+					goto last_char_avx2;
+				}
+			}
+		}
+		// handle remaining chars
+		while(col < line_size-1) {
+			c = src[i++], escaped = escapeLUT[c];
+			if (escaped) {
+				*(p++) = escaped;
+				col++;
+			}
+			else {
+				*(uint16_t*)p = escapedLUT[c];
+				p += 2;
+				col += 2;
+			}
+			if (i >= len) goto end;
+		}
+		
+		// last line char
+		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
+			last_char_avx2:
+			c = src[i++];
+			if (escapedLUT[c] && c != '.'-42) {
+				*(uint16_t*)p = escapedLUT[c];
+				p += 2;
+			} else {
+				*(p++) = c + 42;
+			}
+		}
+		
+		if (i >= len) break;
+		*(uint16_t*)p = UINT16_PACK('\r', '\n');
+		p += 2;
+	}
+	
+	_mm256_zeroupper();
+	
+	end:
+	return p - dest;
+}
+#endif
+
 #else
 #define do_encode do_encode_slow
 #endif
