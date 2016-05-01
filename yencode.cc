@@ -134,6 +134,7 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 				col += (int)(p - sp);
 				
 				if(col > line_size-1) {
+					// TODO: consider revert optimisation from do_encode_fast
 					// we overflowed - need to revert and use slower method :(
 					col -= (int)(p - sp);
 					p = sp;
@@ -146,7 +147,7 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 				if(col > line_size-1) {
 					p -= col - (line_size-1);
 					i += XMM_SIZE - (col - (line_size-1));
-					col = line_size-1;
+					//col = line_size-1; // never read again, doesn't need to be set
 					goto last_char;
 				}
 			}
@@ -178,6 +179,7 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 			col += (int)(p - sp);
 		}
 		if(sp && col >= line_size-1) {
+			// TODO: consider revert optimisation from do_encode_fast
 			// we overflowed - need to revert and use slower method :(
 			col -= (int)(p - sp);
 			p = sp;
@@ -315,30 +317,17 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				__m128i tmp1 = _mm_add_epi8(data, _mm_set1_epi8(64));
 				__m128i tmp2 = _mm_add_epi8(data2, _mm_set1_epi8(64));
 #ifdef __SSE4_1__
-				data = _mm_blendv_epi8(data, equals, maskEscA);
-				data2 = _mm_blendv_epi8(data2, equals, maskEscB);
-				data = _mm_blendv_epi8(data, tmp1, _mm_slli_si128(maskEscA, 1));
-				data2 = _mm_blendv_epi8(data2, tmp2, _mm_slli_si128(maskEscB, 1));
+	#define BLENDV _mm_blendv_epi8
 #else
-				data = _mm_or_si128(
-					_mm_andnot_si128(maskEscA, data),
-					_mm_and_si128   (maskEscA, equals)
-				);
-				data2 = _mm_or_si128(
-					_mm_andnot_si128(maskEscB, data2),
-					_mm_and_si128   (maskEscB, equals)
-				);
+	#define BLENDV(v1, v2, m) _mm_or_si128(_mm_andnot_si128(m, v1), _mm_and_si128(m, v2))
+#endif
+				data = BLENDV(data, equals, maskEscA);
+				data2 = BLENDV(data2, equals, maskEscB);
 				maskEscA = _mm_slli_si128(maskEscA, 1);
 				maskEscB = _mm_slli_si128(maskEscB, 1);
-				data = _mm_or_si128(
-					_mm_andnot_si128(maskEscA, data),
-					_mm_and_si128   (maskEscA, tmp1)
-				);
-				data2 = _mm_or_si128(
-					_mm_andnot_si128(maskEscB, data2),
-					_mm_and_si128   (maskEscB, tmp2)
-				);
-#endif
+				data = BLENDV(data, tmp1, maskEscA);
+				data2 = BLENDV(data2, tmp2, maskEscB);
+#undef BLENDV
 				// store out
 #ifdef __POPCNT__
 				unsigned char shufALen = _mm_popcnt_u32(m1) + 8;
