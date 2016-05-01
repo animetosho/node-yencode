@@ -353,32 +353,32 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				p += shufBLen;
 				col += shufALen + shufBLen;
 				
-				if(col > line_size-1) {
-					// we overflowed - may need to revert and use slower method :(
-					if(col-shufBLen > line_size-1) {
-						if(m1) {
-							col -= shufALen + shufBLen;
-							p -= shufALen + shufBLen;
-							i -= XMM_SIZE;
-						} else {
-							p -= col - (line_size-1);
-							i -= col - (line_size-1) + (8 - shufBLen);
-							col = line_size-1;
-							goto last_char_fast;
-						}
+				int ovrflowAmt = col - (line_size-1);
+				if(ovrflowAmt > 0) {
+					// we overflowed - find correct position to revert back to
+					p -= ovrflowAmt;
+					if(ovrflowAmt == shufBLen) {
+						i -= 8;
+						goto last_char_fast;
 					} else {
-						if(m2) {
-							col -= shufBLen;
-							p -= shufBLen;
-							i -= XMM_SIZE/2;
+						int isEsc;
+						uint16_t tst;
+						int offs = shufBLen - ovrflowAmt -1;
+						if(ovrflowAmt > shufBLen) {
+							tst = *(uint16_t*)((char*)(shufLUT+m1) + shufALen+offs);
+							i -= 8;
 						} else {
-							p -= col - (line_size-1);
-							i -= col - (line_size-1);
-							col = line_size-1;
-							goto last_char_fast;
+							tst = *(uint16_t*)((char*)(shufLUT+m2) + offs);
 						}
+						isEsc = ((tst>>8) == (tst&0xFF));
+						p += isEsc;
+						i -= 8 - (tst>>8) - isEsc;
+						//col = line_size-1 + isEsc; // doesn't need to be set, since it's never read again
+						if(isEsc)
+							goto after_last_char_fast;
+						else
+							goto last_char_fast;
 					}
-					break;
 				}
 			} else {
 				_mm_storeu_si128((__m128i*)p, data);
@@ -387,7 +387,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				if(col > line_size-1) {
 					p -= col - (line_size-1);
 					i -= col - (line_size-1);
-					col = line_size-1;
+					//col = line_size-1; // doesn't need to be set, since it's never read again
 					goto last_char_fast;
 				}
 			}
@@ -419,6 +419,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 			}
 		}
 		
+		after_last_char_fast:
 		if (i >= len) break;
 		*(uint16_t*)p = UINT16_PACK('\r', '\n');
 		p += 2;
@@ -428,6 +429,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 	return p - dest;
 }
 
+// experimental AVX2 version; seems to be slower than SSSE3 variant, so not used at the moment
 #ifdef __AVX2__
 #define YMM_SIZE 32
 static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
@@ -515,7 +517,8 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 				unsigned char shuf2Len = _mm_popcnt_u32(m2) + 8;
 				unsigned char shuf3Len = _mm_popcnt_u32(m3) + 8;
 				unsigned char shuf4Len = _mm_popcnt_u32(m4) + 8;
-				// TODO: do these stores use AVX?
+				// TODO: do these stores always use AVX?
+				// TODO: this can overflow since we only give +32 chars for over-allocation
 				_mm_storeu_si128((__m128i*)p, _mm256_castsi256_si128(data1));
 				p += shuf1Len;
 				_mm_storeu_si128((__m128i*)p, _mm256_castsi256_si128(data2));
