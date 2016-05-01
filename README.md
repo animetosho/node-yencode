@@ -9,7 +9,9 @@ Supports:
 ---------
 
 -   fast raw yEnc encoding with incremental support and the ability to specify
-    line length. Will use SSE2 if available
+    line length. Optimised to use SSE2 and SSSE3/SSE4.1 if available - a single
+    thread can achieve \>500MB/s on a low power Atom CPU, or \>3GB/s on a Core-i
+    series CPU.
 
 -   full yEnc encoding for single and multi-part posts, according to the
     [version 1.3 specifications](<http://www.yenc.org/yenc-draft.1.3.txt>)
@@ -17,7 +19,7 @@ Supports:
 -   fast compiled CRC32 implementation via
     [crcutil](<https://code.google.com/p/crcutil/>) or [PCLMULQDQ
     instruction](<http://www.intel.com/content/dam/www/public/us/en/documents/white-papers/fast-crc-computation-generic-polynomials-pclmulqdq-paper.pdf>)
-    (if available) with incremental support
+    (if available) with incremental support (\>1GB/s on a low power Atom CPU)
 
 -   ability to combine two CRC32 hashes into one (useful for amalgamating
     pcrc32s into a crc32 for yEnc)
