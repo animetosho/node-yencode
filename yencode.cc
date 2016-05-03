@@ -56,9 +56,11 @@ static uint16_t escapedLUT[256]; // escaped sequences for characters that need e
 #ifdef __POPCNT__
 #include <nmmintrin.h>
 #endif
+/*
 #ifdef __AVX2__
 #include <immintrin.h>
 #endif
+*/
 #endif
 
 // runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
@@ -418,7 +420,9 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 	return p - dest;
 }
 
-// experimental AVX2 version; seems to be slower than SSSE3 variant, so not used at the moment
+/*
+// experimental AVX2 version
+// seems to be slower than SSSE3 variant, so not used at the moment; with experimental optimisations, is faster on Haswell, but only mildly so
 #ifdef __AVX2__
 #define YMM_SIZE 32
 static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
@@ -576,6 +580,7 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 	return p - dest;
 }
 #endif
+*/
 
 #else
 #define do_encode do_encode_slow
