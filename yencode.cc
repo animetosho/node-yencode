@@ -61,6 +61,17 @@ static uint16_t escapedLUT[256]; // escaped sequences for characters that need e
 #include <immintrin.h>
 #endif
 */
+
+#if defined(__tune_core2__) || defined(__tune_atom__)
+/* on older Intel CPUs, plus first gen Atom, it is faster to store XMM registers in half */
+# define STOREU_XMM(dest, xmm) \
+  _mm_storel_epi64((__m128i*)(dest), xmm); \
+  _mm_storeh_pi(((__m64*)(dest) +1), _mm_castsi128_ps(xmm))
+#else
+# define STOREU_XMM(dest, xmm) \
+  _mm_storeu_si128((__m128i*)(dest), xmm)
+#endif
+
 #endif
 
 // runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
@@ -143,7 +154,7 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 					break;
 				}
 			} else {
-				_mm_storeu_si128((__m128i*)p, data);
+				STOREU_XMM(p, data);
 				p += XMM_SIZE;
 				col += XMM_SIZE;
 				if(col > line_size-1) {
@@ -338,9 +349,9 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				unsigned char shufALen = BitsSetTable256[m1] + 8;
 				unsigned char shufBLen = BitsSetTable256[m2] + 8;
 #endif
-				_mm_storeu_si128((__m128i*)p, data);
+				STOREU_XMM(p, data);
 				p += shufALen;
-				_mm_storeu_si128((__m128i*)p, data2);
+				STOREU_XMM(p, data2);
 				p += shufBLen;
 				col += shufALen + shufBLen;
 				
@@ -372,7 +383,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 					}
 				}
 			} else {
-				_mm_storeu_si128((__m128i*)p, data);
+				STOREU_XMM(p, data);
 				p += XMM_SIZE;
 				col += XMM_SIZE;
 				if(col > line_size-1) {
