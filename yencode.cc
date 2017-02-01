@@ -643,7 +643,7 @@ union crc32 {
 	arr[3] = (unsigned char)val & 0xFF; \
 }
 
-#include "./crcutil-1.0/examples/interface.h"
+#include "interface.h"
 crcutil_interface::CRC* crc = NULL;
 
 #ifdef X86_PCLMULQDQ_CRC

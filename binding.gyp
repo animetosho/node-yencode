@@ -12,7 +12,7 @@
           "cxxflags": ["-march=native", "-O2"]
         }]
       ],
-      "include_dirs": ["crcutil-1.0/code"]
+      "include_dirs": ["crcutil-1.0/code","crcutil-1.0/examples"]
     },
     {
       "target_name": "crcutil",
