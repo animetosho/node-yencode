@@ -767,10 +767,10 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	int line_size = 128, col = 0;
 	if (args.Length() >= 2) {
 		// TODO: probably should throw errors instead of transparently fixing these...
-		line_size = args[1]->ToInt32()->Value();
+		line_size = args[1]->ToInteger()->Value();
 		if (line_size < 1) line_size = 128;
 		if (args.Length() >= 3) {
-			col = args[2]->ToInt32()->Value();
+			col = args[2]->ToInteger()->Value();
 			if (col >= line_size) col = 0;
 		}
 	}
@@ -805,10 +805,10 @@ static void EncodeTo(const FunctionCallbackInfo<Value>& args) {
 	int line_size = 128, col = 0;
 	if (args.Length() >= 3) {
 		// TODO: probably should throw errors instead of transparently fixing these...
-		line_size = args[2]->ToInt32()->Value();
+		line_size = args[2]->ToInteger()->Value();
 		if (line_size < 1) line_size = 128;
 		if (args.Length() >= 4) {
-			col = args[3]->ToInt32()->Value();
+			col = args[3]->ToInteger()->Value();
 			if (col >= line_size) col = 0;
 		}
 	}
@@ -937,10 +937,10 @@ static Handle<Value> Encode(const Arguments& args) {
 	int line_size = 128, col = 0;
 	if (args.Length() >= 2) {
 		// TODO: probably should throw errors instead of transparently fixing these...
-		line_size = args[1]->ToInt32()->Value();
+		line_size = args[1]->ToInteger()->Value();
 		if (line_size < 1) line_size = 128;
 		if (args.Length() >= 3) {
-			col = args[2]->ToInt32()->Value();
+			col = args[2]->ToInteger()->Value();
 			if (col >= line_size) col = 0;
 		}
 	}
@@ -972,10 +972,10 @@ static Handle<Value> EncodeTo(const Arguments& args) {
 	int line_size = 128, col = 0;
 	if (args.Length() >= 3) {
 		// TODO: probably should throw errors instead of transparently fixing these...
-		line_size = args[2]->ToInt32()->Value();
+		line_size = args[2]->ToInteger()->Value();
 		if (line_size < 1) line_size = 128;
 		if (args.Length() >= 4) {
-			col = args[3]->ToInt32()->Value();
+			col = args[3]->ToInteger()->Value();
 			if (col >= line_size) col = 0;
 		}
 	}
