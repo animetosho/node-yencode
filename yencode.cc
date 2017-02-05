@@ -80,9 +80,7 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 	unsigned long i = 0; // input position
 	unsigned char c, escaped; // input character; escaped input character
 	
-	if (col > 0) goto skip_first_char;
-	while(1) {
-		// first char in line
+	if (col == 0) {
 		c = src[i++];
 		if (escapedLUT[c]) {
 			*(uint16_t*)p = escapedLUT[c];
@@ -92,9 +90,8 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 			*(p++) = c + 42;
 			col = 1;
 		}
-		if (i >= len) break;
-		
-		skip_first_char:
+	}
+	while(i < len) {
 		unsigned char* sp = NULL;
 		// main line
 		#ifdef __SSE2__
@@ -235,8 +232,25 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 		}
 		
 		if (i >= len) break;
-		*(uint16_t*)p = UINT16_PACK('\r', '\n');
-		p += 2;
+		
+		c = src[i++];
+		if (escapedLUT[c]) {
+		 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+			*(uint32_t*)p = ((uint32_t)escapedLUT[c]) | (UINT16_PACK('\r', '\n') << 16);
+		 #else
+			*(uint32_t*)p = ((uint32_t)escapedLUT[c] << 16) + UINT16_PACK('\r', '\n');
+		 #endif
+			p += 4;
+			col = 2;
+		} else {
+		 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+			*(uint32_t*)p = ((uint32_t)(c+42)) | (UINT16_PACK('\r', '\n') << 8);
+		 #else
+			*(uint32_t*)p = ((uint32_t)(c+42) << 16) + UINT16_PACK('\r', '\n');
+		 #endif
+			p += 3;
+			col = 1;
+		}
 	}
 	
 	end:
@@ -270,9 +284,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 	
 	__m128i equals = _mm_set1_epi8('=');
 	
-	if (col > 0) goto skip_first_char_fast;
-	while(1) {
-		// first char in line
+	if (col == 0) {
 		c = src[i++];
 		if (escapedLUT[c]) {
 			*(uint16_t*)p = escapedLUT[c];
@@ -282,9 +294,8 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 			*(p++) = c + 42;
 			col = 1;
 		}
-		if (i >= len) break;
-		
-		skip_first_char_fast:
+	}
+	while(i < len) {
 		// main line
 		while (len-i-1 > XMM_SIZE && col < line_size-1) {
 			__m128i data = _mm_add_epi8(
@@ -305,7 +316,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 			);
 			
 			unsigned int mask = _mm_movemask_epi8(cmp);
-			if (mask != 0) {
+			if (mask != 0) { // seems to always be faster than _mm_test_all_zeros, possibly because http://stackoverflow.com/questions/34155897/simd-sse-how-to-check-that-all-vector-elements-are-non-zero#comment-62475316
 				// TODO: consider doing only 1 set of shuffles?
 				uint8_t m1 = mask & 0xFF;
 				uint8_t m2 = mask >> 8;
@@ -315,6 +326,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				__m128i shufMB = _mm_load_si128(shufLUT + m2);
 				
 				// second mask processes on second half, so add to the offsets
+				// this seems to be faster than right-shifting data by 8 bytes on Intel chips, maybe due to psrldq always running on port5? may be different on AMD
 				shufMB = _mm_add_epi8(shufMB, _mm_set1_epi8(8));
 				
 				// expand halves
@@ -423,8 +435,25 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 		
 		after_last_char_fast:
 		if (i >= len) break;
-		*(uint16_t*)p = UINT16_PACK('\r', '\n');
-		p += 2;
+		
+		c = src[i++];
+		if (escapedLUT[c]) {
+		 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ // never true on x86, meh
+			*(uint32_t*)p = ((uint32_t)escapedLUT[c]) | (UINT16_PACK('\r', '\n') << 16);
+		 #else
+			*(uint32_t*)p = ((uint32_t)escapedLUT[c] << 16) + UINT16_PACK('\r', '\n');
+		 #endif
+			p += 4;
+			col = 2;
+		} else {
+		 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+			*(uint32_t*)p = ((uint32_t)(c+42)) | (UINT16_PACK('\r', '\n') << 8);
+		 #else
+			*(uint32_t*)p = ((uint32_t)(c+42) << 16) + UINT16_PACK('\r', '\n');
+		 #endif
+			p += 3;
+			col = 1;
+		}
 	}
 	
 	end:
@@ -443,9 +472,7 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 	
 	__m256i equals = _mm256_set1_epi8('=');
 	
-	if (col > 0) goto skip_first_char_avx2;
-	while(1) {
-		// first char in line
+	if (col == 0) {
 		c = src[i++];
 		if (escapedLUT[c]) {
 			*(uint16_t*)p = escapedLUT[c];
@@ -455,9 +482,8 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 			*(p++) = c + 42;
 			col = 1;
 		}
-		if (i >= len) break;
-		
-		skip_first_char_avx2:
+	}
+	while(i < len) {
 		// main line
 		while (len-i-1 > YMM_SIZE && col < line_size-1) {
 			__m256i data = _mm256_add_epi8(
@@ -581,8 +607,25 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 		}
 		
 		if (i >= len) break;
-		*(uint16_t*)p = UINT16_PACK('\r', '\n');
-		p += 2;
+		
+		c = src[i++];
+		if (escapedLUT[c]) {
+		 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ // never true on x86, meh
+			*(uint32_t*)p = ((uint32_t)escapedLUT[c]) | (UINT16_PACK('\r', '\n') << 16);
+		 #else
+			*(uint32_t*)p = ((uint32_t)escapedLUT[c] << 16) + UINT16_PACK('\r', '\n');
+		 #endif
+			p += 4;
+			col = 2;
+		} else {
+		 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+			*(uint32_t*)p = ((uint32_t)(c+42)) | (UINT16_PACK('\r', '\n') << 8);
+		 #else
+			*(uint32_t*)p = ((uint32_t)(c+42) << 16) + UINT16_PACK('\r', '\n');
+		 #endif
+			p += 3;
+			col = 1;
+		}
 	}
 	
 	_mm256_zeroupper();
