@@ -33,8 +33,12 @@ static uint16_t escapedLUT[256]; // escaped sequences for characters that need e
 // combine two 8-bit ints into a 16-bit one
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 #define UINT16_PACK(a, b) (((a) << 8) | (b))
+#define UINT32_PACK(a, b, c, d) (((a) << 24) | ((b) << 16) | ((c) << 8) | (d))
+#define UINT32_16_PACK(a, b) (((a) << 16) | (b))
 #else
 #define UINT16_PACK(a, b) ((a) | ((b) << 8))
+#define UINT32_PACK(a, b, c, d) ((a) | ((b) << 8) | ((c) << 16) | ((d) << 24))
+#define UINT32_16_PACK(a, b) ((a) | ((b) << 16))
 #endif
 
 #ifdef __SSE2__
@@ -235,19 +239,12 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 		
 		c = src[i++];
 		if (escapedLUT[c]) {
-		 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-			*(uint32_t*)p = ((uint32_t)escapedLUT[c]) | (UINT16_PACK('\r', '\n') << 16);
-		 #else
-			*(uint32_t*)p = ((uint32_t)escapedLUT[c] << 16) + UINT16_PACK('\r', '\n');
-		 #endif
+			*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 			p += 4;
 			col = 2;
 		} else {
-		 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-			*(uint32_t*)p = ((uint32_t)(c+42)) | (UINT16_PACK('\r', '\n') << 8);
-		 #else
-			*(uint32_t*)p = ((uint32_t)(c+42) << 16) + UINT16_PACK('\r', '\n');
-		 #endif
+			// another option may be to just write the EOL and let the first char be handled by the faster methods above, but it appears that writing the extra byte here is generally faster...
+			*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
 			p += 3;
 			col = 1;
 		}
@@ -438,19 +435,11 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 		
 		c = src[i++];
 		if (escapedLUT[c]) {
-		 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ // never true on x86, meh
-			*(uint32_t*)p = ((uint32_t)escapedLUT[c]) | (UINT16_PACK('\r', '\n') << 16);
-		 #else
-			*(uint32_t*)p = ((uint32_t)escapedLUT[c] << 16) + UINT16_PACK('\r', '\n');
-		 #endif
+			*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 			p += 4;
 			col = 2;
 		} else {
-		 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-			*(uint32_t*)p = ((uint32_t)(c+42)) | (UINT16_PACK('\r', '\n') << 8);
-		 #else
-			*(uint32_t*)p = ((uint32_t)(c+42) << 16) + UINT16_PACK('\r', '\n');
-		 #endif
+			*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
 			p += 3;
 			col = 1;
 		}
@@ -610,19 +599,11 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 		
 		c = src[i++];
 		if (escapedLUT[c]) {
-		 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ // never true on x86, meh
-			*(uint32_t*)p = ((uint32_t)escapedLUT[c]) | (UINT16_PACK('\r', '\n') << 16);
-		 #else
-			*(uint32_t*)p = ((uint32_t)escapedLUT[c] << 16) + UINT16_PACK('\r', '\n');
-		 #endif
+			*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 			p += 4;
 			col = 2;
 		} else {
-		 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-			*(uint32_t*)p = ((uint32_t)(c+42)) | (UINT16_PACK('\r', '\n') << 8);
-		 #else
-			*(uint32_t*)p = ((uint32_t)(c+42) << 16) + UINT16_PACK('\r', '\n');
-		 #endif
+			*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
 			p += 3;
 			col = 1;
 		}
