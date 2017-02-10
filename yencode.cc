@@ -314,7 +314,6 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 			
 			unsigned int mask = _mm_movemask_epi8(cmp);
 			if (mask != 0) { // seems to always be faster than _mm_test_all_zeros, possibly because http://stackoverflow.com/questions/34155897/simd-sse-how-to-check-that-all-vector-elements-are-non-zero#comment-62475316
-				// TODO: consider doing only 1 set of shuffles?
 				uint8_t m1 = mask & 0xFF;
 				uint8_t m2 = mask >> 8;
 				
@@ -1157,7 +1156,7 @@ void init(Handle<Object> target) {
 				k >>= 1;
 			}
 			for(; p<8; p++)
-				res[8+p] = 8+p;
+				res[8+p] = 8+p +0x80; // +0x80 causes PSHUFB to 0 discarded entries; has no effect other than to ease debugging
 			_mm_store_si128(shufLUT + i, _mm_loadu_si128((__m128i*)res));
 		}
 	}

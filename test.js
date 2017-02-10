@@ -71,8 +71,8 @@ doTest('Long all tabs', [b]);
 
 
 // random tests
-for(var i=0; i<16; i++) {
-	var rand = require('crypto').pseudoRandomBytes(4096);
+for(var i=0; i<32; i++) {
+	var rand = require('crypto').pseudoRandomBytes(128*1024);
 	doTest('Random', [rand]);
 	doTest('Random + short line', [rand, 3]);
 	doTest('Random + offset', [rand, 128, 1]);
