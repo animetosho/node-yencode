@@ -260,7 +260,8 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 #ifdef __SSSE3__
 size_t (*_do_encode)(int, int, const unsigned char*, unsigned char*, size_t) = &do_encode_slow;
 #define do_encode (*_do_encode)
-ALIGN_32(__m128i shufLUT[256]);
+ALIGN_32(__m128i _shufLUT[258]); // +2 for underflow guard entry
+__m128i* shufLUT = _shufLUT+2;
 #ifndef __POPCNT__
 // table from http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetTable
 static const unsigned char BitsSetTable256[256] = 
@@ -615,6 +616,398 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 }
 #endif
 */
+
+
+#if 0
+
+ALIGN_32(static const uint8_t _pshufb_shift_table[272]) = {
+	0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8a,0x8b,0x8c,0x8d,0x8e,0x8f,
+	0x0f,0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8a,0x8b,0x8c,0x8d,0x8e,
+	0x0e,0x0f,0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8a,0x8b,0x8c,0x8d,
+	0x0d,0x0e,0x0f,0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8a,0x8b,0x8c,
+	0x0c,0x0d,0x0e,0x0f,0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8a,0x8b,
+	0x0b,0x0c,0x0d,0x0e,0x0f,0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8a,
+	0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,
+	0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,
+	0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,
+	0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x80,0x81,0x82,0x83,0x84,0x85,0x86,
+	0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x80,0x81,0x82,0x83,0x84,0x85,
+	0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x80,0x81,0x82,0x83,0x84,
+	0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x80,0x81,0x82,0x83,
+	0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x80,0x81,0x82,
+	0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x80,0x81,
+	0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x80,
+	0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f
+};
+static const __m128i* pshufb_shift_table = (const __m128i*)_pshufb_shift_table;
+
+// assumes line_size is reasonably large (probably >32)
+static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
+	unsigned char *p = dest; // destination pointer
+	unsigned long i = 0; // input position
+	unsigned char c; // input character; escaped input character
+	
+	__m128i equals = _mm_set1_epi8('=');
+	
+	if (col == 0) {
+		// first char in line
+		c = src[i++];
+		if (escapedLUT[c]) {
+			*(uint16_t*)p = escapedLUT[c];
+			p += 2;
+			col = 2;
+		} else {
+			*(p++) = c + 42;
+			col = 1;
+		}
+	}
+	while(len-i-1 > XMM_SIZE) {
+		// main line
+		while (1) {
+			if(len-i-1 <= XMM_SIZE) { // prevent spilling over the end
+				goto encode_fast2_tail;
+			}
+			
+			__m128i input = _mm_loadu_si128((__m128i *)(src + i));
+			encode_fast2_after_load:
+			__m128i data = _mm_add_epi8(input, _mm_set1_epi8(42));
+			i += XMM_SIZE;
+			// search for special chars
+			__m128i cmp = _mm_or_si128(
+				_mm_or_si128(
+					_mm_cmpeq_epi8(data, _mm_setzero_si128()),
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
+				),
+				_mm_or_si128(
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
+					_mm_cmpeq_epi8(data, equals)
+				)
+			);
+			
+			unsigned int mask = _mm_movemask_epi8(cmp);
+			if (mask != 0) { // seems to always be faster than _mm_test_all_zeros, possibly because http://stackoverflow.com/questions/34155897/simd-sse-how-to-check-that-all-vector-elements-are-non-zero#comment-62475316
+				uint8_t m1 = mask & 0xFF;
+				uint8_t m2 = mask >> 8;
+				
+				// perform lookup for shuffle mask
+				__m128i shufMA = _mm_load_si128(shufLUT + m1);
+				__m128i shufMB = _mm_load_si128(shufLUT + m2);
+				
+				// second mask processes on second half, so add to the offsets
+				// this seems to be faster than right-shifting data by 8 bytes on Intel chips, maybe due to psrldq always running on port5? may be different on AMD
+				shufMB = _mm_add_epi8(shufMB, _mm_set1_epi8(8));
+				
+				// expand halves
+				__m128i data2 = _mm_shuffle_epi8(data, shufMB);
+				data = _mm_shuffle_epi8(data, shufMA);
+				
+				// get the maskEsc for the escaped chars
+				__m128i maskEscA = _mm_cmpeq_epi8(shufMA, _mm_srli_si128(shufMA, 1));
+				__m128i maskEscB = _mm_cmpeq_epi8(shufMB, _mm_srli_si128(shufMB, 1));
+				
+				// blend escape chars in
+				__m128i tmp1 = _mm_add_epi8(data, _mm_set1_epi8(64));
+				__m128i tmp2 = _mm_add_epi8(data2, _mm_set1_epi8(64));
+#ifdef __SSE4_1__
+	#define BLENDV _mm_blendv_epi8
+#else
+	#define BLENDV(v1, v2, m) _mm_or_si128(_mm_andnot_si128(m, v1), _mm_and_si128(m, v2))
+#endif
+				data = BLENDV(data, equals, maskEscA);
+				data2 = BLENDV(data2, equals, maskEscB);
+				maskEscA = _mm_slli_si128(maskEscA, 1);
+				maskEscB = _mm_slli_si128(maskEscB, 1);
+				data = BLENDV(data, tmp1, maskEscA);
+				data2 = BLENDV(data2, tmp2, maskEscB);
+#undef BLENDV
+				// store out
+#ifdef __POPCNT__
+				unsigned char shufALen = _mm_popcnt_u32(m1) + 8;
+				unsigned char shufBLen = _mm_popcnt_u32(m2) + 8;
+#else
+				unsigned char shufALen = BitsSetTable256[m1] + 8;
+				unsigned char shufBLen = BitsSetTable256[m2] + 8;
+#endif
+				STOREU_XMM(p, data);
+				p += shufALen;
+				STOREU_XMM(p, data2);
+				p += shufBLen;
+				col += shufALen + shufBLen;
+				
+				int ovrflowAmt = col - (line_size-1);
+				if(ovrflowAmt > 0) {
+					// we overflowed - find correct position to revert back to
+					p -= ovrflowAmt;
+					if(ovrflowAmt == shufBLen) {
+						c = src[i-8];
+						// TODO: consider doing direct comparisons instead of lookup
+						if (escapedLUT[c] && c != '.'-42) {
+							// if data2's version is escaped, we shift out by 2, otherwise only by 1
+							if(m2 & 1) {
+								data2 = _mm_srli_si128(data2, 1);
+								ovrflowAmt--;
+							} else
+								*(uint16_t*)p = escapedLUT[c];
+							p += 2;
+						} else {
+							p++;
+							// shift data2 by one (actually will be combined below)
+						}
+						ovrflowAmt--;
+						
+						c = src[i-7];
+						if (escapedLUT[c] && !(m2 & 2)) { // if the character was originally escaped, we can just fallback to storing it straight out
+							col = ovrflowAmt+1;
+							data2 = _mm_srli_si128(data2, 1+1);
+							
+							*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+							p += 4;
+							ovrflowAmt--;
+						} else {
+							*(uint16_t*)p = UINT16_PACK('\r', '\n');
+							col = ovrflowAmt;
+							data2 = _mm_srli_si128(data2, 1);
+							p += 2;
+						}
+						STOREU_XMM(p, data2);
+						p += ovrflowAmt;
+					} else {
+						int isEsc, lastIsEsc;
+						uint16_t tst;
+						int offs = shufBLen - ovrflowAmt -1;
+						unsigned long tmpInPos = i;
+						if(ovrflowAmt > shufBLen) {
+							// ! Note that it's possible for shufALen+offs == -1 to be true !!
+							// although the way the lookup tables are constructed (with the additional guard entry), this isn't a problem, but it's not ideal; TODO: consider proper fix
+							tst = *(uint16_t*)((char*)(shufLUT+m1) + shufALen+offs);
+							tmpInPos -= 8;
+						} else {
+							tst = *(uint16_t*)((char*)(shufLUT+m2) + offs);
+						}
+						isEsc = ((tst>>8) == (tst&0xFF));
+						tmpInPos -= 8 - (tst>>8) - isEsc;
+						
+						lastIsEsc = 0;
+						if(!isEsc) {
+							//lastIsEsc = (mask & (1 << (16-(i-tmpInPos)))) ? 1:0; // TODO: use this?
+							c = src[tmpInPos++];
+							// TODO: consider doing direct comparisons instead of lookup
+							if (escapedLUT[c] && c != '.'-42) {
+								*(uint16_t*)p = escapedLUT[c];
+								p++;
+								
+								lastIsEsc = escapeLUT[c] ? 0:1;
+							}
+						}
+						p++;
+						
+						
+						//offs = offs + 1 - (1+lastIsEsc);
+						if(ovrflowAmt > shufBLen) {
+							ovrflowAmt -= 1+lastIsEsc;
+							__m128i shiftThing = _mm_load_si128(&pshufb_shift_table[16 - (shufALen+shufBLen - ovrflowAmt)]);
+							data = _mm_shuffle_epi8(data, shiftThing);
+							shufALen = ovrflowAmt-shufBLen;
+						} else {
+							// TODO: theoretically, everything in the 2nd half can be optimized better, but requires a lot more code paths :|
+							ovrflowAmt -= 1+lastIsEsc;
+							__m128i shiftThing = _mm_load_si128(&pshufb_shift_table[16 - (shufBLen - ovrflowAmt)]);
+							data2 = _mm_shuffle_epi8(data2, shiftThing);
+							shufBLen = ovrflowAmt;
+						}
+						
+						if(tmpInPos >= len) goto encode_fast2_end; // TODO: remove conditional by pre-checking this
+						
+						c = src[tmpInPos];
+						if(ovrflowAmt > 0) {
+							isEsc = mask & (1 << (16-(i-tmpInPos)));
+							if(ovrflowAmt > shufBLen) {
+								if (escapedLUT[c] && !isEsc) {
+									*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+									col = 2/*escaped char*/+shufALen-1/*previously not escaped char*/;
+									data = _mm_srli_si128(data, 1);
+									p += 4;
+									shufALen--;
+								} else {
+									*(uint16_t*)p = UINT16_PACK('\r', '\n');
+									col = shufALen;
+									p += 2;
+								}
+								
+								STOREU_XMM(p, data);
+								p += shufALen;
+							} else {
+								if (escapedLUT[c] && !isEsc) {
+									*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+									col = 2;
+									p += 4;
+									shufBLen--;
+									data2 = _mm_srli_si128(data2, 1);
+								} else {
+									*(uint16_t*)p = UINT16_PACK('\r', '\n');
+									col = 0;
+									p += 2;
+								}
+							}
+							STOREU_XMM(p, data2);
+							p += shufBLen;
+							col += shufBLen;
+						} else {
+							if (escapedLUT[c]) {
+								// check if we have enough bytes to read
+								if(len-i-1 <= XMM_SIZE) {
+									*(uint16_t*)p = UINT16_PACK('\r', '\n');
+									col = 0;
+									p += 2;
+									goto encode_fast2_tail;
+								}
+								
+								// we've now got a rather problematic case to handle... :|
+								*(uint32_t*)p = UINT32_PACK('\r', '\n', '=', 0);
+								p += 3;
+								col = 1;
+								
+								// ewww....
+								input = _mm_loadu_si128((__m128i *)(src + i));
+								// hack XMM input to fool regular code into writing the correct character
+#ifdef __SSE4_1__
+								input = _mm_insert_epi8(input, c-(214-64)-42, 0);
+#else
+								input = _mm_insert_epi16(input, (uint16_t)(c-(214-64)-42) + (((uint16_t)src[i+1])<<8), 0);
+#endif
+								goto encode_fast2_after_load;
+							} else {
+								*(uint16_t*)p = UINT16_PACK('\r', '\n');
+								col = 0;
+								p += 2;
+							}
+						}
+					}
+				}
+			} else {
+				STOREU_XMM(p, data);
+				p += XMM_SIZE;
+				col += XMM_SIZE;
+				int ovrflowAmt = col - (line_size-1);
+				if(ovrflowAmt > 0) {
+					// optimisation: check last char here
+					c = src[i - ovrflowAmt];
+					ovrflowAmt--;
+					// TODO: consider doing direct comparisons instead of lookup
+					if (escapedLUT[c] && c != '.'-42) {
+						p -= ovrflowAmt-1;
+						*(uint16_t*)(p-2) = escapedLUT[c];
+					} else {
+						p -= ovrflowAmt;
+					}
+					
+					if(i-ovrflowAmt >= len) goto encode_fast2_end; // TODO: remove conditional by pre-checking this
+					
+					c = src[i - ovrflowAmt];
+					if(ovrflowAmt != 0) {
+						int dataLen;
+						if (escapedLUT[c]) {
+							*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+							col = 2+ovrflowAmt-1;
+							dataLen = ovrflowAmt-1;
+							data = _mm_srli_si128(data, 1);
+							p += 4;
+						} else {
+							*(uint16_t*)p = UINT16_PACK('\r', '\n');
+							col = ovrflowAmt;
+							dataLen = ovrflowAmt;
+							p += 2;
+						}
+						
+						// shuffle remaining elements across
+						__m128i shiftThing = _mm_load_si128(&pshufb_shift_table[ovrflowAmt]);
+						data = _mm_shuffle_epi8(data, shiftThing);
+						// store out data
+						STOREU_XMM(p, data);
+						p += dataLen;
+					} else {
+						if (escapedLUT[c]) { // will also handle case which would be handled fine normally, but since we're checking it...
+							// ugly hacky code
+							// check if we have enough bytes to read
+							if(len-i-1 <= XMM_SIZE) {
+								*(uint16_t*)p = UINT16_PACK('\r', '\n');
+								col = 0;
+								p += 2;
+								goto encode_fast2_tail;
+							}
+							
+							*(uint32_t*)p = UINT32_PACK('\r', '\n', '=', 0);
+							col = 1;
+							p += 3;
+							
+							// ewww....
+							input = _mm_loadu_si128((__m128i *)(src + i));
+							// hack XMM input to fool regular code into writing the correct character
+#ifdef __SSE4_1__
+							input = _mm_insert_epi8(input, c-(214-64)-42, 0);
+#else
+							input = _mm_insert_epi16(input, (uint16_t)(c-(214-64)-42) + (((uint16_t)src[i+1])<<8), 0);
+#endif
+							goto encode_fast2_after_load;
+							
+						} else {
+							*(uint16_t*)p = UINT16_PACK('\r', '\n');
+							col = 0;
+							p += 2;
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	encode_fast2_tail:
+	while(i < len) {
+		while(col < line_size-1) {
+			c = src[i++];
+			if (escapeLUT[c]) {
+				*(p++) = escapeLUT[c];
+				col++;
+			}
+			else {
+				*(uint16_t*)p = escapedLUT[c];
+				p += 2;
+				col += 2;
+			}
+			if (i >= len) goto encode_fast2_end;
+		}
+		
+		// last line char
+		// TODO: consider combining with above
+		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
+			c = src[i++];
+			if (escapedLUT[c] && c != '.'-42) {
+				*(uint16_t*)p = escapedLUT[c];
+				p += 2;
+			} else {
+				*(p++) = c + 42;
+			}
+		}
+		
+		if (i >= len) break;
+		
+		c = src[i++];
+		if (escapedLUT[c]) {
+			*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+			p += 4;
+			col = 2;
+		} else {
+			*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+			p += 3;
+			col = 1;
+		}
+	}
+	
+	
+	encode_fast2_end:
+	return p - dest;
+}
+#endif
 
 #else
 #define do_encode do_encode_slow
@@ -1159,6 +1552,9 @@ void init(Handle<Object> target) {
 				res[8+p] = 8+p +0x80; // +0x80 causes PSHUFB to 0 discarded entries; has no effect other than to ease debugging
 			_mm_store_si128(shufLUT + i, _mm_loadu_si128((__m128i*)res));
 		}
+		// underflow guard entries; this may occur when checking for escaped characters, when the shufLUT[0] and shufLUT[-1] are used for testing
+		_mm_store_si128(_shufLUT +0, _mm_set1_epi8(0xFF));
+		_mm_store_si128(_shufLUT +1, _mm_set1_epi8(0xFF));
 	}
 #endif
 }
