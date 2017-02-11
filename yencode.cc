@@ -618,7 +618,6 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 */
 
 
-#if 0
 
 ALIGN_32(static const uint8_t _pshufb_shift_table[272]) = {
 	0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8a,0x8b,0x8c,0x8d,0x8e,0x8f,
@@ -649,27 +648,47 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 	
 	__m128i equals = _mm_set1_epi8('=');
 	
-	if (col == 0) {
-		// first char in line
-		c = src[i++];
-		if (escapedLUT[c]) {
-			*(uint16_t*)p = escapedLUT[c];
+	// firstly, align reader
+	for (; (uintptr_t)(src+i) & 0xF; i++) {
+		if(i >= len) goto encode_fast2_end;
+		c = (src[i] + 42) & 0xFF;
+		switch(c) {
+			case '.':
+				if(col > 0) break;
+			case '\t': case ' ':
+				if(col > 0 && col < line_size-1) break;
+			case '\0': case '\r': case '\n': case '=':
+				*(p++) = '=';
+				c += 64;
+				col++;
+		}
+		*(p++) = c;
+		col++;
+		if(col >= line_size && i+1 < len) {
+			*(uint16_t*)p = UINT16_PACK('\r', '\n');
 			p += 2;
-			col = 2;
-		} else {
-			*(p++) = c + 42;
-			col = 1;
+			col = 0;
 		}
 	}
-	while(len-i-1 > XMM_SIZE) {
-		// main line
-		while (1) {
-			if(len-i-1 <= XMM_SIZE) { // prevent spilling over the end
-				goto encode_fast2_tail;
+	
+	if(len-i-1 > XMM_SIZE) {
+		__m128i input = _mm_load_si128((__m128i *)(src + i));
+		
+		if (col == 0) {
+			// first char in line
+			c = src[i];
+			if (escapedLUT[c]) {
+				*p++ = '=';
+				col = 1;
+				
+#ifdef __SSE4_1__
+				input = _mm_insert_epi8(input, c-(214-64)-42, 0);
+#else
+				input = _mm_insert_epi16(input, (uint16_t)(c-(214-64)-42) + (((uint16_t)src[i+1])<<8), 0);
+#endif
 			}
-			
-			__m128i input = _mm_loadu_si128((__m128i *)(src + i));
-			encode_fast2_after_load:
+		}
+		do {
 			__m128i data = _mm_add_epi8(input, _mm_set1_epi8(42));
 			i += XMM_SIZE;
 			// search for special chars
@@ -859,7 +878,7 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 									*(uint16_t*)p = UINT16_PACK('\r', '\n');
 									col = 0;
 									p += 2;
-									goto encode_fast2_tail;
+									break;
 								}
 								
 								// we've now got a rather problematic case to handle... :|
@@ -868,14 +887,14 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 								col = 1;
 								
 								// ewww....
-								input = _mm_loadu_si128((__m128i *)(src + i));
+								input = _mm_load_si128((__m128i *)(src + i));
 								// hack XMM input to fool regular code into writing the correct character
 #ifdef __SSE4_1__
 								input = _mm_insert_epi8(input, c-(214-64)-42, 0);
 #else
 								input = _mm_insert_epi16(input, (uint16_t)(c-(214-64)-42) + (((uint16_t)src[i+1])<<8), 0);
 #endif
-								goto encode_fast2_after_load;
+								continue;
 							} else {
 								*(uint16_t*)p = UINT16_PACK('\r', '\n');
 								col = 0;
@@ -933,7 +952,7 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 								*(uint16_t*)p = UINT16_PACK('\r', '\n');
 								col = 0;
 								p += 2;
-								goto encode_fast2_tail;
+								break;
 							}
 							
 							*(uint32_t*)p = UINT32_PACK('\r', '\n', '=', 0);
@@ -941,14 +960,14 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 							p += 3;
 							
 							// ewww....
-							input = _mm_loadu_si128((__m128i *)(src + i));
+							input = _mm_load_si128((__m128i *)(src + i));
 							// hack XMM input to fool regular code into writing the correct character
 #ifdef __SSE4_1__
 							input = _mm_insert_epi8(input, c-(214-64)-42, 0);
 #else
 							input = _mm_insert_epi16(input, (uint16_t)(c-(214-64)-42) + (((uint16_t)src[i+1])<<8), 0);
 #endif
-							goto encode_fast2_after_load;
+							continue;
 							
 						} else {
 							*(uint16_t*)p = UINT16_PACK('\r', '\n');
@@ -958,10 +977,21 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 					}
 				}
 			}
-		}
+			input = _mm_load_si128((__m128i *)(src + i));
+		} while(len-i-1 > XMM_SIZE);
 	}
 	
-	encode_fast2_tail:
+	if(col == 0) {
+		c = src[i++];
+		if (escapedLUT[c]) {
+			*(uint16_t*)p = escapedLUT[c];
+			p += 2;
+			col = 2;
+		} else {
+			*(p++) = c + 42;
+			col = 1;
+		}
+	}
 	while(i < len) {
 		while(col < line_size-1) {
 			c = src[i++];
@@ -1007,7 +1037,6 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 	encode_fast2_end:
 	return p - dest;
 }
-#endif
 
 #else
 #define do_encode do_encode_slow
