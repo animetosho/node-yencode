@@ -33,6 +33,14 @@ var refYEnc = function(src, line_size, col) {
 		ret.pop();
 	}
 	
+	// if the last character is tab/space, escape it
+	if(ret[ret.length-1] == '\t'.charCodeAt(0) || ret[ret.length-1] == ' '.charCodeAt(0)) {
+		var c = ret[ret.length-1];
+		ret.pop();
+		ret.push('='.charCodeAt(0));
+		ret.push((c+64) & 0xFF);
+	}
+	
 	return new Buffer(ret);
 };
 var doTest = function(msg, test, expected) {
@@ -51,6 +59,7 @@ var doTest = function(msg, test, expected) {
 
 doTest('Empty test', [[]], '');
 doTest('Simple test', [[0,1,2,3,224,4]]);
+doTest('Partial tab line', [[223, 223, 223]]);
 doTest('Dot first should escape', [[4,3,224,2,1,0]]);
 doTest('Short line', [[0,1,2,3,4], 2]);
 doTest('Short line (2)', [[0,1,224,3,4], 2]);

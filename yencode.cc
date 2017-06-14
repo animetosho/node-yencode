@@ -251,6 +251,13 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 	}
 	
 	end:
+	// special case: if the last character is a space/tab, it needs to be escaped as it's the final character on the line
+	unsigned char lc = *(p-1);
+	if(lc == '\t' || lc == ' ') {
+		*(uint16_t*)(p-1) = UINT16_PACK('=', lc+64);
+		p++;
+		//col++;
+	}
 	return p - dest;
 }
 
@@ -446,6 +453,12 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 	}
 	
 	end:
+	// special case: if the last character is a space/tab, it needs to be escaped as it's the final character on the line
+	unsigned char lc = *(p-1);
+	if(lc == '\t' || lc == ' ') {
+		*(uint16_t*)(p-1) = UINT16_PACK('=', lc+64);
+		p++;
+	}
 	return p - dest;
 }
 
@@ -612,6 +625,12 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 	_mm256_zeroupper();
 	
 	end:
+	// special case: if the last character is a space/tab, it needs to be escaped as it's the final character on the line
+	unsigned char lc = *(p-1);
+	if(lc == '\t' || lc == ' ') {
+		*(uint16_t*)(p-1) = UINT16_PACK('=', lc+64);
+		p++;
+	}
 	return p - dest;
 }
 #endif
@@ -1035,6 +1054,12 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 	
 	
 	encode_fast2_end:
+	// special case: if the last character is a space/tab, it needs to be escaped as it's the final character on the line
+	unsigned char lc = *(p-1);
+	if(lc == '\t' || lc == ' ') {
+		*(uint16_t*)(p-1) = UINT16_PACK('=', lc+64);
+		p++;
+	}
 	return p - dest;
 }
 
@@ -1070,6 +1095,12 @@ static inline unsigned long do_encode(int line_size, int col, const unsigned cha
 		}
 	}
 	
+	// special case: if the last character is a space/tab, it needs to be escaped as it's the final character on the line
+	unsigned char lc = *(p-1);
+	if(lc == '\t' || lc == ' ') {
+		*(uint16_t*)(p-1) = UINT16_PACK('=', lc+64);
+		p++;
+	}
 	return p - dest;
 }
 */
