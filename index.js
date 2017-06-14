@@ -3,6 +3,7 @@
 var y = require('./build/Release/yencode.node');
 
 var nl = new Buffer([13, 10]);
+var RE_BADCHAR = /\r\n\0/g;
 
 module.exports = {
 	encoding: 'utf8',
@@ -28,7 +29,7 @@ module.exports = {
 		
 		if(!Buffer.isBuffer(data)) data = new Buffer(data);
 		
-		filename = new Buffer(filename.replace(/\r\n\0/g, '').substr(0, 256), exports.encoding);
+		filename = new Buffer(filename.replace(RE_BADCHAR, '').substr(0, 256), exports.encoding);
 		return Buffer.concat([
 			new Buffer('=ybegin line='+line_size+' size='+data.length+' name='),
 			filename, nl,
@@ -52,7 +53,7 @@ function YEncoder(filename, size, parts, line_size) {
 	this.pos = 0;
 	this.crc = new Buffer([0,0,0,0]);
 	
-	filename = new Buffer(filename.replace(/\r\n\0/g, '').substr(0, 256), exports.encoding);
+	filename = new Buffer(filename.replace(RE_BADCHAR, '').substr(0, 256), exports.encoding);
 	if(parts > 1) {
 		this.yInfo = Buffer.concat([
 			new Buffer(' total='+parts+' line='+line_size+' size='+size+' name='),
