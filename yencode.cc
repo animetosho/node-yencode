@@ -263,12 +263,13 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 
 
 // slightly faster version which improves the worst case scenario significantly; since worst case doesn't happen often, overall speedup is relatively minor
-// requires PSHUFB (SSSE3) instruction, but will use PBLENDV (SSE4.1) and POPCNT (SSE4.2 (or AMD's ABM, but Phenom doesn't support SSSE3 so doesn't matter)) if available (these only seem to give minor speedups, so considered optional)
+// requires PSHUFB (SSSE3) instruction, but will use POPCNT (SSE4.2 (or AMD's ABM, but Phenom doesn't support SSSE3 so doesn't matter)) if available (these only seem to give minor speedups, so considered optional)
 #ifdef __SSSE3__
 size_t (*_do_encode)(int, int, const unsigned char*, unsigned char*, size_t) = &do_encode_slow;
 #define do_encode (*_do_encode)
 ALIGN_32(__m128i _shufLUT[258]); // +2 for underflow guard entry
 __m128i* shufLUT = _shufLUT+2;
+ALIGN_32(__m128i shufMixLUT[256]);
 #ifndef __POPCNT__
 // table from http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetTable
 static const unsigned char BitsSetTable256[256] = 
@@ -286,8 +287,6 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
 	unsigned char c, escaped; // input character; escaped input character
-	
-	__m128i equals = _mm_set1_epi8('=');
 	
 	if (col == 0) {
 		c = src[i++];
@@ -316,7 +315,7 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				),
 				_mm_or_si128(
 					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
-					_mm_cmpeq_epi8(data, equals)
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('='))
 				)
 			);
 			
@@ -338,23 +337,11 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				__m128i data2 = _mm_shuffle_epi8(data, shufMB);
 				data = _mm_shuffle_epi8(data, shufMA);
 				
-				// get the maskEsc for the escaped chars
-				__m128i maskEscA = _mm_cmpeq_epi8(shufMA, _mm_srli_si128(shufMA, 1));
-				__m128i maskEscB = _mm_cmpeq_epi8(shufMB, _mm_srli_si128(shufMB, 1));
-				
-				// blend escape chars in
-				__m128i addMask1 = _mm_and_si128(_mm_slli_si128(maskEscA, 1), _mm_set1_epi8(64));
-				__m128i addMask2 = _mm_and_si128(_mm_slli_si128(maskEscB, 1), _mm_set1_epi8(64));
-#ifdef __SSE4_1__
-	#define BLENDV _mm_blendv_epi8
-#else
-	#define BLENDV(v1, v2, m) _mm_or_si128(_mm_andnot_si128(m, v1), _mm_and_si128(m, v2))
-#endif
-				data = BLENDV(data, equals, maskEscA);
-				data2 = BLENDV(data2, equals, maskEscB);
-				data = _mm_add_epi8(data, addMask1);
-				data2 = _mm_add_epi8(data2, addMask2);
-#undef BLENDV
+				// add in escaped chars
+				__m128i shufMixMA = _mm_load_si128(shufMixLUT + m1);
+				__m128i shufMixMB = _mm_load_si128(shufMixLUT + m2);
+				data = _mm_add_epi8(data, shufMixMA);
+				data2 = _mm_add_epi8(data2, shufMixMB);
 				// store out
 #ifdef __POPCNT__
 				unsigned char shufALen = _mm_popcnt_u32(m1) + 8;
@@ -386,9 +373,9 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 						} else {
 							tst = *(uint16_t*)((char*)(shufLUT+m2) + offs);
 						}
-						isEsc = ((tst>>8) == (tst&0xFF));
+						isEsc = (0xf0 == (tst&0xF0));
 						p += isEsc;
-						i -= 8 - (tst>>8) - isEsc;
+						i -= 8 - ((tst>>8)&0xf) - isEsc;
 						//col = line_size-1 + isEsc; // doesn't need to be set, since it's never read again
 						if(isEsc)
 							goto after_last_char_fast;
@@ -470,8 +457,6 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 	unsigned long i = 0; // input position
 	unsigned char c, escaped; // input character; escaped input character
 	
-	__m256i equals = _mm256_set1_epi8('=');
-	
 	if (col == 0) {
 		c = src[i++];
 		if (escapedLUT[c]) {
@@ -499,7 +484,7 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 				),
 				_mm256_or_si256(
 					_mm256_cmpeq_epi8(data, _mm256_set1_epi8('\r')),
-					_mm256_cmpeq_epi8(data, equals)
+					_mm256_cmpeq_epi8(data, _mm256_set1_epi8('='))
 				)
 			);
 			
@@ -531,17 +516,19 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 				__m256i data1 = _mm256_shuffle_epi8(data, shufMA);
 				__m256i data2 = _mm256_shuffle_epi8(data, shufMB);
 				
-				// get the maskEsc for the escaped chars
-				__m256i maskEscA = _mm256_cmpeq_epi8(shufMA, _mm256_srli_si256(shufMA, 1));
-				__m256i maskEscB = _mm256_cmpeq_epi8(shufMB, _mm256_srli_si256(shufMB, 1));
-				
-				// blend escape chars in
-				__m256i addMask1 = _mm256_and_si256(_mm256_slli_si256(maskEscA, 1), _mm256_set1_epi8(64));
-				__m256i addMask2 = _mm256_and_si256(_mm256_slli_si256(maskEscB, 1), _mm256_set1_epi8(64));
-				data1 = _mm256_blendv_epi8(data1, equals, maskEscA);
-				data2 = _mm256_blendv_epi8(data2, equals, maskEscB);
-				data1 = _mm256_add_epi8(data1, addMask1);
-				data2 = _mm256_add_epi8(data2, addMask2);
+				// add in escaped chars
+				__m256i shufMixMA = _mm256_inserti128_si256(
+					_mm256_castsi128_si256(shufMixLUT[m1]),
+					shufMixLUT[m3],
+					1
+				);
+				__m256i shufMixMB = _mm256_inserti128_si256(
+					_mm256_castsi128_si256(shufMixLUT[m2]),
+					shufMixLUT[m4],
+					1
+				);
+				data = _mm256_add_epi8(data, shufMixMA);
+				data2 = _mm256_add_epi8(data2, shufMixMB);
 				// store out
 				unsigned char shuf1Len = _mm_popcnt_u32(m1) + 8;
 				unsigned char shuf2Len = _mm_popcnt_u32(m2) + 8;
@@ -663,8 +650,6 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 	unsigned long i = 0; // input position
 	unsigned char c; // input character; escaped input character
 	
-	__m128i equals = _mm_set1_epi8('=');
-	
 	// firstly, align reader
 	for (; (uintptr_t)(src+i) & 0xF; i++) {
 		if(i >= len) goto encode_fast2_end;
@@ -716,7 +701,7 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 				),
 				_mm_or_si128(
 					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
-					_mm_cmpeq_epi8(data, equals)
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('='))
 				)
 			);
 			
@@ -737,23 +722,11 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 				__m128i data2 = _mm_shuffle_epi8(data, shufMB);
 				data = _mm_shuffle_epi8(data, shufMA);
 				
-				// get the maskEsc for the escaped chars
-				__m128i maskEscA = _mm_cmpeq_epi8(shufMA, _mm_srli_si128(shufMA, 1));
-				__m128i maskEscB = _mm_cmpeq_epi8(shufMB, _mm_srli_si128(shufMB, 1));
-				
-				// blend escape chars in
-				__m128i addMask1 = _mm_and_si128(_mm_slli_si128(maskEscA, 1), _mm_set1_epi8(64));
-				__m128i addMask2 = _mm_and_si128(_mm_slli_si128(maskEscB, 1), _mm_set1_epi8(64));
-#ifdef __SSE4_1__
-	#define BLENDV _mm_blendv_epi8
-#else
-	#define BLENDV(v1, v2, m) _mm_or_si128(_mm_andnot_si128(m, v1), _mm_and_si128(m, v2))
-#endif
-				data = BLENDV(data, equals, maskEscA);
-				data2 = BLENDV(data2, equals, maskEscB);
-				data = _mm_add_epi8(data, addMask1);
-				data2 = _mm_add_epi8(data2, addMask2);
-#undef BLENDV
+				// add in escaped chars
+				__m128i shufMixMA = _mm_load_si128(shufMixLUT + m1);
+				__m128i shufMixMB = _mm_load_si128(shufMixLUT + m2);
+				data = _mm_add_epi8(data, shufMixMA);
+				data2 = _mm_add_epi8(data2, shufMixMB);
 				// store out
 #ifdef __POPCNT__
 				unsigned char shufALen = _mm_popcnt_u32(m1) + 8;
@@ -818,8 +791,8 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 						} else {
 							tst = *(uint16_t*)((char*)(shufLUT+m2) + offs);
 						}
-						isEsc = ((tst>>8) == (tst&0xFF));
-						tmpInPos -= 8 - (tst>>8) - isEsc;
+						isEsc = (0xf0 == (tst&0xF0));
+						tmpInPos -= 8 - ((tst>>8)&0xf) - isEsc;
 						
 						lastIsEsc = 0;
 						if(!isEsc) {
@@ -1597,16 +1570,25 @@ void init(Handle<Object> target) {
 			uint8_t res[16];
 			int p = 0;
 			for(int j=0; j<8; j++) {
-				res[j+p] = j;
 				if(k & 1) {
+					res[j+p] = 0xf0 + j;
 					p++;
-					res[j+p] = j;
 				}
+				res[j+p] = j;
 				k >>= 1;
 			}
 			for(; p<8; p++)
 				res[8+p] = 8+p +0x80; // +0x80 causes PSHUFB to 0 discarded entries; has no effect other than to ease debugging
-			_mm_store_si128(shufLUT + i, _mm_loadu_si128((__m128i*)res));
+			
+			__m128i shuf = _mm_loadu_si128((__m128i*)res);
+			_mm_store_si128(shufLUT + i, shuf);
+			
+			// calculate add mask for mixing escape chars in
+			__m128i maskEsc = _mm_cmpeq_epi8(_mm_and_si128(shuf, _mm_set1_epi8(0xf0)), _mm_set1_epi8(0xf0));
+			__m128i addMask = _mm_and_si128(_mm_slli_si128(maskEsc, 1), _mm_set1_epi8(64));
+			addMask = _mm_or_si128(addMask, _mm_and_si128(maskEsc, _mm_set1_epi8('=')));
+			
+			_mm_store_si128(shufMixLUT + i, addMask);
 		}
 		// underflow guard entries; this may occur when checking for escaped characters, when the shufLUT[0] and shufLUT[-1] are used for testing
 		_mm_store_si128(_shufLUT +0, _mm_set1_epi8(0xFF));
