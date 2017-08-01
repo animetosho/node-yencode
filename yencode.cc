@@ -343,8 +343,8 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 				__m128i maskEscB = _mm_cmpeq_epi8(shufMB, _mm_srli_si128(shufMB, 1));
 				
 				// blend escape chars in
-				__m128i tmp1 = _mm_add_epi8(data, _mm_set1_epi8(64));
-				__m128i tmp2 = _mm_add_epi8(data2, _mm_set1_epi8(64));
+				__m128i addMask1 = _mm_and_si128(_mm_slli_si128(maskEscA, 1), _mm_set1_epi8(64));
+				__m128i addMask2 = _mm_and_si128(_mm_slli_si128(maskEscB, 1), _mm_set1_epi8(64));
 #ifdef __SSE4_1__
 	#define BLENDV _mm_blendv_epi8
 #else
@@ -352,10 +352,8 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 #endif
 				data = BLENDV(data, equals, maskEscA);
 				data2 = BLENDV(data2, equals, maskEscB);
-				maskEscA = _mm_slli_si128(maskEscA, 1);
-				maskEscB = _mm_slli_si128(maskEscB, 1);
-				data = BLENDV(data, tmp1, maskEscA);
-				data2 = BLENDV(data2, tmp2, maskEscB);
+				data = _mm_add_epi8(data, addMask1);
+				data2 = _mm_add_epi8(data2, addMask2);
 #undef BLENDV
 				// store out
 #ifdef __POPCNT__
@@ -538,12 +536,12 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 				__m256i maskEscB = _mm256_cmpeq_epi8(shufMB, _mm256_srli_si256(shufMB, 1));
 				
 				// blend escape chars in
-				__m256i tmp1 = _mm256_add_epi8(data1, _mm256_set1_epi8(64));
-				__m256i tmp2 = _mm256_add_epi8(data2, _mm256_set1_epi8(64));
+				__m256i addMask1 = _mm256_and_si256(_mm256_slli_si256(maskEscA, 1), _mm256_set1_epi8(64));
+				__m256i addMask2 = _mm256_and_si256(_mm256_slli_si256(maskEscB, 1), _mm256_set1_epi8(64));
 				data1 = _mm256_blendv_epi8(data1, equals, maskEscA);
 				data2 = _mm256_blendv_epi8(data2, equals, maskEscB);
-				data1 = _mm256_blendv_epi8(data1, tmp1, _mm256_slli_si256(maskEscA, 1));
-				data2 = _mm256_blendv_epi8(data2, tmp2, _mm256_slli_si256(maskEscB, 1));
+				data1 = _mm256_add_epi8(data1, addMask1);
+				data2 = _mm256_add_epi8(data2, addMask2);
 				// store out
 				unsigned char shuf1Len = _mm_popcnt_u32(m1) + 8;
 				unsigned char shuf2Len = _mm_popcnt_u32(m2) + 8;
@@ -744,8 +742,8 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 				__m128i maskEscB = _mm_cmpeq_epi8(shufMB, _mm_srli_si128(shufMB, 1));
 				
 				// blend escape chars in
-				__m128i tmp1 = _mm_add_epi8(data, _mm_set1_epi8(64));
-				__m128i tmp2 = _mm_add_epi8(data2, _mm_set1_epi8(64));
+				__m128i addMask1 = _mm_and_si128(_mm_slli_si128(maskEscA, 1), _mm_set1_epi8(64));
+				__m128i addMask2 = _mm_and_si128(_mm_slli_si128(maskEscB, 1), _mm_set1_epi8(64));
 #ifdef __SSE4_1__
 	#define BLENDV _mm_blendv_epi8
 #else
@@ -753,10 +751,8 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 #endif
 				data = BLENDV(data, equals, maskEscA);
 				data2 = BLENDV(data2, equals, maskEscB);
-				maskEscA = _mm_slli_si128(maskEscA, 1);
-				maskEscB = _mm_slli_si128(maskEscB, 1);
-				data = BLENDV(data, tmp1, maskEscA);
-				data2 = BLENDV(data2, tmp2, maskEscB);
+				data = _mm_add_epi8(data, addMask1);
+				data2 = _mm_add_epi8(data2, addMask2);
 #undef BLENDV
 				// store out
 #ifdef __POPCNT__
