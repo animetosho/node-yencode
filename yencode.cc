@@ -79,10 +79,11 @@ static uint16_t escapedLUT[256]; // escaped sequences for characters that need e
 #endif
 
 // runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
-static size_t do_encode_slow(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
+static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
 	unsigned char c, escaped; // input character; escaped input character
+	int col = *colOffset;
 	
 	if (col == 0) {
 		c = src[i++];
@@ -256,8 +257,9 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 	if(lc == '\t' || lc == ' ') {
 		*(uint16_t*)(p-1) = UINT16_PACK('=', lc+64);
 		p++;
-		//col++;
+		col++;
 	}
+	*colOffset = col;
 	return p - dest;
 }
 
@@ -265,7 +267,7 @@ static size_t do_encode_slow(int line_size, int col, const unsigned char* src, u
 // slightly faster version which improves the worst case scenario significantly; since worst case doesn't happen often, overall speedup is relatively minor
 // requires PSHUFB (SSSE3) instruction, but will use POPCNT (SSE4.2 (or AMD's ABM, but Phenom doesn't support SSSE3 so doesn't matter)) if available (these only seem to give minor speedups, so considered optional)
 #ifdef __SSSE3__
-size_t (*_do_encode)(int, int, const unsigned char*, unsigned char*, size_t) = &do_encode_slow;
+size_t (*_do_encode)(int, int*, const unsigned char*, unsigned char*, size_t) = &do_encode_slow;
 #define do_encode (*_do_encode)
 ALIGN_32(__m128i _shufLUT[258]); // +2 for underflow guard entry
 __m128i* shufLUT = _shufLUT+2;
@@ -283,10 +285,11 @@ static const unsigned char BitsSetTable256[256] =
 #undef B6
 };
 #endif
-static size_t do_encode_fast(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
+static size_t do_encode_fast(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
 	unsigned char c, escaped; // input character; escaped input character
+	int col = *colOffset;
 	
 	if (col == 0) {
 		c = src[i++];
@@ -443,7 +446,9 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 	if(lc == '\t' || lc == ' ') {
 		*(uint16_t*)(p-1) = UINT16_PACK('=', lc+64);
 		p++;
+		col++;
 	}
+	*colOffset = col;
 	return p - dest;
 }
 
@@ -452,10 +457,11 @@ static size_t do_encode_fast(int line_size, int col, const unsigned char* src, u
 // seems to be slower than SSSE3 variant, so not used at the moment; with experimental optimisations, is faster on Haswell, but only mildly so
 #ifdef __AVX2__
 #define YMM_SIZE 32
-static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
+static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
 	unsigned char c, escaped; // input character; escaped input character
+	int col = *colOffset;
 	
 	if (col == 0) {
 		c = src[i++];
@@ -615,7 +621,9 @@ static size_t do_encode_avx2(int line_size, int col, const unsigned char* src, u
 	if(lc == '\t' || lc == ' ') {
 		*(uint16_t*)(p-1) = UINT16_PACK('=', lc+64);
 		p++;
+		col++;
 	}
+	*colOffset = col;
 	return p - dest;
 }
 #endif
@@ -645,13 +653,14 @@ ALIGN_32(static const uint8_t _pshufb_shift_table[272]) = {
 static const __m128i* pshufb_shift_table = (const __m128i*)_pshufb_shift_table;
 
 // assumes line_size is reasonably large (probably >32)
-static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
+static size_t do_encode_fast2(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
 	// TODO: not ideal; leave here so that tests pass
-	if(line_size < 32) return do_encode_fast(line_size, col, src, dest, len);
+	if(line_size < 32) return do_encode_fast(line_size, colOffset, src, dest, len);
 	
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
 	unsigned char c; // input character; escaped input character
+	int col = *colOffset;
 	
 	__m128i escFirstChar = _mm_set_epi8(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,64);
 	
@@ -1021,7 +1030,9 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 	if(lc == '\t' || lc == ' ') {
 		*(uint16_t*)(p-1) = UINT16_PACK('=', lc+64);
 		p++;
+		col++;
 	}
+	*colOffset = col;
 	return p - dest;
 }
 
@@ -1217,7 +1228,7 @@ static void Encode(const FunctionCallbackInfo<Value>& args) {
 	size_t dest_len = YENC_MAX_SIZE(arg_len, line_size);
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
-	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
+	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
 	result = (unsigned char*)realloc(result, len);
 	//isolate->AdjustAmountOfExternalAllocatedMemory(len);
 	args.GetReturnValue().Set( BUFFER_NEW((char*)result, len, free_buffer, (void*)len) );
@@ -1258,7 +1269,7 @@ static void EncodeTo(const FunctionCallbackInfo<Value>& args) {
 		return;
 	}
 	
-	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len);
+	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len);
 	args.GetReturnValue().Set( Integer::New(isolate, len) );
 }
 
@@ -1387,7 +1398,7 @@ static Handle<Value> Encode(const Arguments& args) {
 	size_t dest_len = YENC_MAX_SIZE(arg_len, line_size);
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
-	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
+	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
 	result = (unsigned char*)realloc(result, len);
 	V8::AdjustAmountOfExternalAllocatedMemory(len);
 	ReturnBuffer(node::Buffer::New((char*)result, len, free_buffer, (void*)len), len, 0);
@@ -1424,7 +1435,7 @@ static Handle<Value> EncodeTo(const Arguments& args) {
 		return scope.Close(Integer::New(0));
 	}
 	
-	size_t len = do_encode(line_size, col, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len);
+	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len);
 	return scope.Close(Integer::New(len));
 }
 
