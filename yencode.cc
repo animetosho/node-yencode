@@ -646,9 +646,14 @@ static const __m128i* pshufb_shift_table = (const __m128i*)_pshufb_shift_table;
 
 // assumes line_size is reasonably large (probably >32)
 static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
+	// TODO: not ideal; leave here so that tests pass
+	if(line_size < 32) return do_encode_fast(line_size, col, src, dest, len);
+	
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
 	unsigned char c; // input character; escaped input character
+	
+	__m128i escFirstChar = _mm_set_epi8(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,64);
 	
 	// firstly, align reader
 	for (; (uintptr_t)(src+i) & 0xF; i++) {
@@ -683,11 +688,7 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 				*p++ = '=';
 				col = 1;
 				
-#ifdef __SSE4_1__
-				input = _mm_insert_epi8(input, c-(214-64)-42, 0);
-#else
-				input = _mm_insert_epi16(input, (uint16_t)(c-(214-64)-42) + (((uint16_t)src[i+1])<<8), 0);
-#endif
+				input = _mm_add_epi8(input, escFirstChar);
 			}
 		}
 		do {
@@ -877,11 +878,7 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 								// ewww....
 								input = _mm_load_si128((__m128i *)(src + i));
 								// hack XMM input to fool regular code into writing the correct character
-#ifdef __SSE4_1__
-								input = _mm_insert_epi8(input, c-(214-64)-42, 0);
-#else
-								input = _mm_insert_epi16(input, (uint16_t)(c-(214-64)-42) + (((uint16_t)src[i+1])<<8), 0);
-#endif
+								input = _mm_add_epi8(input, escFirstChar);
 								continue;
 							} else {
 								*(uint16_t*)p = UINT16_PACK('\r', '\n');
@@ -950,11 +947,7 @@ static size_t do_encode_fast2(int line_size, int col, const unsigned char* src, 
 							// ewww....
 							input = _mm_load_si128((__m128i *)(src + i));
 							// hack XMM input to fool regular code into writing the correct character
-#ifdef __SSE4_1__
-							input = _mm_insert_epi8(input, c-(214-64)-42, 0);
-#else
-							input = _mm_insert_epi16(input, (uint16_t)(c-(214-64)-42) + (((uint16_t)src[i+1])<<8), 0);
-#endif
+							input = _mm_add_epi8(input, escFirstChar);
 							continue;
 							
 						} else {
@@ -1558,9 +1551,6 @@ void init(Handle<Object> target) {
 #ifdef __POPCNT__
 	fastYencMask |= 0x800000;
 #endif
-#ifdef __SSE4_1__
-	fastYencMask |= 0x80000;
-#endif
 	_do_encode = ((flags & fastYencMask) == fastYencMask) ? &do_encode_fast : &do_encode_slow; // SSSE3 + required stuff based on compiler flags
 	
 	if((flags & fastYencMask) == fastYencMask) {
@@ -1593,7 +1583,7 @@ void init(Handle<Object> target) {
 		// underflow guard entries; this may occur when checking for escaped characters, when the shufLUT[0] and shufLUT[-1] are used for testing
 		_mm_store_si128(_shufLUT +0, _mm_set1_epi8(0xFF));
 		_mm_store_si128(_shufLUT +1, _mm_set1_epi8(0xFF));
-	}
+				}
 #endif
 }
 
