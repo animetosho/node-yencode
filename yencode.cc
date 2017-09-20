@@ -1096,11 +1096,16 @@ static size_t do_decode_scalar_raw(const unsigned char* src, unsigned char* dest
 	
 	if(state) switch(*state) {
 		case 1:
-			*p++ = src[i] - 42 - 64;
+			c = src[i];
+			*p++ = c - 42 - 64;
 			i++;
-			*state = 3;
-		case 3:
-			break;
+			if(c == '\r' && i < len) {
+				*state = 2;
+				// fall through to case 2
+			} else {
+				*state = 3;
+				break;
+			}
 		case 2:
 			if(src[i] != '\n') break;
 			i++;
@@ -1123,10 +1128,13 @@ static size_t do_decode_scalar_raw(const unsigned char* src, unsigned char* dest
 			case '\n':
 				continue;
 			case '=':
-				i++;
-				c = src[i] - 64;
+				c = src[i+1];
+				*p++ = c - 42 - 64;
+				i += (c != '\r'); // if we have a \r, reprocess character to deal with \r\n. case
+				continue;
+			default:
+				*p++ = c - 42;
 		}
-		*p++ = c - 42;
 	}
 	
 	if(state) *state = 3;
@@ -1142,8 +1150,10 @@ static size_t do_decode_scalar_raw(const unsigned char* src, unsigned char* dest
 			case '\n':
 				break;
 			case '=':
-				i++;
-				c = src[i] - 64;
+				c = src[i+1];
+				*p++ = c - 42 - 64;
+				i += (c != '\r');
+				break;
 			default:
 				*p++ = c - 42;
 		}
@@ -1307,28 +1317,21 @@ static size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_
 #else
 # define ALIGNR(a, b, i) _mm_or_si128(_mm_slli_si128(a, sizeof(__m128i)-(i)), _mm_srli_si128(b, i))
 #endif
-				// firstly, blank out escaped chars from original data, to deal with quirky sequences like =\r\n
-				eqVec = _mm_cmpeq_epi8(eqVec, _mm_set1_epi8(64));
 				__m128i nextData = _mm_load_si128((__m128i *)(src + i) + 1);
-				__m128i tmpEqVec = _mm_slli_si128(eqVec, 1);
-				if(escFirst)
-					tmpEqVec = _mm_or_si128(tmpEqVec, _mm_set_epi32(0, 0, 0, 0xff));
-				__m128i mData1 = _mm_andnot_si128(tmpEqVec, data);
-				__m128i mData2 = ALIGNR(nextData, data, 1);
-				mData2 = _mm_andnot_si128(eqVec, mData2);
-				// then, find instances of \r\n
-				__m128i cmp1 = _mm_cmpeq_epi16(mData1, _mm_set1_epi16(0x0a0d));
-				__m128i cmp2 = _mm_cmpeq_epi16(mData2, _mm_set1_epi16(0x0a0d));
+				// find instances of \r\n
+				__m128i tmpData = ALIGNR(nextData, data, 1);
+				__m128i cmp1 = _mm_cmpeq_epi16(data, _mm_set1_epi16(0x0a0d));
+				__m128i cmp2 = _mm_cmpeq_epi16(tmpData, _mm_set1_epi16(0x0a0d));
 				// trim matches to just the \n
 				cmp1 = _mm_and_si128(cmp1, _mm_set1_epi16(0xff00));
 				cmp2 = _mm_and_si128(cmp2, _mm_set1_epi16(0xff00));
 				// merge the two comparisons
 				cmp1 = _mm_or_si128(_mm_srli_si128(cmp1, 1), cmp2);
 				// then check if there's a . after any of these instances
-				mData1 = ALIGNR(nextData, data, 2);
-				mData1 = _mm_cmpeq_epi8(mData1, _mm_set1_epi8('.'));
+				tmpData = ALIGNR(nextData, data, 2);
+				tmpData = _mm_cmpeq_epi8(tmpData, _mm_set1_epi8('.'));
 				// grab bit-mask of matched . characters and OR with mask
-				unsigned int killDots = _mm_movemask_epi8(_mm_and_si128(mData1, cmp1));
+				unsigned int killDots = _mm_movemask_epi8(_mm_and_si128(tmpData, cmp1));
 				mask |= (killDots << 2) & 0xffff;
 				nextMask = killDots >> 14;
 #undef ALIGNR
