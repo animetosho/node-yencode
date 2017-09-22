@@ -100,7 +100,11 @@ static int cpu_flags() {
 # define CPU_SHUFFLE_FLAGS 0x200
 #endif
 
-#include <v8.h> /* pulls in basic types; TODO: pull from elsewhere */
-
+#if !defined(_MSC_VER) || defined(_STDINT) || _MSC_VER >= 1900
+# include <stdint.h>
+#else
+/* Workaround for older MSVC not supporting stdint.h - just pull it from V8 */
+# include <v8.h>
+#endif
 
 #endif /* __YENC_COMMON */
