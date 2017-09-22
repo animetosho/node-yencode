@@ -48,7 +48,7 @@ var doTest = function(msg, test, expected) {
 	if(!test[1]) test[1] = 128; // line size
 	if(!test[2]) test[2] = 0; // column offset
 	
-	if(!expected) expected = refYEnc.apply(null, test).toString('hex');
+	if(!expected && expected !== '') expected = refYEnc.apply(null, test).toString('hex');
 	else expected = expected.replace(/ /g, '');
 	assert.equal(y.encode.apply(null, test).toString('hex'), expected, msg);
 	var buf = new Buffer(require('./').maxSize(test[0].length, test[1]));
