@@ -3,7 +3,7 @@
     {
       "target_name": "yencode",
       "dependencies": ["crcutil"],
-      "sources": ["yencode.cc"],
+      "sources": ["src/yencode.cc"],
       "conditions": [
         ['OS=="win"', {
           "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
