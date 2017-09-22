@@ -8,132 +8,129 @@
 //   1: previous character is `=`
 //   2: previous character is `\r`
 //   3: previous character is none of the above
-size_t do_decode_scalar_raw(const unsigned char* src, unsigned char* dest, size_t len, char* state) {
+template<bool isRaw>
+size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t len, char* state) {
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
 	unsigned char c; // input character
 	
 	if(len < 1) return 0;
 	
-	if(state) switch(*state) {
-		case 1:
-			c = src[i];
-			*p++ = c - 42 - 64;
-			i++;
-			if(c == '\r' && i < len) {
-				*state = 2;
-				// fall through to case 2
-			} else {
-				*state = 3;
-				break;
-			}
-		case 2:
-			if(src[i] != '\n') break;
-			i++;
-			*state = 0; // now `\r\n`
-			if(len <= i) return 0;
-		case 0:
-			// skip past first dot
-			if(src[i] == '.') i++;
-	} else // treat as *state == 0
-		if(src[i] == '.') i++;
-	
-	for(; i + 2 < len; i++) {
-		c = src[i];
-		switch(c) {
-			case '\r':
-				// skip past \r\n. sequences
-				//i += (*(uint16_t*)(src + i + 1) == UINT16_PACK('\n', '.')) << 1;
-				if(*(uint16_t*)(src + i + 1) == UINT16_PACK('\n', '.'))
-					i += 2;
-			case '\n':
-				continue;
-			case '=':
-				c = src[i+1];
+	if(isRaw) {
+		
+		if(state) switch(*state) {
+			case 1:
+				c = src[i];
 				*p++ = c - 42 - 64;
-				i += (c != '\r'); // if we have a \r, reprocess character to deal with \r\n. case
-				continue;
-			default:
-				*p++ = c - 42;
-		}
-	}
-	
-	if(state) *state = 3;
-	
-	if(i+1 < len) { // 2nd last char
-		c = src[i];
-		switch(c) {
-			case '\r':
-				if(state && src[i+1] == '\n') {
-					*state = 0;
-					return p - dest;
-				}
-			case '\n':
-				break;
-			case '=':
-				c = src[i+1];
-				*p++ = c - 42 - 64;
-				i += (c != '\r');
-				break;
-			default:
-				*p++ = c - 42;
-		}
-		i++;
-	}
-	
-	// do final char; we process this separately to prevent an overflow if the final char is '='
-	if(i < len) {
-		c = src[i];
-		if(c != '\n' && c != '\r' && c != '=') {
-			*p++ = c - 42;
-		} else if(state) {
-			if(c == '=') *state = 1;
-			else if(c == '\r') *state = 2;
-			else *state = 3;
-		}
-	}
-	
-	return p - dest;
-}
-size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t len, char* state, bool isRaw) {
-	if(isRaw) return do_decode_scalar_raw(src, dest, len, state);
-	unsigned char *p = dest; // destination pointer
-	unsigned long i = 0; // input position
-	unsigned char c; // input character
-	
-	if(len < 1) return 0;
-	
-	if(state && *state == 1) {
-		*p++ = src[i] - 42 - 64;
-		i++;
-		*state = 3;
-	}
-	
-	/*for(i = 0; i < len - 1; i++) {
-		c = src[i];
-		if(c == '\n' || c == '\r') continue;
-		unsigned char isEquals = (c == '=');
-		i += isEquals;
-		*p++ = src[i] - (42 + (isEquals << 6));
-	}*/
-	for(; i+1 < len; i++) {
-		c = src[i];
-		switch(c) {
-			case '\n': case '\r': continue;
-			case '=':
 				i++;
-				c = src[i] - 64;
+				if(c == '\r' && i < len) {
+					*state = 2;
+					// fall through to case 2
+				} else {
+					*state = 3;
+					break;
+				}
+			case 2:
+				if(src[i] != '\n') break;
+				i++;
+				*state = 0; // now `\r\n`
+				if(len <= i) return 0;
+			case 0:
+				// skip past first dot
+				if(src[i] == '.') i++;
+		} else // treat as *state == 0
+			if(src[i] == '.') i++;
+		
+		for(; i + 2 < len; i++) {
+			c = src[i];
+			switch(c) {
+				case '\r':
+					// skip past \r\n. sequences
+					//i += (*(uint16_t*)(src + i + 1) == UINT16_PACK('\n', '.')) << 1;
+					if(*(uint16_t*)(src + i + 1) == UINT16_PACK('\n', '.'))
+						i += 2;
+				case '\n':
+					continue;
+				case '=':
+					c = src[i+1];
+					*p++ = c - 42 - 64;
+					i += (c != '\r'); // if we have a \r, reprocess character to deal with \r\n. case
+					continue;
+				default:
+					*p++ = c - 42;
+			}
 		}
-		*p++ = c - 42;
-	}
-	if(state) *state = 3;
-	// do final char; we process this separately to prevent an overflow if the final char is '='
-	if(i < len) {
-		c = src[i];
-		if(c != '\n' && c != '\r' && c != '=') {
+		
+		if(state) *state = 3;
+		
+		if(i+1 < len) { // 2nd last char
+			c = src[i];
+			switch(c) {
+				case '\r':
+					if(state && src[i+1] == '\n') {
+						*state = 0;
+						return p - dest;
+					}
+				case '\n':
+					break;
+				case '=':
+					c = src[i+1];
+					*p++ = c - 42 - 64;
+					i += (c != '\r');
+					break;
+				default:
+					*p++ = c - 42;
+			}
+			i++;
+		}
+		
+		// do final char; we process this separately to prevent an overflow if the final char is '='
+		if(i < len) {
+			c = src[i];
+			if(c != '\n' && c != '\r' && c != '=') {
+				*p++ = c - 42;
+			} else if(state) {
+				if(c == '=') *state = 1;
+				else if(c == '\r') *state = 2;
+				else *state = 3;
+			}
+		}
+		
+	} else {
+		
+		if(state && *state == 1) {
+			*p++ = src[i] - 42 - 64;
+			i++;
+			*state = 3;
+		}
+		
+		/*for(i = 0; i < len - 1; i++) {
+			c = src[i];
+			if(c == '\n' || c == '\r') continue;
+			unsigned char isEquals = (c == '=');
+			i += isEquals;
+			*p++ = src[i] - (42 + (isEquals << 6));
+		}*/
+		for(; i+1 < len; i++) {
+			c = src[i];
+			switch(c) {
+				case '\n': case '\r': continue;
+				case '=':
+					i++;
+					c = src[i] - 64;
+			}
 			*p++ = c - 42;
-		} else
-			if(state) *state = (c == '=' ? 1 : 3);
+		}
+		if(state) *state = 3;
+		// do final char; we process this separately to prevent an overflow if the final char is '='
+		if(i < len) {
+			c = src[i];
+			if(c != '\n' && c != '\r' && c != '=') {
+				*p++ = c - 42;
+			} else
+				if(state) *state = (c == '=' ? 1 : 3);
+		}
+		
 	}
 	
 	return p - dest;
@@ -156,8 +153,9 @@ ALIGN_32(static const uint8_t _pshufb_combine_table[272]) = {
 };
 static const __m128i* pshufb_combine_table = (const __m128i*)_pshufb_combine_table;
 #endif
-size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, char* state, bool isRaw) {
-	if(len <= sizeof(__m128i)*2) return do_decode_scalar(src, dest, len, state, isRaw);
+template<bool isRaw>
+size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, char* state) {
+	if(len <= sizeof(__m128i)*2) return do_decode_scalar<isRaw>(src, dest, len, state);
 	
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
@@ -170,7 +168,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 		unsigned char* aSrc = (unsigned char*)(((uintptr_t)src + (sizeof(__m128i)-1)) & ~(sizeof(__m128i)-1));
 		
 		i = aSrc - src;
-		p += do_decode_scalar(src, dest, i, pState, isRaw);
+		p += do_decode_scalar<isRaw>(src, dest, i, pState);
 	}
 	
 	// handle finicky case of \r\n. straddled across initial boundary
@@ -326,7 +324,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 	
 	// end alignment
 	if(i < len) {
-		p += do_decode_scalar(src + i, p, len - i, pState, isRaw);
+		p += do_decode_scalar<isRaw>(src + i, p, len - i, pState);
 	}
 	
 	return p - dest;

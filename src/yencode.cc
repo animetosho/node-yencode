@@ -143,7 +143,7 @@ static void Decode(const FunctionCallbackInfo<Value>& args) {
 	}
 	
 	unsigned char *result = (unsigned char*) malloc(arg_len);
-	size_t len = do_decode((const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL, true);
+	size_t len = do_decode<true>((const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL);
 	result = (unsigned char*)realloc(result, len);
 	//isolate->AdjustAmountOfExternalAllocatedMemory(len);
 	args.GetReturnValue().Set( BUFFER_NEW((char*)result, len, free_buffer, (void*)len) );
@@ -172,7 +172,7 @@ static void DecodeTo(const FunctionCallbackInfo<Value>& args) {
 		return;
 	}
 	
-	size_t len = do_decode((const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL, true);
+	size_t len = do_decode<true>((const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL);
 	args.GetReturnValue().Set( Integer::New(isolate, len) );
 }
 
@@ -357,7 +357,7 @@ static Handle<Value> Decode(const Arguments& args) {
 	}
 	
 	unsigned char *result = (unsigned char*) malloc(arg_len);
-	size_t len = do_decode((const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL, true);
+	size_t len = do_decode<true>((const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL);
 	result = (unsigned char*)realloc(result, len);
 	V8::AdjustAmountOfExternalAllocatedMemory(len);
 	ReturnBuffer(node::Buffer::New((char*)result, len, free_buffer, (void*)len), len, 0);
@@ -382,7 +382,7 @@ static Handle<Value> DecodeTo(const Arguments& args) {
 		return scope.Close(Integer::New(0));
 	}
 	
-	size_t len = do_decode((const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL, true);
+	size_t len = do_decode<true>((const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL);
 	return scope.Close(Integer::New(len));
 }
 
