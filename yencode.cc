@@ -1218,10 +1218,10 @@ static size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, si
 	return p - dest;
 }
 #ifdef __SSE2__
-#ifdef __SSSE3__
-ALIGN_32(__m64 unshufLUT[256]);
 uint8_t eqFixLUT[256];
 ALIGN_32(__m64 eqSubLUT[256]);
+#ifdef __SSSE3__
+ALIGN_32(__m64 unshufLUT[256]);
 ALIGN_32(static const uint8_t _pshufb_combine_table[272]) = {
 	0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
 	0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x80,
@@ -1264,13 +1264,12 @@ static size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_
 		__m128i data = _mm_load_si128((__m128i *)(src + i));
 		
 		// search for special chars
-		__m128i cmpSkip = _mm_or_si128(
-			_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
-			_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
-		),
-		cmpEq = _mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
+		__m128i cmpEq = _mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
 		cmp = _mm_or_si128(
-			cmpSkip,
+			_mm_or_si128(
+				_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
+				_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
+			),
 			cmpEq
 		);
 		unsigned int mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
@@ -1296,17 +1295,18 @@ static size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_
 			// firstly, resolve invalid sequences of = to deal with cases like '===='
 			unsigned int maskEq = _mm_movemask_epi8(cmpEq);
 			unsigned int tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
-			maskEq = (eqFixLUT[(maskEq>>8) & ~((tmp&0x80)>>7)] << 8) | tmp;
+			maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
 			
 			// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 			mask &= ~(maskEq << 1);
 			
 			// unescape chars following `=`
-			__m128i eqVec = LOAD_HALVES(eqSubLUT + (maskEq&0xff), eqSubLUT + (maskEq>>8));
 			oData = _mm_sub_epi8(
 				oData,
-				_mm_slli_si128(eqVec, 1)
-				//_mm_and_si128(_mm_slli_si128(cmpEq, 1), _mm_set1_epi8(64))
+				_mm_slli_si128(LOAD_HALVES(
+					eqSubLUT + (maskEq&0xff),
+					eqSubLUT + (maskEq>>8)
+				), 1)
 			);
 			
 			// handle \r\n. sequences
@@ -1333,7 +1333,7 @@ static size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_
 				// grab bit-mask of matched . characters and OR with mask
 				unsigned int killDots = _mm_movemask_epi8(_mm_and_si128(tmpData, cmp1));
 				mask |= (killDots << 2) & 0xffff;
-				nextMask = killDots >> 14;
+				nextMask = killDots >> (sizeof(__m128i)-2);
 #undef ALIGNR
 			}
 			
@@ -1373,14 +1373,15 @@ static size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_
 			for(int j=0; j<4; j++) {
 				if(mask & 0xf) {
 					unsigned char* pMmTmp = (unsigned char*)(mmTmp + j);
+					unsigned int maskn = ~mask;
 					*p = pMmTmp[0];
-					p += (mask & 1);
+					p += (maskn & 1);
 					*p = pMmTmp[1];
-					p += (mask & 2) != 0;
+					p += (maskn & 2) >> 1;
 					*p = pMmTmp[2];
-					p += (mask & 4) != 0;
+					p += (maskn & 4) >> 2;
 					*p = pMmTmp[3];
-					p += (mask & 8) != 0;
+					p += (maskn & 8) >> 3;
 				} else {
 					*(uint32_t*)p = mmTmp[j];
 					p += 4;
@@ -2040,28 +2041,35 @@ void init(Handle<Object> target) {
 			for(; p<8; p++)
 				res[p] = 0;
 			_mm_storel_epi64((__m128i*)(unshufLUT + i), _mm_loadl_epi64((__m128i*)res));
-			
-			
-			// fix LUT
-			k = i;
-			p = 0;
-			for(int j=0; j<8; j++) {
-				k = i >> j;
-				if(k & 1) {
-					p |= 1 << j;
-					j++;
-				}
-			}
-			eqFixLUT[i] = p;
-			
-			// sub LUT
-			k = i;
-			for(int j=0; j<8; j++) {
-				res[j] = (k & 1) << 6;
-				k >>= 1;
-			}
-			_mm_storel_epi64((__m128i*)(eqSubLUT + i), _mm_loadl_epi64((__m128i*)res));
 		}
+	}
+#endif
+#ifdef __SSE2__
+	// generate unshuf LUT
+	for(int i=0; i<256; i++) {
+		int k = i;
+		uint8_t res[8];
+		int p = 0;
+		
+		// fix LUT
+		k = i;
+		p = 0;
+		for(int j=0; j<8; j++) {
+			k = i >> j;
+			if(k & 1) {
+				p |= 1 << j;
+				j++;
+			}
+		}
+		eqFixLUT[i] = p;
+		
+		// sub LUT
+		k = i;
+		for(int j=0; j<8; j++) {
+			res[j] = (k & 1) << 6;
+			k >>= 1;
+		}
+		_mm_storel_epi64((__m128i*)(eqSubLUT + i), _mm_loadl_epi64((__m128i*)res));
 	}
 #endif
 }
