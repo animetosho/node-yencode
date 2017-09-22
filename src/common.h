@@ -72,14 +72,14 @@
 
 
 
-static bool cpu_supports_shuffle() {
+static int cpu_flags() {
 #ifdef __SSSE3__
-	int flags;
 #ifdef _MSC_VER
 	int cpuInfo[4];
 	__cpuid(cpuInfo, 1);
-	flags = cpuInfo[2];
+	return cpuInfo[2];
 #else
+	int flags;
 	// conveniently stolen from zlib-ng
 	__asm__ __volatile__ (
 		"cpuid"
@@ -87,22 +87,20 @@ static bool cpu_supports_shuffle() {
 	: "a" (1)
 	: "%edx", "%ebx"
 	);
+	return flags;
 #endif
-	
-	int fastYencMask = 0x200;
-#ifdef __POPCNT__
-	fastYencMask |= 0x800000;
-#endif
-	
-	return (flags & fastYencMask) == fastYencMask;
-	
 #else
-	return false;
+	return 0;
 #endif
 }
 
+#ifdef __POPCNT__
+# define CPU_SHUFFLE_FLAGS 0x800200
+#else
+# define CPU_SHUFFLE_FLAGS 0x200
+#endif
 
-#include <v8.h>
+#include <v8.h> /* pulls in basic types; TODO: pull from elsewhere */
 
 
 #endif /* __YENC_COMMON */

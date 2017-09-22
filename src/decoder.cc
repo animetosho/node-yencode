@@ -336,7 +336,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 
 void decoder_init() {
 #ifdef __SSSE3__
-	if(cpu_supports_shuffle()) {
+	if((cpu_flags() & CPU_SHUFFLE_FLAGS) == CPU_SHUFFLE_FLAGS) {
 		// generate unshuf LUT
 		for(int i=0; i<256; i++) {
 			int k = i;

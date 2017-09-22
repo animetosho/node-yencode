@@ -1021,7 +1021,7 @@ void encoder_init() {
 	escapedLUT['.' - 42	] =  UINT16_PACK('=', '.'+64);
 	
 #ifdef __SSSE3__
-	if(cpu_supports_shuffle()) {
+	if((cpu_flags() & CPU_SHUFFLE_FLAGS) == CPU_SHUFFLE_FLAGS) {
 		_do_encode = &do_encode_fast;
 		// generate shuf LUT
 		for(int i=0; i<256; i++) {
