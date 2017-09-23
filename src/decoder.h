@@ -1,10 +1,7 @@
 
-
-#define do_decode do_decode_scalar
-
-template<bool isRaw>
-size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t len, char* state);
-template<bool isRaw>
-size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, char* state);
+extern size_t (*_do_decode)(const unsigned char*, unsigned char*, size_t, char*);
+extern size_t (*_do_decode_raw)(const unsigned char*, unsigned char*, size_t, char*);
+#define do_decode (*_do_decode)
+#define do_decode_raw (*_do_decode_raw)
 
 void decoder_init();

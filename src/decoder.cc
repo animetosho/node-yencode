@@ -153,7 +153,8 @@ ALIGN_32(static const uint8_t _pshufb_combine_table[272]) = {
 };
 static const __m128i* pshufb_combine_table = (const __m128i*)_pshufb_combine_table;
 #endif
-template<bool isRaw>
+
+template<bool isRaw, bool use_ssse3>
 size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, char* state) {
 	if(len <= sizeof(__m128i)*2) return do_decode_scalar<isRaw>(src, dest, len, state);
 	
@@ -231,81 +232,91 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
 			if(isRaw) {
-#ifdef __SSSE3__
-# define ALIGNR _mm_alignr_epi8
-#else
-# define ALIGNR(a, b, i) _mm_or_si128(_mm_slli_si128(a, sizeof(__m128i)-(i)), _mm_srli_si128(b, i))
-#endif
 				__m128i nextData = _mm_load_si128((__m128i *)(src + i) + 1);
 				// find instances of \r\n
-				__m128i tmpData = ALIGNR(nextData, data, 1);
+				__m128i tmpData1, tmpData2;
+#ifdef __SSSE3__
+				if(use_ssse3) {
+					tmpData1 = _mm_alignr_epi8(nextData, data, 1);
+					tmpData2 = _mm_alignr_epi8(nextData, data, 2);
+				} else {
+#endif
+# define ALIGNR(a, b, i) _mm_or_si128(_mm_slli_si128(a, sizeof(__m128i)-(i)), _mm_srli_si128(b, i))
+					tmpData1 = ALIGNR(nextData, data, 1);
+					tmpData2 = ALIGNR(nextData, data, 2);
+# undef ALIGNR
+#ifdef __SSSE3__
+				}
+#endif
 				__m128i cmp1 = _mm_cmpeq_epi16(data, _mm_set1_epi16(0x0a0d));
-				__m128i cmp2 = _mm_cmpeq_epi16(tmpData, _mm_set1_epi16(0x0a0d));
+				__m128i cmp2 = _mm_cmpeq_epi16(tmpData1, _mm_set1_epi16(0x0a0d));
 				// trim matches to just the \n
 				cmp1 = _mm_and_si128(cmp1, _mm_set1_epi16(0xff00));
 				cmp2 = _mm_and_si128(cmp2, _mm_set1_epi16(0xff00));
 				// merge the two comparisons
 				cmp1 = _mm_or_si128(_mm_srli_si128(cmp1, 1), cmp2);
 				// then check if there's a . after any of these instances
-				tmpData = ALIGNR(nextData, data, 2);
-				tmpData = _mm_cmpeq_epi8(tmpData, _mm_set1_epi8('.'));
+				tmpData2 = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
 				// grab bit-mask of matched . characters and OR with mask
-				unsigned int killDots = _mm_movemask_epi8(_mm_and_si128(tmpData, cmp1));
+				unsigned int killDots = _mm_movemask_epi8(_mm_and_si128(tmpData2, cmp1));
 				mask |= (killDots << 2) & 0xffff;
 				nextMask = killDots >> (sizeof(__m128i)-2);
-#undef ALIGNR
 			}
 			
 			escFirst = (maskEq >> (sizeof(__m128i)-1));
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
 #ifdef __SSSE3__
+			if(use_ssse3) {
 # ifdef __POPCNT__
-			unsigned char skipped = _mm_popcnt_u32(mask & 0xff);
+				unsigned char skipped = _mm_popcnt_u32(mask & 0xff);
 # else
-			unsigned char skipped = BitsSetTable256[mask & 0xff];
+				unsigned char skipped = BitsSetTable256[mask & 0xff];
 # endif
-			// lookup compress masks and shuffle
-			// load up two halves
-			__m128i shuf = LOAD_HALVES(unshufLUT + (mask&0xff), unshufLUT + (mask>>8));
-			
-			// offset upper half by 8
-			shuf = _mm_add_epi8(shuf, _mm_set_epi32(0x08080808, 0x08080808, 0, 0));
-			// shift down upper half into lower
-			shuf = _mm_shuffle_epi8(shuf, _mm_load_si128(pshufb_combine_table + skipped));
-			
-			// shuffle data
-			oData = _mm_shuffle_epi8(oData, shuf);
-			STOREU_XMM(p, oData);
-			
-			// increment output position
+				// lookup compress masks and shuffle
+				// load up two halves
+				__m128i shuf = LOAD_HALVES(unshufLUT + (mask&0xff), unshufLUT + (mask>>8));
+				
+				// offset upper half by 8
+				shuf = _mm_add_epi8(shuf, _mm_set_epi32(0x08080808, 0x08080808, 0, 0));
+				// shift down upper half into lower
+				shuf = _mm_shuffle_epi8(shuf, _mm_load_si128(pshufb_combine_table + skipped));
+				
+				// shuffle data
+				oData = _mm_shuffle_epi8(oData, shuf);
+				STOREU_XMM(p, oData);
+				
+				// increment output position
 # ifdef __POPCNT__
-			p += XMM_SIZE - _mm_popcnt_u32(mask);
+				p += XMM_SIZE - _mm_popcnt_u32(mask);
 # else
-			p += XMM_SIZE - skipped - BitsSetTable256[mask >> 8];
+				p += XMM_SIZE - skipped - BitsSetTable256[mask >> 8];
 # endif
-			
-#else
-			ALIGN_32(uint32_t mmTmp[4]);
-			_mm_store_si128((__m128i*)mmTmp, oData);
-			
-			for(int j=0; j<4; j++) {
-				if(mask & 0xf) {
-					unsigned char* pMmTmp = (unsigned char*)(mmTmp + j);
-					unsigned int maskn = ~mask;
-					*p = pMmTmp[0];
-					p += (maskn & 1);
-					*p = pMmTmp[1];
-					p += (maskn & 2) >> 1;
-					*p = pMmTmp[2];
-					p += (maskn & 4) >> 2;
-					*p = pMmTmp[3];
-					p += (maskn & 8) >> 3;
-				} else {
-					*(uint32_t*)p = mmTmp[j];
-					p += 4;
+				
+			} else {
+#endif
+				ALIGN_32(uint32_t mmTmp[4]);
+				_mm_store_si128((__m128i*)mmTmp, oData);
+				
+				for(int j=0; j<4; j++) {
+					if(mask & 0xf) {
+						unsigned char* pMmTmp = (unsigned char*)(mmTmp + j);
+						unsigned int maskn = ~mask;
+						*p = pMmTmp[0];
+						p += (maskn & 1);
+						*p = pMmTmp[1];
+						p += (maskn & 2) >> 1;
+						*p = pMmTmp[2];
+						p += (maskn & 4) >> 2;
+						*p = pMmTmp[3];
+						p += (maskn & 8) >> 3;
+					} else {
+						*(uint32_t*)p = mmTmp[j];
+						p += 4;
+					}
+					mask >>= 4;
 				}
-				mask >>= 4;
+#ifdef __SSSE3__
 			}
 #endif
 #undef LOAD_HALVES
@@ -332,27 +343,13 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 #endif
 
 
+size_t (*_do_decode)(const unsigned char*, unsigned char*, size_t, char*) = &do_decode_scalar<false>;
+size_t (*_do_decode_raw)(const unsigned char*, unsigned char*, size_t, char*) = &do_decode_scalar<true>;
+
 void decoder_init() {
-#ifdef __SSSE3__
-	if((cpu_flags() & CPU_SHUFFLE_FLAGS) == CPU_SHUFFLE_FLAGS) {
-		// generate unshuf LUT
-		for(int i=0; i<256; i++) {
-			int k = i;
-			uint8_t res[8];
-			int p = 0;
-			for(int j=0; j<8; j++) {
-				if(!(k & 1)) {
-					res[p++] = j;
-				}
-				k >>= 1;
-			}
-			for(; p<8; p++)
-				res[p] = 0;
-			_mm_storel_epi64((__m128i*)(unshufLUT + i), _mm_loadl_epi64((__m128i*)res));
-		}
-	}
-#endif
 #ifdef __SSE2__
+	_do_decode = &do_decode_sse<false, false>;
+	_do_decode_raw = &do_decode_sse<true, false>;
 	// generate unshuf LUT
 	for(int i=0; i<256; i++) {
 		int k = i;
@@ -378,6 +375,27 @@ void decoder_init() {
 			k >>= 1;
 		}
 		_mm_storel_epi64((__m128i*)(eqSubLUT + i), _mm_loadl_epi64((__m128i*)res));
+	}
+#endif
+#ifdef __SSSE3__
+	if((cpu_flags() & CPU_SHUFFLE_FLAGS) == CPU_SHUFFLE_FLAGS) {
+		_do_decode = &do_decode_sse<false, true>;
+		_do_decode_raw = &do_decode_sse<true, true>;
+		// generate unshuf LUT
+		for(int i=0; i<256; i++) {
+			int k = i;
+			uint8_t res[8];
+			int p = 0;
+			for(int j=0; j<8; j++) {
+				if(!(k & 1)) {
+					res[p++] = j;
+				}
+				k >>= 1;
+			}
+			for(; p<8; p++)
+				res[p] = 0;
+			_mm_storel_epi64((__m128i*)(unshufLUT + i), _mm_loadl_epi64((__m128i*)res));
+		}
 	}
 #endif
 }
