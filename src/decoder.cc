@@ -137,7 +137,7 @@ size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t le
 }
 #ifdef __SSE2__
 uint8_t eqFixLUT[256];
-ALIGN_32(__m64 eqSubLUT[256]);
+ALIGN_32(__m64 eqAddLUT[256]);
 #ifdef __SSSE3__
 ALIGN_32(__m64 unshufLUT[256]);
 ALIGN_32(static const uint8_t _pshufb_combine_table[272]) = {
@@ -223,11 +223,11 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 			mask &= ~maskEq;
 			
 			// unescape chars following `=`
-			oData = _mm_sub_epi8(
+			oData = _mm_add_epi8(
 				oData,
 				LOAD_HALVES(
-					eqSubLUT + (maskEq&0xff),
-					eqSubLUT + ((maskEq>>8)&0xff)
+					eqAddLUT + (maskEq&0xff),
+					eqAddLUT + ((maskEq>>8)&0xff)
 				)
 			);
 			
@@ -370,10 +370,10 @@ void decoder_init() {
 		// sub LUT
 		k = i;
 		for(int j=0; j<8; j++) {
-			res[j] = (k & 1) << 6;
+			res[j] = (k & 1) ? 192 /* == -64 */ : 0;
 			k >>= 1;
 		}
-		_mm_storel_epi64((__m128i*)(eqSubLUT + i), _mm_loadl_epi64((__m128i*)res));
+		_mm_storel_epi64((__m128i*)(eqAddLUT + i), _mm_loadl_epi64((__m128i*)res));
 	}
 #endif
 #ifdef __SSSE3__
