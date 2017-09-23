@@ -217,16 +217,18 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 			unsigned int tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 			maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
 			
+			escFirst = (maskEq >> (sizeof(__m128i)-1));
 			// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
-			mask &= ~(maskEq << 1);
+			maskEq <<= 1;
+			mask &= ~maskEq;
 			
 			// unescape chars following `=`
 			oData = _mm_sub_epi8(
 				oData,
-				_mm_slli_si128(LOAD_HALVES(
+				LOAD_HALVES(
 					eqSubLUT + (maskEq&0xff),
-					eqSubLUT + (maskEq>>8)
-				), 1)
+					eqSubLUT + ((maskEq>>8)&0xff)
+				)
 			);
 			
 			// handle \r\n. sequences
@@ -242,6 +244,8 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 				} else {
 #endif
 # define ALIGNR(a, b, i) _mm_or_si128(_mm_slli_si128(a, sizeof(__m128i)-(i)), _mm_srli_si128(b, i))
+					// TODO: consider using PINSRW instead
+					// - first load may involve a cache-line crossing, but we shouldn't need this for Intel CPUs, so avoid cacheline split problems
 					tmpData1 = ALIGNR(nextData, data, 1);
 					tmpData2 = ALIGNR(nextData, data, 2);
 # undef ALIGNR
@@ -259,8 +263,6 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 				mask |= (killDots << 2) & 0xffff;
 				nextMask = killDots >> (sizeof(__m128i)-2);
 			}
-			
-			escFirst = (maskEq >> (sizeof(__m128i)-1));
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
 #ifdef __SSSE3__
