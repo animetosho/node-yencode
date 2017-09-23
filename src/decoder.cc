@@ -195,7 +195,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 		unsigned int mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
 		
 		__m128i oData;
-		if(escFirst) { // TODO: should be possible to eliminate branch by storing vectors adjacently
+		if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
 			// first byte needs escaping due to preceeding = in last loop iteration
 			oData = _mm_sub_epi8(data, _mm_set_epi8(42,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42+64));
 		} else {
@@ -250,9 +250,6 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 #endif
 				__m128i cmp1 = _mm_cmpeq_epi16(data, _mm_set1_epi16(0x0a0d));
 				__m128i cmp2 = _mm_cmpeq_epi16(tmpData1, _mm_set1_epi16(0x0a0d));
-				// trim matches to just the \n
-				cmp1 = _mm_and_si128(cmp1, _mm_set1_epi16(0xff00));
-				cmp2 = _mm_and_si128(cmp2, _mm_set1_epi16(0xff00));
 				// merge the two comparisons
 				cmp1 = _mm_or_si128(_mm_srli_si128(cmp1, 1), cmp2);
 				// then check if there's a . after any of these instances
