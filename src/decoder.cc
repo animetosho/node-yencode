@@ -187,8 +187,8 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 		__m128i cmpEq = _mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
 		cmp = _mm_or_si128(
 			_mm_or_si128(
-				_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
-				_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
+				_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0a0d)), // \r\n
+				_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0d0a))  // \n\r
 			),
 			cmpEq
 		);
