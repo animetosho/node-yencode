@@ -173,14 +173,16 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 	}
 	
 	// handle finicky case of \r\n. straddled across initial boundary
-	if(*pState == 0 && i+1 < len && src[i] == '.')
-		nextMask = 1;
-	else if(*pState == 2 && i+2 < len && *(uint16_t*)(src + i) == UINT16_PACK('\n','.'))
-		nextMask = 2;
+	if(isRaw) {
+		if(*pState == 0 && i+1 < len && src[i] == '.')
+			nextMask = 1;
+		else if(*pState == 2 && i+2 < len && *(uint16_t*)(src + i) == UINT16_PACK('\n','.'))
+			nextMask = 2;
+	}
 	escFirst = *pState == 1;
 	
 	// our algorithm may perform an aligned load on the next part, of which we consider 2 bytes (for \r\n. sequence checking)
-	for(; i + (sizeof(__m128i)+1) < len; i += sizeof(__m128i)) {
+	for(; i + (sizeof(__m128i)+ (isRaw?1:-1)) < len; i += sizeof(__m128i)) {
 		__m128i data = _mm_load_si128((__m128i *)(src + i));
 		
 		// search for special chars
@@ -202,7 +204,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 			oData = _mm_sub_epi8(data, _mm_set1_epi8(42));
 		}
 		mask &= ~escFirst;
-		mask |= nextMask;
+		if(isRaw) mask |= nextMask;
 		
 		if (mask != 0) {
 			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
@@ -323,7 +325,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 			STOREU_XMM(p, oData);
 			p += XMM_SIZE;
 			escFirst = 0;
-			nextMask = 0;
+			if(isRaw) nextMask = 0;
 		}
 	}
 	
