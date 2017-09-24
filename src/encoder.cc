@@ -199,19 +199,6 @@ size_t (*_do_encode)(int, int*, const unsigned char*, unsigned char*, size_t) = 
 ALIGN_32(__m128i _shufLUT[258]); // +2 for underflow guard entry
 __m128i* shufLUT = _shufLUT+2;
 ALIGN_32(__m128i shufMixLUT[256]);
-#ifndef __POPCNT__
-// table from http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetTable
-static const unsigned char BitsSetTable256[256] = 
-{
-#   define B2(n) n,     n+1,     n+1,     n+2
-#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
-#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
-    B6(0), B6(1), B6(1), B6(2)
-#undef B2
-#undef B4
-#undef B6
-};
-#endif
 static size_t do_encode_fast(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
