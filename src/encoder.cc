@@ -260,7 +260,7 @@ static size_t do_encode_fast(int line_size, int* colOffset, const unsigned char*
 				data = _mm_add_epi8(data, shufMixMA);
 				data2 = _mm_add_epi8(data2, shufMixMB);
 				// store out
-#ifdef __POPCNT__
+#if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
 				unsigned char shufALen = _mm_popcnt_u32(m1) + 8;
 				unsigned char shufBLen = _mm_popcnt_u32(m2) + 8;
 #else
@@ -652,7 +652,7 @@ size_t do_encode_fast2(int line_size, int* colOffset, const unsigned char* src, 
 				data = _mm_add_epi8(data, shufMixMA);
 				data2 = _mm_add_epi8(data2, shufMixMB);
 				// store out
-#ifdef __POPCNT__
+#if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
 				unsigned char shufALen = _mm_popcnt_u32(m1) + 8;
 				unsigned char shufBLen = _mm_popcnt_u32(m2) + 8;
 #else

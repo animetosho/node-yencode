@@ -71,7 +71,6 @@
 #endif
 
 
-#ifndef __POPCNT__
 // table from http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetTable
 static const unsigned char BitsSetTable256[256] = 
 {
@@ -83,7 +82,6 @@ static const unsigned char BitsSetTable256[256] =
 #undef B4
 #undef B6
 };
-#endif
 
 
 

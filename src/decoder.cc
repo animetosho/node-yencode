@@ -281,7 +281,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 			// all that's left is to 'compress' the data (skip over masked chars)
 #ifdef __SSSE3__
 			if(use_ssse3) {
-# ifdef __POPCNT__
+# if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
 				unsigned char skipped = _mm_popcnt_u32(mask & 0xff);
 # else
 				unsigned char skipped = BitsSetTable256[mask & 0xff];
@@ -300,7 +300,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 				STOREU_XMM(p, oData);
 				
 				// increment output position
-# ifdef __POPCNT__
+# if defined(__POPCNT__) && !defined(__tune_btver1__)
 				p += XMM_SIZE - _mm_popcnt_u32(mask);
 # else
 				p += XMM_SIZE - skipped - BitsSetTable256[mask >> 8];
