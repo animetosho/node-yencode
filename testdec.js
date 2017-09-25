@@ -58,7 +58,7 @@ var doTest = function(msg, data, expected) {
 			var x;
 			if(expected === undefined) x = refYDecRaw(testData).toString('hex');
 			else x = new Buffer(expected).toString('hex').replace(/ /g, '');
-			var actual = y.decode(testData).toString('hex');
+			var actual = y.decodeNntp(testData).toString('hex');
 			if(actual != x) {
 				console.log(actual, x);
 				assert.equal(actual, x, msg + ' [' + i + '/' + j + ']');

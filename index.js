@@ -10,6 +10,10 @@ module.exports = {
 	
 	encode: y.encode,
 	encodeTo: y.encodeTo,
+	decode: y.decode,
+	decodeTo: y.decodeTo,
+	decodeNntp: y.decodeNntp,
+	decodeNntpTo: y.decodeNntpTo,
 	maxSize: function(length, line_size) {
 		if(!length) return 0;
 		return Math.floor(

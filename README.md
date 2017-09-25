@@ -24,7 +24,10 @@ Supports:
 -   ability to combine two CRC32 hashes into one (useful for amalgamating
     pcrc32s into a crc32 for yEnc)
 
--   (may eventually support) yEnc decoding
+-   yEnc decoding, with and without NNTP layer unescaping
+
+-   eventually will support incremental processing (algorithms internally
+    support it, they’re just not exposed to the Javascript interface)
 
 Should work on nodejs 0.10.x and later.
 
@@ -85,6 +88,34 @@ Returns the maximum possible size for a raw yEnc encoded message of *length*
 bytes. Note that this does include some provision for dealing with alignment
 issues specific to *yencode*‘s implementation; in other words, the returned
 value is actually an over-estimate for the maximum size.
+
+Buffer decode(Buffer data)
+--------------------------
+
+Performs raw yEnc decoding on *data* returning the result. Note, this assumes
+that NNTP's "dot unstuffing" has already been performed, use `decodeNntp` if
+this is not the case.
+
+int decodeTo(Buffer data, Buffer output)
+----------------------------------------
+
+Same as above, but instead of returning a Buffer, writes it to the supplied
+*output* Buffer. Returns the length of the decoded data.  
+Note that the *output* Buffer must be at least large enough to hold the largest
+possible output size (i.e. length of the input), otherwise the function returns
+0 and does not decode anything.
+
+Buffer decodeNntp(Buffer data)
+------------------------------
+
+Performs raw yEnc decoding on *data* returning the result. This differs from
+`decode` in that *data* is assumed to be from a socket and NNTP's "dot
+unstuffing" has not yet been performed.
+
+int decodeNntpTo(Buffer data, Buffer output)
+--------------------------------------------
+
+See `decodeNntp` and `decodeTo` for descriptions.
 
 Buffer(4) crc32(Buffer data, Buffer(4) initial=false)
 -----------------------------------------------------
@@ -216,6 +247,14 @@ var post = Buffer.concat([
     new Buffer('\r\n=yend size=768000 crc32=' + y.crc32(data).toString('hex'))
 ]);
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Algorithm
+=========
+
+A brief description of how the SIMD yEnc algorithm works [can be found
+here](<https://github.com/animetosho/node-yencode/issues/4#issuecomment-330025192>).
+I may eventually write up something more detailed, regarding optimizations and
+such used.
 
 License
 =======
