@@ -52,11 +52,11 @@
 #ifdef __POPCNT__
 #include <nmmintrin.h>
 #endif
-/*
-#ifdef __AVX2__
+
+#if defined(__AVX2__) || defined(__AVX512F__)
 #include <immintrin.h>
 #endif
-*/
+
 
 #if defined(__tune_core2__) || defined(__tune_atom__)
 /* on older Intel CPUs, plus first gen Atom, it is faster to store XMM registers in half */

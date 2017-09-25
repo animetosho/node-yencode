@@ -187,6 +187,14 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 		
 		// search for special chars
 		__m128i cmpEq = _mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
+#ifdef __AVX512VL__
+		cmp = _mm_ternarylogic_epi32(
+			_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0a0d)),
+			_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0d0a)),
+			cmpEq,
+			0xFE
+		);
+#else
 		cmp = _mm_or_si128(
 			_mm_or_si128(
 				_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0a0d)), // \r\n
@@ -194,6 +202,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 			),
 			cmpEq
 		);
+#endif
 		unsigned int mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
 		
 		__m128i oData;
@@ -225,7 +234,8 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 			mask &= ~maskEq;
 			
 			// unescape chars following `=`
-#if defined(__AVX512VL__) && defined(__AVX512BW__) && 0
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+			// GCC < 7 seems to generate rubbish assembly for this
 			oData = _mm_mask_add_epi8(
 				oData,
 				maskEq,
@@ -271,8 +281,11 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 				tmpData2 = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
 				// merge matches of \r\n with those for .
 				unsigned int killDots = _mm_movemask_epi8(
-					// TODO: consider ternlog for AVX512
+#ifdef __AVX512VL__
+					_mm_ternarylogic_epi32(tmpData2, cmp1, cmp2, 0xE0)
+#else
 					_mm_and_si128(tmpData2, _mm_or_si128(cmp1, cmp2))
+#endif
 				);
 				mask |= (killDots << 2) & 0xffff;
 				nextMask = killDots >> (sizeof(__m128i)-2);
