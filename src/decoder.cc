@@ -255,21 +255,17 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
 			if(isRaw) {
-				__m128i nextData = _mm_load_si128((__m128i *)(src + i) + 1);
 				// find instances of \r\n
 				__m128i tmpData1, tmpData2;
-#ifdef __SSSE3__
+#if defined(__SSSE3__) && !defined(__tune_btver1__)
 				if(use_ssse3) {
+					__m128i nextData = _mm_load_si128((__m128i *)(src + i) + 1);
 					tmpData1 = _mm_alignr_epi8(nextData, data, 1);
 					tmpData2 = _mm_alignr_epi8(nextData, data, 2);
 				} else {
 #endif
-# define ALIGNR(a, b, i) _mm_or_si128(_mm_slli_si128(a, sizeof(__m128i)-(i)), _mm_srli_si128(b, i))
-					// TODO: consider using PINSRW instead
-					// - first load may involve a cache-line crossing, but we shouldn't need this for Intel CPUs, so avoid cacheline split problems
-					tmpData1 = ALIGNR(nextData, data, 1);
-					tmpData2 = ALIGNR(nextData, data, 2);
-# undef ALIGNR
+					tmpData1 = _mm_insert_epi16(_mm_srli_si128(data, 1), *(uint16_t*)(src + i + sizeof(__m128i)-1), 7);
+					tmpData2 = _mm_insert_epi16(_mm_srli_si128(data, 2), *(uint16_t*)(src + i + sizeof(__m128i)), 7);
 #ifdef __SSSE3__
 				}
 #endif
