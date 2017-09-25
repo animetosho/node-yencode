@@ -225,6 +225,14 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 			mask &= ~maskEq;
 			
 			// unescape chars following `=`
+#if defined(__AVX512VL__) && defined(__AVX512BW__) && 0
+			oData = _mm_mask_add_epi8(
+				oData,
+				maskEq,
+				oData,
+				_mm_set1_epi8(-64)
+			);
+#else
 			oData = _mm_add_epi8(
 				oData,
 				LOAD_HALVES(
@@ -232,6 +240,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 					eqAddLUT + ((maskEq>>8)&0xff)
 				)
 			);
+#endif
 			
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
@@ -256,12 +265,15 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 #endif
 				__m128i cmp1 = _mm_cmpeq_epi16(data, _mm_set1_epi16(0x0a0d));
 				__m128i cmp2 = _mm_cmpeq_epi16(tmpData1, _mm_set1_epi16(0x0a0d));
-				// merge the two comparisons
-				cmp1 = _mm_or_si128(_mm_srli_si128(cmp1, 1), cmp2);
-				// then check if there's a . after any of these instances
+				// prepare to merge the two comparisons
+				cmp1 = _mm_srli_si128(cmp1, 1);
+				// find all instances of .
 				tmpData2 = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
-				// grab bit-mask of matched . characters and OR with mask
-				unsigned int killDots = _mm_movemask_epi8(_mm_and_si128(tmpData2, cmp1));
+				// merge matches of \r\n with those for .
+				unsigned int killDots = _mm_movemask_epi8(
+					// TODO: consider ternlog for AVX512
+					_mm_and_si128(tmpData2, _mm_or_si128(cmp1, cmp2))
+				);
 				mask |= (killDots << 2) & 0xffff;
 				nextMask = killDots >> (sizeof(__m128i)-2);
 			}
