@@ -125,6 +125,7 @@ static void EncodeTo(const FunctionCallbackInfo<Value>& args) {
 	args.GetReturnValue().Set( Integer::New(isolate, len) );
 }
 
+template<bool isRaw>
 static void Decode(const FunctionCallbackInfo<Value>& args) {
 	Isolate* isolate = Isolate::GetCurrent();
 	HandleScope scope(isolate);
@@ -143,12 +144,13 @@ static void Decode(const FunctionCallbackInfo<Value>& args) {
 	}
 	
 	unsigned char *result = (unsigned char*) malloc(arg_len);
-	size_t len = do_decode_raw((const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL);
+	size_t len = do_decode<isRaw>((const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL);
 	result = (unsigned char*)realloc(result, len);
 	//isolate->AdjustAmountOfExternalAllocatedMemory(len);
 	args.GetReturnValue().Set( BUFFER_NEW((char*)result, len, free_buffer, (void*)len) );
 }
 
+template<bool isRaw>
 static void DecodeTo(const FunctionCallbackInfo<Value>& args) {
 	Isolate* isolate = Isolate::GetCurrent();
 	HandleScope scope(isolate);
@@ -172,7 +174,7 @@ static void DecodeTo(const FunctionCallbackInfo<Value>& args) {
 		return;
 	}
 	
-	size_t len = do_decode_raw((const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL);
+	size_t len = do_decode<isRaw>((const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL);
 	args.GetReturnValue().Set( Integer::New(isolate, len) );
 }
 
@@ -342,6 +344,7 @@ static Handle<Value> EncodeTo(const Arguments& args) {
 	return scope.Close(Integer::New(len));
 }
 
+template<bool isRaw>
 static Handle<Value> Decode(const Arguments& args) {
 	HandleScope scope;
 	
@@ -357,12 +360,13 @@ static Handle<Value> Decode(const Arguments& args) {
 	}
 	
 	unsigned char *result = (unsigned char*) malloc(arg_len);
-	size_t len = do_decode_raw((const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL);
+	size_t len = do_decode<isRaw>((const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL);
 	result = (unsigned char*)realloc(result, len);
 	V8::AdjustAmountOfExternalAllocatedMemory(len);
 	ReturnBuffer(node::Buffer::New((char*)result, len, free_buffer, (void*)len), len, 0);
 }
 
+template<bool isRaw>
 static Handle<Value> DecodeTo(const Arguments& args) {
 	HandleScope scope;
 	
@@ -382,7 +386,7 @@ static Handle<Value> DecodeTo(const Arguments& args) {
 		return scope.Close(Integer::New(0));
 	}
 	
-	size_t len = do_decode_raw((const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL);
+	size_t len = do_decode<isRaw>((const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL);
 	return scope.Close(Integer::New(len));
 }
 
@@ -464,8 +468,10 @@ static Handle<Value> CRC32Zeroes(const Arguments& args) {
 void init(Handle<Object> target) {
 	NODE_SET_METHOD(target, "encode", Encode);
 	NODE_SET_METHOD(target, "encodeTo", EncodeTo);
-	NODE_SET_METHOD(target, "decode", Decode);
-	NODE_SET_METHOD(target, "decodeTo", DecodeTo);
+	NODE_SET_METHOD(target, "decode", Decode<false>);
+	NODE_SET_METHOD(target, "decodeTo", DecodeTo<false>);
+	NODE_SET_METHOD(target, "decodeNntp", Decode<true>);
+	NODE_SET_METHOD(target, "decodeNntpTo", DecodeTo<true>);
 	NODE_SET_METHOD(target, "crc32", CRC32);
 	NODE_SET_METHOD(target, "crc32_combine", CRC32Combine);
 	NODE_SET_METHOD(target, "crc32_zeroes", CRC32Zeroes);
