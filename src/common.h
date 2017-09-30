@@ -37,12 +37,6 @@
 #include <emmintrin.h>
 #define XMM_SIZE 16 /*== (signed int)sizeof(__m128i)*/
 
-#ifdef _MSC_VER
-#define ALIGN_32(v) __declspec(align(32)) v
-#else
-#define ALIGN_32(v) v __attribute__((aligned(32)))
-#endif
-
 #ifdef __SSSE3__
 #include <tmmintrin.h>
 #endif
@@ -71,6 +65,30 @@
 #endif
 
 
+#ifdef __ARM_NEON__
+# include <arm_neon.h>
+
+static uint16_t neon_movemask(uint8x16_t in) {
+	uint8x16_t mask = vandq_u8(in, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+# if defined(__aarch64__) && 0
+	// TODO: is this better?
+	return (vaddv_u8(vget_high_u8(mask)) << 8) | vaddv_u8(vget_low_u8(mask));
+# else
+	uint8x8_t res = vpadd_u8(vget_low_u8(mask), vget_high_u8(mask));
+	res = vpadd_u8(res, res);
+	res = vpadd_u8(res, res);
+	return vget_lane_u16(vreinterpret_u16_u8(res), 0);
+# endif
+}
+#endif
+
+#ifdef _MSC_VER
+#define ALIGN_32(v) __declspec(align(32)) v
+#else
+#define ALIGN_32(v) v __attribute__((aligned(32)))
+#endif
+
+
 // table from http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetTable
 static const unsigned char BitsSetTable256[256] = 
 {
@@ -85,8 +103,8 @@ static const unsigned char BitsSetTable256[256] =
 
 
 
-static int cpu_flags() {
 #ifdef __SSSE3__
+static int cpu_flags() {
 #ifdef _MSC_VER
 	int cpuInfo[4];
 	__cpuid(cpuInfo, 1);
@@ -102,10 +120,8 @@ static int cpu_flags() {
 	);
 	return flags;
 #endif
-#else
-	return 0;
-#endif
 }
+#endif
 
 #ifdef __POPCNT__
 # define CPU_SHUFFLE_FLAGS 0x800200
@@ -115,6 +131,7 @@ static int cpu_flags() {
 
 #if !defined(_MSC_VER) || defined(_STDINT) || _MSC_VER >= 1900
 # include <stdint.h>
+# include <stddef.h>
 #else
 /* Workaround for older MSVC not supporting stdint.h - just pull it from V8 */
 # include <v8.h>
