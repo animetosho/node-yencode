@@ -12,6 +12,52 @@
 #include "interface.h"
 crcutil_interface::CRC* crc = NULL;
 
+
+#ifdef __ARM_FEATURE_CRC32
+/* ARMv8 accelerated CRC */
+#include <arm_acle.h>
+
+// inspired/stolen off https://github.com/jocover/crc32_armv8/blob/master/crc32_armv8.c
+static uint32_t crc_calc(uint32_t crc, const unsigned char *src, long len) {
+	
+#ifdef __aarch64__
+	while ((len -= sizeof(uint64_t)) >= 0) {
+		crc = __crc32x(crc, *((uint64_t *)src));
+		src += sizeof(uint64_t);
+	}
+	if (len & sizeof(uint32_t)) {
+		crc = __crc32w(crc, *((uint32_t *)src));
+		src += sizeof(uint32_t);
+	}
+#else
+	while ((len -= sizeof(uint32_t)) >= 0) {
+		crc = __crc32w(crc, *((uint32_t *)src));
+		src += sizeof(uint32_t);
+	}
+#endif
+	if (len & sizeof(uint16_t)) {
+		crc = __crc32h(crc, *((uint16_t *)src));
+		src += sizeof(uint16_t);
+	}
+	if (len & sizeof(uint8_t))
+		crc = __crc32b(crc, *src);
+	
+	return crc;
+}
+
+void do_crc32(const void* data, size_t length, unsigned char out[4]) {
+	uint32_t crc = crc_calc(~0, (const unsigned char*)data, (long)length);
+	UNPACK_4(out, ~crc);
+}
+
+void do_crc32_incremental(const void* data, size_t length, unsigned char init[4]) {
+	uint32_t crc = PACK_4(init);
+	crc = crc_calc(~crc, (const unsigned char*)data, (long)length);
+	UNPACK_4(init, ~crc);
+}
+
+#else
+
 #ifdef X86_PCLMULQDQ_CRC
 bool x86_cpu_has_pclmulqdq = false;
 #include "crc_folding.c"
@@ -58,6 +104,8 @@ void do_crc32_incremental(const void* data, size_t length, unsigned char init[4]
 		UNPACK_4(init, tmp);
 	}
 }
+
+#endif
 
 void do_crc32_combine(unsigned char crc1[4], const unsigned char crc2[4], size_t len2) {
 	if(!crc) {
