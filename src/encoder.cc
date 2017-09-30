@@ -7,13 +7,14 @@ static uint16_t escapedLUT[256]; // escaped sequences for characters that need e
 
 // runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
 static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
+	unsigned char* es = (unsigned char*)src + len;
 	unsigned char *p = dest; // destination pointer
-	unsigned long i = 0; // input position
+	long i = -len; // input position
 	unsigned char c, escaped; // input character; escaped input character
 	int col = *colOffset;
 	
 	if (col == 0) {
-		c = src[i++];
+		c = es[i++];
 		if (escapedLUT[c]) {
 			*(uint16_t*)p = escapedLUT[c];
 			p += 2;
@@ -23,13 +24,13 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 			col = 1;
 		}
 	}
-	while(i < len) {
+	while(i < 0) {
 		unsigned char* sp = NULL;
 		// main line
 		#ifdef __SSE2__
-		while (len-i-1 > XMM_SIZE && col < line_size-1) {
+		while (i < -1-XMM_SIZE && col < line_size-1) {
 			__m128i data = _mm_add_epi8(
-				_mm_loadu_si128((__m128i *)(src + i)), // probably not worth the effort to align
+				_mm_loadu_si128((__m128i *)(es + i)), // probably not worth the effort to align
 				_mm_set1_epi8(42)
 			);
 			// search for special chars
@@ -52,7 +53,7 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 				// special characters exist
 				_mm_store_si128((__m128i*)mmTmp, data);
 				#define DO_THING(n) \
-					c = src[i+n], escaped = escapeLUT[c]; \
+					c = es[i+n], escaped = escapeLUT[c]; \
 					if (escaped) \
 						*(p+n) = escaped; \
 					else { \
@@ -97,11 +98,11 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 			i += XMM_SIZE;
 		}
 		#else
-		while (len-i-1 > 8 && line_size-col-1 > 8) {
+		while (i < -1-8 && line_size-col-1 > 8) {
 			// 8 cycle unrolled version
 			sp = p;
 			#define DO_THING(n) \
-				c = src[i+n], escaped = escapeLUT[c]; \
+				c = es[i+n], escaped = escapeLUT[c]; \
 				if (escaped) \
 					*(p++) = escaped; \
 				else { \
@@ -130,7 +131,7 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 		#endif
 		// handle remaining chars
 		while(col < line_size-1) {
-			c = src[i++], escaped = escapeLUT[c];
+			c = es[i++], escaped = escapeLUT[c];
 			if (escaped) {
 				*(p++) = escaped;
 				col++;
@@ -142,19 +143,19 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 			}
 			/* experimental branchless version 
 			*p = '=';
-			c = (src[i++] + 42) & 0xFF;
+			c = (es[i++] + 42) & 0xFF;
 			int cond = (c=='\0' || c=='=' || c=='\r' || c=='\n');
 			*(p+cond) = c + (cond << 6);
 			p += 1+cond;
 			col += 1+cond;
 			*/
-			if (i >= len) goto end;
+			if (i >= 0) goto end;
 		}
 		
 		// last line char
 		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
 			last_char:
-			c = src[i++];
+			c = es[i++];
 			if (escapedLUT[c] && c != '.'-42) {
 				*(uint16_t*)p = escapedLUT[c];
 				p += 2;
@@ -163,9 +164,9 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 			}
 		}
 		
-		if (i >= len) break;
+		if (i >= 0) break;
 		
-		c = src[i++];
+		c = es[i++];
 		if (escapedLUT[c]) {
 			*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 			p += 4;
@@ -200,13 +201,14 @@ ALIGN_32(__m128i _shufLUT[258]); // +2 for underflow guard entry
 __m128i* shufLUT = _shufLUT+2;
 ALIGN_32(__m128i shufMixLUT[256]);
 static size_t do_encode_fast(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
+	unsigned char* es = (unsigned char*)src + len;
 	unsigned char *p = dest; // destination pointer
-	unsigned long i = 0; // input position
+	long i = -len; // input position
 	unsigned char c, escaped; // input character; escaped input character
 	int col = *colOffset;
 	
 	if (col == 0) {
-		c = src[i++];
+		c = es[i++];
 		if (escapedLUT[c]) {
 			*(uint16_t*)p = escapedLUT[c];
 			p += 2;
@@ -216,11 +218,11 @@ static size_t do_encode_fast(int line_size, int* colOffset, const unsigned char*
 			col = 1;
 		}
 	}
-	while(i < len) {
+	while(i < 0) {
 		// main line
-		while (len-i-1 > XMM_SIZE && col < line_size-1) {
+		while (i < -1-XMM_SIZE && col < line_size-1) {
 			__m128i data = _mm_add_epi8(
-				_mm_loadu_si128((__m128i *)(src + i)), // probably not worth the effort to align
+				_mm_loadu_si128((__m128i *)(es + i)), // probably not worth the effort to align
 				_mm_set1_epi8(42)
 			);
 			i += XMM_SIZE;
@@ -314,7 +316,7 @@ static size_t do_encode_fast(int line_size, int* colOffset, const unsigned char*
 		}
 		// handle remaining chars
 		while(col < line_size-1) {
-			c = src[i++], escaped = escapeLUT[c];
+			c = es[i++], escaped = escapeLUT[c];
 			if (escaped) {
 				*(p++) = escaped;
 				col++;
@@ -324,13 +326,13 @@ static size_t do_encode_fast(int line_size, int* colOffset, const unsigned char*
 				p += 2;
 				col += 2;
 			}
-			if (i >= len) goto end;
+			if (i >= 0) goto end;
 		}
 		
 		// last line char
 		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
 			last_char_fast:
-			c = src[i++];
+			c = es[i++];
 			if (escapedLUT[c] && c != '.'-42) {
 				*(uint16_t*)p = escapedLUT[c];
 				p += 2;
@@ -340,9 +342,9 @@ static size_t do_encode_fast(int line_size, int* colOffset, const unsigned char*
 		}
 		
 		after_last_char_fast:
-		if (i >= len) break;
+		if (i >= 0) break;
 		
-		c = src[i++];
+		c = es[i++];
 		if (escapedLUT[c]) {
 			*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 			p += 4;
@@ -372,13 +374,14 @@ static size_t do_encode_fast(int line_size, int* colOffset, const unsigned char*
 #ifdef __AVX2__
 #define YMM_SIZE 32
 static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
+	unsigned char* es = (unsigned char*)src + len;
 	unsigned char *p = dest; // destination pointer
-	unsigned long i = 0; // input position
+	long i = -len; // input position
 	unsigned char c, escaped; // input character; escaped input character
 	int col = *colOffset;
 	
 	if (col == 0) {
-		c = src[i++];
+		c = es[i++];
 		if (escapedLUT[c]) {
 			*(uint16_t*)p = escapedLUT[c];
 			p += 2;
@@ -388,11 +391,11 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 			col = 1;
 		}
 	}
-	while(i < len) {
+	while(i < 0) {
 		// main line
-		while (len-i-1 > YMM_SIZE && col < line_size-1) {
+		while (i < -1-YMM_SIZE && col < line_size-1) {
 			__m256i data = _mm256_add_epi8(
-				_mm256_loadu_si256((__m256i *)(src + i)),
+				_mm256_loadu_si256((__m256i *)(es + i)),
 				_mm256_set1_epi8(42)
 			);
 			i += YMM_SIZE;
@@ -488,7 +491,7 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 		}
 		// handle remaining chars
 		while(col < line_size-1) {
-			c = src[i++], escaped = escapeLUT[c];
+			c = es[i++], escaped = escapeLUT[c];
 			if (escaped) {
 				*(p++) = escaped;
 				col++;
@@ -498,13 +501,13 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 				p += 2;
 				col += 2;
 			}
-			if (i >= len) goto end;
+			if (i >= 0) goto end;
 		}
 		
 		// last line char
 		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
 			last_char_avx2:
-			c = src[i++];
+			c = es[i++];
 			if (escapedLUT[c] && c != '.'-42) {
 				*(uint16_t*)p = escapedLUT[c];
 				p += 2;
@@ -513,9 +516,9 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 			}
 		}
 		
-		if (i >= len) break;
+		if (i >= 0) break;
 		
-		c = src[i++];
+		c = es[i++];
 		if (escapedLUT[c]) {
 			*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 			p += 4;
