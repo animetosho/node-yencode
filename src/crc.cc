@@ -20,9 +20,28 @@ crcutil_interface::CRC* crc = NULL;
 // inspired/stolen off https://github.com/jocover/crc32_armv8/blob/master/crc32_armv8.c
 static uint32_t crc_calc(uint32_t crc, const unsigned char *src, long len) {
 	
+	// initial alignment
+	if (len >= 16) { // 16 is an arbitrary number; it just needs to be >=8
+		if ((uintptr_t)src & sizeof(uint8_t)) {
+			crc = __crc32b(crc, *src);
+			src++;
+			len--;
+		}
+		if ((uintptr_t)src & sizeof(uint16_t)) {
+			crc = __crc32h(crc, *((uint16_t *)src));
+			src += sizeof(uint16_t);
+			len -= sizeof(uint16_t);
+		}
+		
 #ifdef __aarch64__
+		if ((uintptr_t)src & sizeof(uint32_t)) {
+			crc = __crc32w(crc, *((uint32_t *)src));
+			src += sizeof(uint32_t);
+			len -= sizeof(uint32_t);
+		}
+	}
 	while ((len -= sizeof(uint64_t)) >= 0) {
-		crc = __crc32x(crc, *((uint64_t *)src));
+		crc = __crc32d(crc, *((uint64_t *)src));
 		src += sizeof(uint64_t);
 	}
 	if (len & sizeof(uint32_t)) {
@@ -30,6 +49,7 @@ static uint32_t crc_calc(uint32_t crc, const unsigned char *src, long len) {
 		src += sizeof(uint32_t);
 	}
 #else
+	}
 	while ((len -= sizeof(uint32_t)) >= 0) {
 		crc = __crc32w(crc, *((uint32_t *)src));
 		src += sizeof(uint32_t);
