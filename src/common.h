@@ -64,14 +64,12 @@
 
 #endif
 
-
-#ifdef __ARM_NEON__
+#ifdef __ARM_NEON
 # include <arm_neon.h>
 
 static uint16_t neon_movemask(uint8x16_t in) {
 	uint8x16_t mask = vandq_u8(in, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-# if defined(__aarch64__) && 0
-	// TODO: is this better?
+# if defined(__aarch64__)
 	return (vaddv_u8(vget_high_u8(mask)) << 8) | vaddv_u8(vget_low_u8(mask));
 # else
 	uint8x8_t res = vpadd_u8(vget_low_u8(mask), vget_high_u8(mask));

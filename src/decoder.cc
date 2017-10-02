@@ -374,7 +374,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 #endif
 
 
-#ifdef __ARM_NEON__
+#ifdef __ARM_NEON
 uint8_t eqFixLUT[256];
 ALIGN_32(uint8x8_t eqAddLUT[256]);
 ALIGN_32(uint8x8_t unshufLUT[256]);
@@ -437,7 +437,7 @@ size_t do_decode_neon(const unsigned char* src, unsigned char* dest, size_t len,
 				),
 				cmpEq
 			);
-			unsigned int mask = neon_movemask(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
+			uint16_t mask = neon_movemask(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
 			
 			uint8x16_t oData;
 			if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
@@ -454,8 +454,8 @@ size_t do_decode_neon(const unsigned char* src, unsigned char* dest, size_t len,
 				// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 				
 				// firstly, resolve invalid sequences of = to deal with cases like '===='
-				unsigned int maskEq = neon_movemask(cmpEq);
-				unsigned int tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				uint16_t maskEq = neon_movemask(cmpEq);
+				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
 				
 				escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
@@ -487,7 +487,7 @@ size_t do_decode_neon(const unsigned char* src, unsigned char* dest, size_t len,
 					// find all instances of .
 					tmpData2 = vceqq_u8(tmpData2, vdupq_n_u8('.'));
 					// merge matches of \r\n with those for .
-					unsigned int killDots = neon_movemask(
+					uint16_t killDots = neon_movemask(
 						vandq_u8(tmpData2, vorrq_u8(cmp1, cmp2))
 					);
 					mask |= (killDots << 2) & 0xffff;
@@ -599,7 +599,7 @@ void decoder_init() {
 	}
 #endif
 
-#ifdef __ARM_NEON__
+#ifdef __ARM_NEON
 	for(int i=0; i<256; i++) {
 		int k = i;
 		uint8_t res[8];

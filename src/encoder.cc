@@ -5,7 +5,7 @@ static unsigned char escapeLUT[256]; // whether or not the character is critical
 static uint16_t escapedLUT[256]; // escaped sequences for characters that need escaping
 
 
-#ifdef __ARM_NEON__
+#ifdef __ARM_NEON
 ALIGN_32(uint8x16_t _shufLUT[258]); // +2 for underflow guard entry
 uint8x16_t* shufLUT = _shufLUT+2;
 ALIGN_32(uint8x16_t shufMixLUT[256]);
@@ -49,7 +49,7 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 				)
 			);
 			
-			unsigned int mask = neon_movemask(cmp);
+			uint16_t mask = neon_movemask(cmp);
 			if (mask != 0) {
 				uint8_t m1 = mask & 0xFF;
 				uint8_t m2 = mask >> 8;
@@ -181,7 +181,7 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 	return p - dest;
 }
 
-#else /* defined(__ARM_NEON__) */
+#else /* defined(__ARM_NEON) */
 
 // runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
 static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
@@ -1224,7 +1224,7 @@ void encoder_init() {
 		_mm_store_si128(_shufLUT +1, _mm_set1_epi8(0xFF));
 	}
 #endif
-#ifdef __ARM_NEON__
+#ifdef __ARM_NEON
 	// generate shuf LUT
 	for(int i=0; i<256; i++) {
 		int k = i;
