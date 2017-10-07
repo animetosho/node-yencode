@@ -4,12 +4,8 @@
 // TODO: need to support max output length somehow
 
 // state var: refers to the previous state - only used for incremental processing
-//   0: previous characters are `\r\n` OR there is no previous character
-//   1: previous character is `=`
-//   2: previous character is `\r`
-//   3: previous character is none of the above
 template<bool isRaw>
-size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t len, char* state) {
+size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t len, YencDecoderState* state) {
 	unsigned char *es = (unsigned char*)src + len; // end source pointer
 	unsigned char *p = dest; // destination pointer
 	long i = -len; // input position
@@ -20,23 +16,23 @@ size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t le
 	if(isRaw) {
 		
 		if(state) switch(*state) {
-			case 1:
+			case YDEC_STATE_EQ:
 				c = es[i];
 				*p++ = c - 42 - 64;
 				i++;
 				if(c == '\r' && i < 0) {
-					*state = 2;
+					*state = YDEC_STATE_CR;
 					// fall through to case 2
 				} else {
-					*state = 3;
+					*state = YDEC_STATE_NONE;
 					break;
 				}
-			case 2:
+			case YDEC_STATE_CR:
 				if(es[i] != '\n') break;
 				i++;
-				*state = 0; // now `\r\n`
+				*state = YDEC_STATE_CRLF;
 				if(i >= 0) return 0;
-			case 0:
+			case YDEC_STATE_CRLF:
 				// skip past first dot
 				if(es[i] == '.') i++;
 		} else // treat as *state == 0
@@ -61,14 +57,14 @@ size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t le
 					*p++ = c - 42;
 			}
 		}
-		if(state) *state = 3;
+		if(state) *state = YDEC_STATE_NONE;
 		
 		if(i == -2) { // 2nd last char
 			c = es[i];
 			switch(c) {
 				case '\r':
 					if(state && es[i+1] == '\n') {
-						*state = 0;
+						*state = YDEC_STATE_CRLF;
 						return p - dest;
 					}
 				case '\n':
@@ -90,18 +86,18 @@ size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t le
 			if(c != '\n' && c != '\r' && c != '=') {
 				*p++ = c - 42;
 			} else if(state) {
-				if(c == '=') *state = 1;
-				else if(c == '\r') *state = 2;
-				else *state = 3;
+				if(c == '=') *state = YDEC_STATE_EQ;
+				else if(c == '\r') *state = YDEC_STATE_CR;
+				else *state = YDEC_STATE_NONE;
 			}
 		}
 		
 	} else {
 		
-		if(state && *state == 1) {
+		if(state && *state == YDEC_STATE_EQ) {
 			*p++ = es[i] - 42 - 64;
 			i++;
-			*state = 3;
+			*state = YDEC_STATE_NONE;
 		}
 		
 		/*for(i = 0; i < len - 1; i++) {
@@ -121,14 +117,14 @@ size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t le
 			}
 			*p++ = c - 42;
 		}
-		if(state) *state = 3;
+		if(state) *state = YDEC_STATE_NONE;
 		// do final char; we process this separately to prevent an overflow if the final char is '='
 		if(i == -1) {
 			c = es[i];
 			if(c != '\n' && c != '\r' && c != '=') {
 				*p++ = c - 42;
 			} else
-				if(state) *state = (c == '=' ? 1 : 3);
+				if(state) *state = (c == '=' ? YDEC_STATE_EQ : YDEC_STATE_NONE);
 		}
 		
 	}
@@ -155,7 +151,7 @@ static const __m128i* pshufb_combine_table = (const __m128i*)_pshufb_combine_tab
 #endif
 
 template<bool isRaw, bool use_ssse3>
-size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, char* state) {
+size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, YencDecoderState* state) {
 	if(len <= sizeof(__m128i)*2) return do_decode_scalar<isRaw>(src, dest, len, state);
 	
 	unsigned char *p = dest; // destination pointer
@@ -163,7 +159,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 	unsigned char escFirst = 0; // input character; first char needs escaping
 	unsigned int nextMask = 0;
 	char tState = 0;
-	char* pState = state ? state : &tState;
+	YencDecoderState* pState = state ? state : &tState;
 	if((uintptr_t)src & ((sizeof(__m128i)-1))) {
 		// find source memory alignment
 		unsigned char* aSrc = (unsigned char*)(((uintptr_t)src + (sizeof(__m128i)-1)) & ~(sizeof(__m128i)-1));
@@ -174,12 +170,12 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 	
 	// handle finicky case of \r\n. straddled across initial boundary
 	if(isRaw) {
-		if(*pState == 0 && i+1 < len && src[i] == '.')
+		if(*pState == YDEC_STATE_CRLF && i+1 < len && src[i] == '.')
 			nextMask = 1;
-		else if(*pState == 2 && i+2 < len && *(uint16_t*)(src + i) == UINT16_PACK('\n','.'))
+		else if(*pState == YDEC_STATE_CR && i+2 < len && *(uint16_t*)(src + i) == UINT16_PACK('\n','.'))
 			nextMask = 2;
 	}
-	escFirst = *pState == 1;
+	escFirst = *pState == YDEC_STATE_EQ;
 	
 	if(i + (sizeof(__m128i)+ (isRaw?1:-1)) < len) {
 		// our algorithm may perform an aligned load on the next part, of which we consider 2 bytes (for \r\n. sequence checking)
@@ -358,10 +354,10 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 			}
 		}
 		
-		if(escFirst) *pState = 1; // escape next character
-		else if(nextMask == 1) *pState = 0; // next character is '.', where previous two were \r\n
-		else if(nextMask == 2) *pState = 2; // next characters are '\n.', previous is \r
-		else *pState = 3;
+		if(escFirst) *pState = YDEC_STATE_EQ; // escape next character
+		else if(nextMask == 1) *pState = YDEC_STATE_CRLF; // next character is '.', where previous two were \r\n
+		else if(nextMask == 2) *pState = YDEC_STATE_CR; // next characters are '\n.', previous is \r
+		else *pState = YDEC_STATE_NONE;
 	}
 	
 	// end alignment
@@ -391,7 +387,7 @@ ALIGN_32(static const uint8_t pshufb_combine_table[272]) = {
 };
 
 template<bool isRaw>
-size_t do_decode_neon(const unsigned char* src, unsigned char* dest, size_t len, char* state) {
+size_t do_decode_neon(const unsigned char* src, unsigned char* dest, size_t len, YencDecoderState* state) {
 	if(len <= sizeof(uint8x16_t)*2) return do_decode_scalar<isRaw>(src, dest, len, state);
 	
 	unsigned char *p = dest; // destination pointer
@@ -399,7 +395,7 @@ size_t do_decode_neon(const unsigned char* src, unsigned char* dest, size_t len,
 	unsigned char escFirst = 0; // input character; first char needs escaping
 	unsigned int nextMask = 0;
 	char tState = 0;
-	char* pState = state ? state : &tState;
+	YencDecoderState* pState = state ? state : &tState;
 	if((uintptr_t)src & ((sizeof(uint8x16_t)-1))) {
 		// find source memory alignment
 		unsigned char* aSrc = (unsigned char*)(((uintptr_t)src + (sizeof(uint8x16_t)-1)) & ~(sizeof(uint8x16_t)-1));
@@ -410,12 +406,12 @@ size_t do_decode_neon(const unsigned char* src, unsigned char* dest, size_t len,
 	
 	// handle finicky case of \r\n. straddled across initial boundary
 	if(isRaw) {
-		if(*pState == 0 && i+1 < len && src[i] == '.')
+		if(*pState == YDEC_STATE_CRLF && i+1 < len && src[i] == '.')
 			nextMask = 1;
-		else if(*pState == 2 && i+2 < len && *(uint16_t*)(src + i) == UINT16_PACK('\n','.'))
+		else if(*pState == YDEC_STATE_CR && i+2 < len && *(uint16_t*)(src + i) == UINT16_PACK('\n','.'))
 			nextMask = 2;
 	}
-	escFirst = *pState == 1;
+	escFirst = *pState == YDEC_STATE_EQ;
 	
 	if(i + (sizeof(uint8x16_t)+ (isRaw?1:-1)) < len) {
 		// our algorithm may perform an aligned load on the next part, of which we consider 2 bytes (for \r\n. sequence checking)
@@ -523,10 +519,10 @@ size_t do_decode_neon(const unsigned char* src, unsigned char* dest, size_t len,
 			}
 		}
 		
-		if(escFirst) *pState = 1; // escape next character
-		else if(nextMask == 1) *pState = 0; // next character is '.', where previous two were \r\n
-		else if(nextMask == 2) *pState = 2; // next characters are '\n.', previous is \r
-		else *pState = 3;
+		if(escFirst) *pState = YDEC_STATE_EQ; // escape next character
+		else if(nextMask == 1) *pState = YDEC_STATE_CRLF; // next character is '.', where previous two were \r\n
+		else if(nextMask == 2) *pState = YDEC_STATE_CR; // next characters are '\n.', previous is \r
+		else *pState = YDEC_STATE_NONE;
 	}
 	
 	// end alignment
@@ -537,13 +533,13 @@ size_t do_decode_neon(const unsigned char* src, unsigned char* dest, size_t len,
 	return p - dest;
 }
 
-size_t (*_do_decode)(const unsigned char*, unsigned char*, size_t, char*) = &do_decode_neon<false>;
-size_t (*_do_decode_raw)(const unsigned char*, unsigned char*, size_t, char*) = &do_decode_neon<true>;
+size_t (*_do_decode)(const unsigned char*, unsigned char*, size_t, YencDecoderState*) = &do_decode_neon<false>;
+size_t (*_do_decode_raw)(const unsigned char*, unsigned char*, size_t, YencDecoderState*) = &do_decode_neon<true>;
 
 #else
 
-size_t (*_do_decode)(const unsigned char*, unsigned char*, size_t, char*) = &do_decode_scalar<false>;
-size_t (*_do_decode_raw)(const unsigned char*, unsigned char*, size_t, char*) = &do_decode_scalar<true>;
+size_t (*_do_decode)(const unsigned char*, unsigned char*, size_t, YencDecoderState*) = &do_decode_scalar<false>;
+size_t (*_do_decode_raw)(const unsigned char*, unsigned char*, size_t, YencDecoderState*) = &do_decode_scalar<true>;
 
 #endif
 
