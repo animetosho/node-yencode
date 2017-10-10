@@ -1,5 +1,5 @@
 
-enum YencDecoderState {
+typedef enum {
 	YDEC_STATE_CRLF, // default
 	YDEC_STATE_EQ,
 	YDEC_STATE_CR,
@@ -7,7 +7,7 @@ enum YencDecoderState {
 	YDEC_STATE_CRLFDT,
 	YDEC_STATE_CRLFDTCR,
 	YDEC_STATE_CRLFEQ
-}
+} YencDecoderState;
 
 extern size_t (*_do_decode)(const unsigned char*, unsigned char*, size_t, YencDecoderState*);
 extern size_t (*_do_decode_raw)(const unsigned char*, unsigned char*, size_t, YencDecoderState*);

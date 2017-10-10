@@ -1,5 +1,5 @@
 #include "common.h"
-
+#include "decoder.h"
 
 // TODO: need to support max output length somehow
 
@@ -35,6 +35,7 @@ size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t le
 			case YDEC_STATE_CRLF:
 				// skip past first dot
 				if(es[i] == '.') i++;
+			default: break; // silence compiler warnings
 		} else // treat as *state == 0
 			if(es[i] == '.') i++;
 		
@@ -158,7 +159,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 	unsigned long i = 0; // input position
 	unsigned char escFirst = 0; // input character; first char needs escaping
 	unsigned int nextMask = 0;
-	char tState = 0;
+	YencDecoderState tState = YDEC_STATE_CRLF;
 	YencDecoderState* pState = state ? state : &tState;
 	if((uintptr_t)src & ((sizeof(__m128i)-1))) {
 		// find source memory alignment
