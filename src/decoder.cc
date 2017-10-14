@@ -188,6 +188,10 @@ int do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t
 				i++;
 				YDEC_CHECK_END(YDEC_STATE_CRLFDTCR)
 				// fallthru
+			} else if(isRaw && es[i] == '=') { // check for dot-stuffed ending: \r\n.=y
+				i++;
+				YDEC_CHECK_END(YDEC_STATE_CRLFEQ)
+				goto do_decode_endable_scalar_ceq;
 			} else
 				break;
 		case YDEC_STATE_CRLFDTCR:
@@ -227,6 +231,20 @@ int do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t
 							*state = YDEC_STATE_CRLF;
 							return 2;
 						} else i--;
+					} else if(es[i] == '=') {
+						i++;
+						YDEC_CHECK_END(YDEC_STATE_CRLFEQ)
+						if(es[i] == 'y') {
+							*src = es + i + 1;
+							*dest = p;
+							*state = YDEC_STATE_NONE;
+							return 1;
+						} else {
+							// escape char & continue
+							c = es[i];
+							*p++ = c - 42 - 64;
+							i -= (c == '\r');
+						}
 					} else i--;
 				}
 				else if(next == UINT16_PACK('\n', '=')) {
@@ -360,6 +378,11 @@ int do_decode_sse(const unsigned char** src, unsigned char** dest, size_t len, Y
 						*pState = YDEC_STATE_CRLF;
 						return 2;
 					}
+					if(searchEnd && *(uint16_t*)(*src +1) == UINT16_PACK('=','y')) {
+						(*src) += 3;
+						*pState = YDEC_STATE_NONE;
+						return 1;
+					}
 				}
 				else if(searchEnd && *(uint16_t*)(*src) == UINT16_PACK('=','y')) {
 					(*src) += 2;
@@ -375,6 +398,11 @@ int do_decode_sse(const unsigned char** src, unsigned char** dest, size_t len, Y
 						*pState = YDEC_STATE_CRLF;
 						return 2;
 					}
+					if(searchEnd && *(uint16_t*)(*src +2) == UINT16_PACK('=','y')) {
+						(*src) += 4;
+						*pState = YDEC_STATE_NONE;
+						return 1;
+					}
 				}
 				else if(searchEnd && (*(uint32_t*)(*src) & 0xffffff) == UINT32_PACK('\n','=','y',0)) {
 					(*src) += 3;
@@ -387,6 +415,11 @@ int do_decode_sse(const unsigned char** src, unsigned char** dest, size_t len, Y
 					(*src) += 2;
 					*pState = YDEC_STATE_CRLF;
 					return 2;
+				}
+				if(searchEnd && isRaw && *(uint16_t*)(*src) == UINT16_PACK('=','y')) {
+					(*src) += 2;
+					*pState = YDEC_STATE_NONE;
+					return 1;
 				}
 				break;
 			case YDEC_STATE_CRLFDTCR:
@@ -512,6 +545,9 @@ int do_decode_sse(const unsigned char** src, unsigned char** dest, size_t len, Y
 						if(isRaw) {
 							__m128i cmpC1 = _mm_cmpeq_epi16(tmpData2, _mm_set1_epi16(0x0d2e)); // ".\r"
 							__m128i cmpC2 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x0d2e));
+							// TODO: this sequence needs to be handled better
+							cmpC1 = _mm_or_si128(cmpC1, _mm_cmpeq_epi16(tmpData2, _mm_set1_epi16(0x3d2e))); // ".="
+							cmpC2 = _mm_or_si128(cmpC2, _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x3d2e)));
 #ifdef __AVX512VL__
 							cmpB1 = _mm_ternarylogic_epi32(cmpB1, cmpC1, cmp1, 0xA8);
 							cmpB2 = _mm_ternarylogic_epi32(cmpB2, cmpC2, cmp2, 0xA8);
@@ -523,7 +559,7 @@ int do_decode_sse(const unsigned char** src, unsigned char** dest, size_t len, Y
 							cmpB1 = _mm_and_si128(cmpB1, cmp1);
 							cmpB2 = _mm_and_si128(cmpB2, cmp2);
 						}
-						cmpB1 = _mm_srli_si128(cmpB1, 1);
+						//cmpB1 = _mm_srli_si128(cmpB1, 1);
 						if(_mm_movemask_epi8(_mm_or_si128(cmpB1, cmpB2))) {
 							// likely terminator found
 							// TODO: we currently assume \r\n.\r is always a terminator - probably should verify it though
