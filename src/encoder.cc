@@ -33,7 +33,7 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 		// main line
 		while (i < -1-(long)sizeof(uint8x16_t) && col < line_size-1) {
 			uint8x16_t data = vaddq_u8(
-				vld1q_u8(es + i), // probably not worth the effort to align
+				vld1q_u8(es + i),
 				vdupq_n_u8(42)
 			);
 			i += sizeof(uint8x16_t);
@@ -58,20 +58,19 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 				uint8x16_t shufMA = vld1q_u8((uint8_t*)(shufLUT + m1));
 				uint8x16_t shufMB = vld1q_u8((uint8_t*)(shufLUT + m2));
 				
+				
+				// expand halves
+#ifdef __aarch64__
 				// second mask processes on second half, so add to the offsets
 				shufMB = vaddq_u8(shufMB, vdupq_n_u8(8));
 				
-				// expand halves
-				//shuf = vorrq_u8(vcgtq_u8(shuf, vdupq_n_u8(15)), shuf);
-#ifdef __aarch64__
 				uint8x16_t data2 = vqtbl1q_u8(data, shufMB);
 				data = vqtbl1q_u8(data, shufMA);
 #else
-				uint8x8x2_t dataH = {vget_low_u8(data), vget_high_u8(data)};
-				uint8x16_t data2 = vcombine_u8(vtbl2_u8(dataH, vget_low_u8(shufMB)),
-				                               vtbl2_u8(dataH, vget_high_u8(shufMB)));
-				data = vcombine_u8(vtbl2_u8(dataH, vget_low_u8(shufMA)),
-				                   vtbl2_u8(dataH, vget_high_u8(shufMA)));
+				uint8x16_t data2 = vcombine_u8(vtbl1_u8(vget_high_u8(data), vget_low_u8(shufMB)),
+				                               vtbl1_u8(vget_high_u8(data), vget_high_u8(shufMB)));
+				data = vcombine_u8(vtbl1_u8(vget_low_u8(data), vget_low_u8(shufMA)),
+				                   vtbl1_u8(vget_low_u8(data), vget_high_u8(shufMA)));
 #endif
 				
 				// add in escaped chars
