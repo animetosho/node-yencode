@@ -178,6 +178,56 @@ static void DecodeTo(const FunctionCallbackInfo<Value>& args) {
 	args.GetReturnValue().Set( Integer::New(isolate, len) );
 }
 
+template<bool isRaw>
+static void DecodeIncr(const FunctionCallbackInfo<Value>& args) {
+	Isolate* isolate = Isolate::GetCurrent();
+	HandleScope scope(isolate);
+	
+	if (args.Length() == 0 || !node::Buffer::HasInstance(args[0])) {
+		isolate->ThrowException(Exception::Error(
+			String::NewFromUtf8(isolate, "You must supply a Buffer"))
+		);
+		return;
+	}
+	
+	size_t arg_len = node::Buffer::Length(args[0]);
+	if (arg_len == 0) {
+		// handled properly in Javascript
+		return;
+	}
+	
+	YencDecoderState state = YDEC_STATE_CRLF;
+	unsigned char *result = NULL;
+	bool allocResult = true;
+	if (args.Length() > 1) {
+		state = (YencDecoderState)(args[1]->ToInteger()->Value());
+		if (args.Length() > 2 && node::Buffer::HasInstance(args[2])) {
+			if(node::Buffer::Length(args[2]) < arg_len) {
+				return;
+			}
+			result = (unsigned char*)node::Buffer::Data(args[2]);
+			allocResult = false;
+		}
+	}
+	
+	const unsigned char* src = (const unsigned char*)node::Buffer::Data(args[0]);
+	const unsigned char* sp = src;
+	
+	if(allocResult) result = (unsigned char*) malloc(arg_len);
+	unsigned char* dp = result;
+	int ended = do_decode_end<isRaw>(&sp, &dp, arg_len, &state);
+	size_t len = dp - result;
+	if(allocResult) result = (unsigned char*)realloc(result, len);
+	
+	Local<Object> ret = Object::New(isolate);
+	ret->Set(String::NewFromUtf8(isolate, "read"), Integer::New(isolate, sp - src));
+	ret->Set(String::NewFromUtf8(isolate, "written"), Integer::New(isolate, len));
+	if(allocResult) ret->Set(String::NewFromUtf8(isolate, "output"), BUFFER_NEW((char*)result, len, free_buffer, (void*)len));
+	ret->Set(String::NewFromUtf8(isolate, "ended"), Integer::New(isolate, ended));
+	ret->Set(String::NewFromUtf8(isolate, "state"), Integer::New(isolate, state));
+	args.GetReturnValue().Set( ret );
+}
+
 #if NODE_VERSION_AT_LEAST(3, 0, 0)
 // for whatever reason, iojs 3 gives buffer corruption if you pass in a pointer without a free function
 #define RETURN_CRC(x) do { \
@@ -390,6 +440,56 @@ static Handle<Value> DecodeTo(const Arguments& args) {
 	return scope.Close(Integer::New(len));
 }
 
+template<bool isRaw>
+static Handle<Value> DecodeIncr(const Arguments& args) {
+	HandleScope scope;
+	
+	if (args.Length() == 0 || !node::Buffer::HasInstance(args[0])) {
+		return ThrowException(Exception::Error(
+			String::New("You must supply a Buffer"))
+		);
+	}
+	
+	size_t arg_len = node::Buffer::Length(args[0]);
+	if (arg_len == 0) {
+		// handled properly in Javascript
+		return Integer::New(0);
+	}
+	
+	YencDecoderState state = YDEC_STATE_CRLF;
+	unsigned char *result = NULL;
+	bool allocResult = true;
+	if (args.Length() > 1) {
+		state = (YencDecoderState)(args[1]->ToInteger()->Value());
+		if (args.Length() > 2 && node::Buffer::HasInstance(args[2])) {
+			if(node::Buffer::Length(args[2]) < arg_len) {
+				return Integer::New(0);
+			}
+			result = (unsigned char*)node::Buffer::Data(args[2]);
+			allocResult = false;
+		}
+	}
+	
+	const unsigned char* src = (const unsigned char*)node::Buffer::Data(args[0]);
+	const unsigned char* sp = src;
+	
+	if(allocResult) result = (unsigned char*) malloc(arg_len);
+	unsigned char* dp = result;
+	int ended = do_decode_end<isRaw>(&sp, &dp, arg_len, &state);
+	size_t len = dp - result;
+	if(allocResult) result = (unsigned char*)realloc(result, len);
+	
+	Local<Object> ret = Object::New();
+	ret->Set(String::New("read"), Integer::New(sp - src));
+	ret->Set(String::New("written"), Integer::New(len));
+	if(allocResult) ret->Set(String::New("output"), Local<Object>::New(node::Buffer::New((char*)result, len, free_buffer, (void*)len)->handle_));
+	ret->Set(String::New("ended"), Integer::New(ended));
+	ret->Set(String::New("state"), Integer::New(state));
+	V8::AdjustAmountOfExternalAllocatedMemory(len);
+	return scope.Close(ret);
+}
+
+
 static Handle<Value> CRC32(const Arguments& args) {
 	HandleScope scope;
 	
@@ -472,6 +572,8 @@ void init(Handle<Object> target) {
 	NODE_SET_METHOD(target, "decodeTo", DecodeTo<false>);
 	NODE_SET_METHOD(target, "decodeNntp", Decode<true>);
 	NODE_SET_METHOD(target, "decodeNntpTo", DecodeTo<true>);
+	NODE_SET_METHOD(target, "decodeIncr", DecodeIncr<false>);
+	NODE_SET_METHOD(target, "decodeNntpIncr", DecodeIncr<true>);
 	NODE_SET_METHOD(target, "crc32", CRC32);
 	NODE_SET_METHOD(target, "crc32_combine", CRC32Combine);
 	NODE_SET_METHOD(target, "crc32_zeroes", CRC32Zeroes);
