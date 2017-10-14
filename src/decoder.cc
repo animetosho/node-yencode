@@ -6,7 +6,7 @@
 // state var: refers to the previous state - only used for incremental processing
 template<bool isRaw>
 size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t len, YencDecoderState* state) {
-	unsigned char *es = (unsigned char*)src + len; // end source pointer
+	const unsigned char *es = src + len; // end source pointer
 	unsigned char *p = dest; // destination pointer
 	long i = -len; // input position
 	unsigned char c; // input character
@@ -20,9 +20,10 @@ size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t le
 				c = es[i];
 				*p++ = c - 42 - 64;
 				i++;
-				if(c == '\r' && i < 0) {
+				if(c == '\r') {
 					*state = YDEC_STATE_CR;
-					// fall through to case 2
+					if(i >= 0) return 0;
+					// fall through
 				} else {
 					*state = YDEC_STATE_NONE;
 					break;
@@ -36,7 +37,7 @@ size_t do_decode_scalar(const unsigned char* src, unsigned char* dest, size_t le
 				// skip past first dot
 				if(es[i] == '.') i++;
 			default: break; // silence compiler warnings
-		} else // treat as *state == 0
+		} else // treat as YDEC_STATE_CRLF
 			if(es[i] == '.') i++;
 		
 		for(; i < -2; i++) {
@@ -182,7 +183,7 @@ size_t do_decode_sse(const unsigned char* src, unsigned char* dest, size_t len, 
 		// our algorithm may perform an aligned load on the next part, of which we consider 2 bytes (for \r\n. sequence checking)
 		size_t dLen = len - (sizeof(__m128i)+ (isRaw?1:-1));
 		dLen = ((dLen-i) + 0xf) & ~0xf;
-		unsigned char* dSrc = (unsigned char*)src + dLen + i;
+		const unsigned char* dSrc = src + dLen + i;
 		long dI = -dLen;
 		i += dLen;
 		
@@ -418,7 +419,7 @@ size_t do_decode_neon(const unsigned char* src, unsigned char* dest, size_t len,
 		// our algorithm may perform an aligned load on the next part, of which we consider 2 bytes (for \r\n. sequence checking)
 		size_t dLen = len - (sizeof(uint8x16_t)+ (isRaw?1:-1));
 		dLen = ((dLen-i) + 0xf) & ~0xf;
-		uint8_t* dSrc = (uint8_t*)src + dLen + i;
+		const uint8_t* dSrc = (uint8_t*)src + dLen + i;
 		long dI = -dLen;
 		i += dLen;
 		
