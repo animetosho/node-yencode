@@ -505,7 +505,7 @@ inline bool do_decode_sse(const uint8_t* src, unsigned char*& p, unsigned char& 
 		cmpEq
 	);
 #endif
-	unsigned int mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
+	uint16_t mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
 	
 	__m128i oData;
 	if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
@@ -526,8 +526,8 @@ inline bool do_decode_sse(const uint8_t* src, unsigned char*& p, unsigned char& 
 	(b) \
 ))
 		// firstly, resolve invalid sequences of = to deal with cases like '===='
-		unsigned int maskEq = _mm_movemask_epi8(cmpEq);
-		unsigned int tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+		uint16_t maskEq = _mm_movemask_epi8(cmpEq);
+		uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 		maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
 		
 		unsigned char oldEscFirst = escFirst;
@@ -641,7 +641,7 @@ inline bool do_decode_sse(const uint8_t* src, unsigned char*& p, unsigned char& 
 				}
 			}
 			if(isRaw) {
-				unsigned int killDots = _mm_movemask_epi8(matchNlDots);
+				uint16_t killDots = _mm_movemask_epi8(matchNlDots);
 				mask |= (killDots << 2) & 0xffff;
 				nextMask = killDots >> (sizeof(__m128i)-2);
 			}
