@@ -582,6 +582,7 @@ inline bool do_decode_sse(const uint8_t* src, unsigned char*& p, unsigned char& 
 			__m128i matchNl2 = _mm_cmpeq_epi16(tmpData1, _mm_set1_epi16(0x0a0d));
 			
 			__m128i matchDots, matchNlDots;
+			uint16_t killDots;
 			if(isRaw) {
 				matchDots = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
 				// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
@@ -593,12 +594,13 @@ inline bool do_decode_sse(const uint8_t* src, unsigned char*& p, unsigned char& 
 #else
 				matchNlDots = _mm_and_si128(matchDots, _mm_or_si128(matchNl1, matchNl2));
 #endif
+				killDots = _mm_movemask_epi8(matchNlDots);
 			}
 			
 			if(searchEnd) {
 				__m128i cmpB1 = _mm_cmpeq_epi16(tmpData2, _mm_set1_epi16(0x793d)); // "=y"
 				__m128i cmpB2 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x793d));
-				if(isRaw) {
+				if(isRaw && killDots) {
 					// match instances of \r\n.\r\n and \r\n.=y
 					__m128i cmpC1 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x0a0d)); // "\r\n"
 					__m128i cmpC2 = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x0a0d));
@@ -641,7 +643,6 @@ inline bool do_decode_sse(const uint8_t* src, unsigned char*& p, unsigned char& 
 				}
 			}
 			if(isRaw) {
-				uint16_t killDots = _mm_movemask_epi8(matchNlDots);
 				mask |= (killDots << 2) & 0xffff;
 				nextMask = killDots >> (sizeof(__m128i)-2);
 			}
