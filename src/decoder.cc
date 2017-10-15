@@ -604,27 +604,20 @@ inline bool do_decode_sse(const uint8_t* src, unsigned char*& p, unsigned char& 
 					// match instances of \r\n.\r\n and \r\n.=y
 					__m128i cmpC1 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x0a0d)); // "\r\n"
 					__m128i cmpC2 = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x0a0d));
-#ifdef __AVX512VL__
-					cmpC1 = _mm_ternarylogic_epi32(cmpC1, cmpB2, matchDots, 0xA8);
-					cmpC2 = _mm_ternarylogic_epi32(cmpC2, _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d)), matchDots, 0xA8);
-					
-					// then merge w/ cmpB
-					cmpB1 = _mm_ternarylogic_epi32(cmpB1, cmpC1, matchNl1, 0xA8);
-					cmpB2 = _mm_ternarylogic_epi32(cmpB2, cmpC2, matchNl2, 0xA8);
-					
-					cmpB1 = _mm_or_si128(cmpB1, cmpB2);
-#else
 					cmpC1 = _mm_or_si128(cmpC1, cmpB2);
 					cmpC2 = _mm_or_si128(cmpC2, _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d)));
 					cmpC2 = _mm_slli_si128(cmpC2, 1);
-					cmpC1 = _mm_or_si128(cmpC1, cmpC2);
 					
-					// and w/ dots
-					cmpC1 = _mm_and_si128(cmpC1, matchNlDots);
-					// then merge w/ cmpB
+					// prepare cmpB
 					cmpB1 = _mm_and_si128(cmpB1, matchNl1);
 					cmpB2 = _mm_and_si128(cmpB2, matchNl2);
 					
+					// and w/ dots
+#ifdef __AVX512VL__
+					cmpC1 = _mm_ternarylogic_epi32(cmpC1, cmpC2, matchNlDots, 0xA8);
+					cmpB1 = _mm_ternarylogic_epi32(cmpB1, cmpB2, cmpC1, 0xFE);
+#else
+					cmpC1 = _mm_and_si128(_mm_or_si128(cmpC1, cmpC2), matchNlDots);
 					cmpB1 = _mm_or_si128(cmpC1, _mm_or_si128(
 						cmpB1, cmpB2
 					));
