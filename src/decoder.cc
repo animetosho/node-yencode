@@ -623,10 +623,14 @@ inline bool do_decode_sse(const uint8_t* src, unsigned char*& p, unsigned char& 
 					));
 #endif
 				} else {
+#ifdef __AVX512VL__
+					cmpB1 = _mm_ternarylogic_epi32(cmpB1, matchNl1, _mm_and_si128(cmpB2, matchNl2), 0xEA);
+#else
 					cmpB1 = _mm_or_si128(
 						_mm_and_si128(cmpB1, matchNl1),
 						_mm_and_si128(cmpB2, matchNl2)
 					);
+#endif
 				}
 				if(_mm_movemask_epi8(cmpB1)) {
 					// terminator found
