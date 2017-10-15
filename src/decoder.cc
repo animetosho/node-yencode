@@ -795,6 +795,7 @@ inline bool do_decode_neon(const uint8_t* src, unsigned char*& p, unsigned char&
 			uint8x16_t matchNl2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData1), vdupq_n_u16(0x0a0d)));
 			
 			uint8x16_t matchDots, matchNlDots;
+			uint16_t killDots;
 			if(isRaw) {
 				matchDots = vceqq_u8(tmpData2, vdupq_n_u8('.'));
 				// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
@@ -802,12 +803,13 @@ inline bool do_decode_neon(const uint8_t* src, unsigned char*& p, unsigned char&
 				
 				// merge matches of \r\n with those for .
 				matchNlDots = vandq_u8(matchDots, vorrq_u8(matchNl1, matchNl2));
+				killDots = neon_movemask(matchNlDots);
 			}
 			
 			if(searchEnd) {
 				uint8x16_t cmpB1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData2), vdupq_n_u16(0x793d))); // "=y"
 				uint8x16_t cmpB2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x793d)));
-				if(isRaw) {
+				if(isRaw && killDots) {
 					// match instances of \r\n.\r\n and \r\n.=y
 					uint8x16_t cmpC1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x0a0d)));
 					uint8x16_t cmpC2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x0a0d)));
@@ -846,7 +848,6 @@ inline bool do_decode_neon(const uint8_t* src, unsigned char*& p, unsigned char&
 				}
 			}
 			if(isRaw) {
-				unsigned int killDots = neon_movemask(matchNlDots);
 				mask |= (killDots << 2) & 0xffff;
 				nextMask = killDots >> (sizeof(uint8x16_t)-2);
 			}
