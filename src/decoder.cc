@@ -511,10 +511,10 @@ inline bool do_decode_sse(const uint8_t* src, unsigned char*& p, unsigned char& 
 	if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
 		// first byte needs escaping due to preceeding = in last loop iteration
 		oData = _mm_sub_epi8(data, _mm_set_epi8(42,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42+64));
+		mask &= ~1;
 	} else {
 		oData = _mm_sub_epi8(data, _mm_set1_epi8(42));
 	}
-	mask &= ~escFirst;
 	if(isRaw) mask |= nextMask;
 	
 	if (mask != 0) {
@@ -749,10 +749,10 @@ inline bool do_decode_neon(const uint8_t* src, unsigned char*& p, unsigned char&
 	if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
 		// first byte needs escaping due to preceeding = in last loop iteration
 		oData = vsubq_u8(data, (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42});
+		mask &= ~1;
 	} else {
 		oData = vsubq_u8(data, vdupq_n_u8(42));
 	}
-	mask &= ~escFirst;
 	if(isRaw) mask |= nextMask;
 	
 	if (mask != 0) {
