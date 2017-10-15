@@ -342,7 +342,7 @@ int do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, 
 	}
 	
 	size_t lenBuffer = width -1;
-	if(searchEnd) lenBuffer += 3;
+	if(searchEnd) lenBuffer += 3 + (isRaw?1:0);
 	else if(isRaw) lenBuffer += 2;
 	
 	if(len > lenBuffer) {
@@ -447,6 +447,19 @@ int do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, 
 	// end alignment
 	if(len)
 		return do_decode_scalar<isRaw, searchEnd>(src, dest, len, pState);
+	/** for debugging: ensure that the SIMD routine doesn't exit early
+	if(len) {
+		const uint8_t* s = *src;
+		unsigned char* p = *dest;
+		int ended = do_decode_scalar<isRaw, searchEnd>(src, dest, len, pState);
+		if(*src - s > width*2) {
+			// this shouldn't happen, corrupt some data to fail the test
+			while(p < *dest)
+				*p++ = 0;
+		}
+		return ended;
+	}
+	*/
 	return 0;
 }
 
@@ -546,67 +559,89 @@ inline bool do_decode_sse(const uint8_t* src, unsigned char*& p, unsigned char& 
 		// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
 		if(isRaw || searchEnd) {
 			// find instances of \r\n
-			__m128i tmpData1, tmpData2, tmpData3;
+			__m128i tmpData1, tmpData2, tmpData3, tmpData4;
 #if defined(__SSSE3__) && !defined(__tune_btver1__)
 			if(use_ssse3) {
 				__m128i nextData = _mm_load_si128((__m128i *)src + 1);
 				tmpData1 = _mm_alignr_epi8(nextData, data, 1);
 				tmpData2 = _mm_alignr_epi8(nextData, data, 2);
 				if(searchEnd) tmpData3 = _mm_alignr_epi8(nextData, data, 3);
+				if(searchEnd && isRaw) tmpData4 = _mm_alignr_epi8(nextData, data, 4);
 			} else {
 #endif
 				tmpData1 = _mm_insert_epi16(_mm_srli_si128(data, 1), *(uint16_t*)(src + sizeof(__m128i)-1), 7);
 				tmpData2 = _mm_insert_epi16(_mm_srli_si128(data, 2), *(uint16_t*)(src + sizeof(__m128i)), 7);
-				if(searchEnd) tmpData3 = _mm_insert_epi16(_mm_srli_si128(tmpData1, 2), *(uint16_t*)(src + sizeof(__m128i)+1), 7);
+				if(searchEnd)
+					tmpData3 = _mm_insert_epi16(_mm_srli_si128(tmpData1, 2), *(uint16_t*)(src + sizeof(__m128i)+1), 7);
+				if(searchEnd && isRaw)
+					tmpData4 = _mm_insert_epi16(_mm_srli_si128(tmpData2, 2), *(uint16_t*)(src + sizeof(__m128i)+2), 7);
 #ifdef __SSSE3__
 			}
 #endif
-			__m128i cmp1 = _mm_cmpeq_epi16(data, _mm_set1_epi16(0x0a0d));
-			__m128i cmp2 = _mm_cmpeq_epi16(tmpData1, _mm_set1_epi16(0x0a0d));
+			__m128i matchNl1 = _mm_cmpeq_epi16(data, _mm_set1_epi16(0x0a0d));
+			__m128i matchNl2 = _mm_cmpeq_epi16(tmpData1, _mm_set1_epi16(0x0a0d));
+			
+			__m128i matchDots, matchNlDots;
+			if(isRaw) {
+				matchDots = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
+				// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
+				matchNl1 = _mm_srli_si128(matchNl1, 1);
+				
+				// merge matches of \r\n with those for .
+#ifdef __AVX512VL__
+				matchNlDots = _mm_ternarylogic_epi32(matchDots, matchNl1, matchNl2, 0xE0);
+#else
+				matchNlDots = _mm_and_si128(matchDots, _mm_or_si128(matchNl1, matchNl2));
+#endif
+			}
 			
 			if(searchEnd) {
 				__m128i cmpB1 = _mm_cmpeq_epi16(tmpData2, _mm_set1_epi16(0x793d)); // "=y"
 				__m128i cmpB2 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x793d));
 				if(isRaw) {
-					__m128i cmpC1 = _mm_cmpeq_epi16(tmpData2, _mm_set1_epi16(0x0d2e)); // ".\r"
-					__m128i cmpC2 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x0d2e));
-					// TODO: this sequence needs to be handled better
-					cmpC1 = _mm_or_si128(cmpC1, _mm_cmpeq_epi16(tmpData2, _mm_set1_epi16(0x3d2e))); // ".="
-					cmpC2 = _mm_or_si128(cmpC2, _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x3d2e)));
+					// match instances of \r\n.\r\n and \r\n.=y
+					__m128i cmpC1 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x0a0d)); // "\r\n"
+					__m128i cmpC2 = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x0a0d));
 #ifdef __AVX512VL__
-					cmpB1 = _mm_ternarylogic_epi32(cmpB1, cmpC1, cmp1, 0xA8);
-					cmpB2 = _mm_ternarylogic_epi32(cmpB2, cmpC2, cmp2, 0xA8);
+					cmpC1 = _mm_ternarylogic_epi32(cmpC1, cmpB2, matchDots, 0xA8);
+					cmpC2 = _mm_ternarylogic_epi32(cmpC2, _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d)), matchDots, 0xA8);
+					
+					// then merge w/ cmpB
+					cmpB1 = _mm_ternarylogic_epi32(cmpB1, cmpC1, matchNl1, 0xA8);
+					cmpB2 = _mm_ternarylogic_epi32(cmpB2, cmpC2, matchNl2, 0xA8);
+					
+					cmpB1 = _mm_or_si128(cmpB1, cmpB2);
 #else
-					cmpB1 = _mm_and_si128(_mm_or_si128(cmpB1, cmpC1), cmp1);
-					cmpB2 = _mm_and_si128(_mm_or_si128(cmpB2, cmpC2), cmp2);
+					cmpC1 = _mm_or_si128(cmpC1, cmpB2);
+					cmpC2 = _mm_or_si128(cmpC2, _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d)));
+					cmpC2 = _mm_slli_si128(cmpC2, 1);
+					cmpC1 = _mm_or_si128(cmpC1, cmpC2);
+					
+					// and w/ dots
+					cmpC1 = _mm_and_si128(cmpC1, matchNlDots);
+					// then merge w/ cmpB
+					cmpB1 = _mm_and_si128(cmpB1, matchNl1);
+					cmpB2 = _mm_and_si128(cmpB2, matchNl2);
+					
+					cmpB1 = _mm_or_si128(cmpC1, _mm_or_si128(
+						cmpB1, cmpB2
+					));
 #endif
 				} else {
-					cmpB1 = _mm_and_si128(cmpB1, cmp1);
-					cmpB2 = _mm_and_si128(cmpB2, cmp2);
+					cmpB1 = _mm_or_si128(
+						_mm_and_si128(cmpB1, matchNl1),
+						_mm_and_si128(cmpB2, matchNl2)
+					);
 				}
-				//cmpB1 = _mm_srli_si128(cmpB1, 1);
-				if(_mm_movemask_epi8(_mm_or_si128(cmpB1, cmpB2))) {
-					// likely terminator found
-					// TODO: we currently assume \r\n.\r is always a terminator - probably should verify it though
+				if(_mm_movemask_epi8(cmpB1)) {
+					// terminator found
 					// there's probably faster ways to do this, but reverting to scalar code should be good enough
 					escFirst = oldEscFirst;
 					return false;
 				}
 			}
 			if(isRaw) {
-				// prepare to merge the two comparisons
-				cmp1 = _mm_srli_si128(cmp1, 1);
-				
-				// find all instances of .
-				tmpData2 = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
-				// merge matches of \r\n with those for .
-				unsigned int killDots = _mm_movemask_epi8(
-#ifdef __AVX512VL__
-					_mm_ternarylogic_epi32(tmpData2, cmp1, cmp2, 0xE0)
-#else
-					_mm_and_si128(tmpData2, _mm_or_si128(cmp1, cmp2))
-#endif
-				);
+				unsigned int killDots = _mm_movemask_epi8(matchNlDots);
 				mask |= (killDots << 2) & 0xffff;
 				nextMask = killDots >> (sizeof(__m128i)-2);
 			}
