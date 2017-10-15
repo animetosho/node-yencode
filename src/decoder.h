@@ -6,7 +6,7 @@ typedef enum {
 	YDEC_STATE_NONE,
 	YDEC_STATE_CRLFDT,
 	YDEC_STATE_CRLFDTCR,
-	YDEC_STATE_CRLFEQ
+	YDEC_STATE_CRLFEQ // may actually be "\r\n.=" in raw decoder
 } YencDecoderState;
 
 extern int (*_do_decode)(const unsigned char**, unsigned char**, size_t, YencDecoderState*);

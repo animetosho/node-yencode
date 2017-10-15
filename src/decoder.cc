@@ -764,6 +764,7 @@ inline bool do_decode_neon(const uint8_t* src, unsigned char*& p, unsigned char&
 		uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 		maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
 		
+		unsigned char oldEscFirst = escFirst;
 		escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
 		// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 		maskEq <<= 1;
@@ -780,24 +781,75 @@ inline bool do_decode_neon(const uint8_t* src, unsigned char*& p, unsigned char&
 		
 		// handle \r\n. sequences
 		// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
-		if(isRaw) {
+		if(isRaw || searchEnd) {
 			// find instances of \r\n
-			uint8x16_t tmpData1, tmpData2;
+			uint8x16_t tmpData1, tmpData2, tmpData3, tmpData4;
 			uint8x16_t nextData = vld1q_u8(src + sizeof(uint8x16_t));
 			tmpData1 = vextq_u8(data, nextData, 1);
 			tmpData2 = vextq_u8(data, nextData, 2);
-			uint8x16_t cmp1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(data), vdupq_n_u16(0x0a0d)));
-			uint8x16_t cmp2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData1), vdupq_n_u16(0x0a0d)));
-			// prepare to merge the two comparisons
-			cmp1 = vextq_u8(cmp1, vdupq_n_u8(0), 1);
-			// find all instances of .
-			tmpData2 = vceqq_u8(tmpData2, vdupq_n_u8('.'));
-			// merge matches of \r\n with those for .
-			uint16_t killDots = neon_movemask(
-				vandq_u8(tmpData2, vorrq_u8(cmp1, cmp2))
-			);
-			mask |= (killDots << 2) & 0xffff;
-			nextMask = killDots >> (sizeof(uint8x16_t)-2);
+			if(searchEnd) {
+				tmpData3 = vextq_u8(data, nextData, 3);
+				if(isRaw) tmpData4 = vextq_u8(data, nextData, 4);
+			}
+			uint8x16_t matchNl1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(data), vdupq_n_u16(0x0a0d)));
+			uint8x16_t matchNl2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData1), vdupq_n_u16(0x0a0d)));
+			
+			uint8x16_t matchDots, matchNlDots;
+			if(isRaw) {
+				matchDots = vceqq_u8(tmpData2, vdupq_n_u8('.'));
+				// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
+				matchNl1 = vextq_u8(matchNl1, vdupq_n_u8(0), 1);
+				
+				// merge matches of \r\n with those for .
+				matchNlDots = vandq_u8(matchDots, vorrq_u8(matchNl1, matchNl2));
+			}
+			
+			if(searchEnd) {
+				uint8x16_t cmpB1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData2), vdupq_n_u16(0x793d))); // "=y"
+				uint8x16_t cmpB2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x793d)));
+				if(isRaw) {
+					// match instances of \r\n.\r\n and \r\n.=y
+					uint8x16_t cmpC1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x0a0d)));
+					uint8x16_t cmpC2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x0a0d)));
+					cmpC1 = vorrq_u8(cmpC1, cmpB2);
+					cmpC2 = vorrq_u8(cmpC2, vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d))));
+					cmpC2 = vextq_u8(vdupq_n_u8(0), cmpC2, 15);
+					cmpC1 = vorrq_u8(cmpC1, cmpC2);
+					
+					// and w/ dots
+					cmpC1 = vandq_u8(cmpC1, matchNlDots);
+					// then merge w/ cmpB
+					cmpB1 = vandq_u8(cmpB1, matchNl1);
+					cmpB2 = vandq_u8(cmpB2, matchNl2);
+					
+					cmpB1 = vorrq_u8(cmpC1, vorrq_u8(
+						cmpB1, cmpB2
+					));
+				} else {
+					cmpB1 = vorrq_u8(
+						vandq_u8(cmpB1, matchNl1),
+						vandq_u8(cmpB2, matchNl2)
+					);
+				}
+#ifdef __aarch64__
+				if(vget_lane_u64(vqmovn_u64(vreinterpretq_u64_u8(cmpB1)), 0))
+#else
+				uint32x4_t tmp1 = vreinterpretq_u32_u8(cmpB1);
+				uint32x2_t tmp2 = vorr_u32(vget_low_u32(tmp1), vget_high_u32(tmp1));
+				if(vget_lane_u32(vpmax_u32(tmp2, tmp2), 0))
+#endif
+				{
+					// terminator found
+					// there's probably faster ways to do this, but reverting to scalar code should be good enough
+					escFirst = oldEscFirst;
+					return false;
+				}
+			}
+			if(isRaw) {
+				unsigned int killDots = neon_movemask(matchNlDots);
+				mask |= (killDots << 2) & 0xffff;
+				nextMask = killDots >> (sizeof(uint8x16_t)-2);
+			}
 		}
 		
 		// all that's left is to 'compress' the data (skip over masked chars)
