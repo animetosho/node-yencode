@@ -425,7 +425,7 @@ int do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, 
 		size_t dLen = len - lenBuffer;
 		dLen = (dLen + (width-1)) & ~(width-1);
 		
-		kernel((const uint8_t*)(*src) + dLen, dLen, width, p, escFirst, nextMask);
+		kernel((const uint8_t*)(*src) + dLen, dLen, p, escFirst, nextMask);
 		
 		if(escFirst) *pState = YDEC_STATE_EQ; // escape next character
 		else if(nextMask == 1) *pState = YDEC_STATE_CRLF; // next character is '.', where previous two were \r\n
@@ -477,8 +477,8 @@ static const __m128i* pshufb_combine_table = (const __m128i*)_pshufb_combine_tab
 #endif
 
 template<bool isRaw, bool searchEnd, bool use_ssse3>
-inline void do_decode_sse(const uint8_t* src, long& len, int width, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
-	for(long i = -len; i; i += width) {
+inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
+	for(long i = -len; i; i += sizeof(__m128i)) {
 		__m128i data = _mm_load_si128((__m128i *)(src+i));
 		
 		// search for special chars
@@ -724,8 +724,8 @@ ALIGN_32(static const uint8_t pshufb_combine_table[272]) = {
 };
 
 template<bool isRaw, bool searchEnd>
-inline void do_decode_neon(const uint8_t* src, long& len, int width, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
-	for(long i = -len; i; i += width) {
+inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
+	for(long i = -len; i; i += sizeof(uint8x16_t)) {
 		uint8x16_t data = vld1q_u8(src+i);
 		
 		// search for special chars
