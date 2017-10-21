@@ -326,7 +326,7 @@ int do_decode_scalar(const unsigned char** src, unsigned char** dest, size_t len
 	return 0;
 }
 
-template<bool isRaw, bool searchEnd, int width, bool(&kernel)(const uint8_t*, unsigned char*&, unsigned char&, uint16_t&)>
+template<bool isRaw, bool searchEnd, int width, void(&kernel)(const uint8_t*, long&, int, unsigned char*&, unsigned char&, uint16_t&)>
 int do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
 	if(len <= width*2) return do_decode_scalar<isRaw, searchEnd>(src, dest, len, state);
 	
@@ -424,15 +424,8 @@ int do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, 
 		// our algorithm may perform an aligned load on the next part, of which we consider 2 bytes (for \r\n. sequence checking)
 		size_t dLen = len - lenBuffer;
 		dLen = (dLen + (width-1)) & ~(width-1);
-		const uint8_t* dSrc = (const uint8_t*)(*src) + dLen;
-		long dI = -dLen;
 		
-		for(; dI; dI += width) {
-			if(!kernel(dSrc + dI, p, escFirst, nextMask)) {
-				dLen += dI;
-				break;
-			}
-		}
+		kernel((const uint8_t*)(*src) + dLen, dLen, width, p, escFirst, nextMask);
 		
 		if(escFirst) *pState = YDEC_STATE_EQ; // escape next character
 		else if(nextMask == 1) *pState = YDEC_STATE_CRLF; // next character is '.', where previous two were \r\n
@@ -484,230 +477,232 @@ static const __m128i* pshufb_combine_table = (const __m128i*)_pshufb_combine_tab
 #endif
 
 template<bool isRaw, bool searchEnd, bool use_ssse3>
-inline bool do_decode_sse(const uint8_t* src, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
-	__m128i data = _mm_load_si128((__m128i *)src);
-	
-	// search for special chars
-	__m128i cmpEq = _mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
-#ifdef __AVX512VL__
-	cmp = _mm_ternarylogic_epi32(
-		_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0a0d)),
-		_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0d0a)),
-		cmpEq,
-		0xFE
-	);
-#else
-	cmp = _mm_or_si128(
-		_mm_or_si128(
-			_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0a0d)), // \r\n
-			_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0d0a))  // \n\r
-		),
-		cmpEq
-	);
-#endif
-	uint16_t mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
-	
-	__m128i oData;
-	if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
-		// first byte needs escaping due to preceeding = in last loop iteration
-		oData = _mm_sub_epi8(data, _mm_set_epi8(42,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42+64));
-		mask &= ~1;
-	} else {
-		oData = _mm_sub_epi8(data, _mm_set1_epi8(42));
-	}
-	if(isRaw) mask |= nextMask;
-	
-	if (mask != 0) {
-		// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
-		// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
+inline void do_decode_sse(const uint8_t* src, long& len, int width, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
+	for(long i = -len; i; i += width) {
+		__m128i data = _mm_load_si128((__m128i *)(src+i));
 		
+		// search for special chars
+		__m128i cmpEq = _mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
+#ifdef __AVX512VL__
+		cmp = _mm_ternarylogic_epi32(
+			_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0a0d)),
+			_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0d0a)),
+			cmpEq,
+			0xFE
+		);
+#else
+		cmp = _mm_or_si128(
+			_mm_or_si128(
+				_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0a0d)), // \r\n
+				_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0d0a))  // \n\r
+			),
+			cmpEq
+		);
+#endif
+		uint16_t mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
+		
+		__m128i oData;
+		if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
+			// first byte needs escaping due to preceeding = in last loop iteration
+			oData = _mm_sub_epi8(data, _mm_set_epi8(42,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42+64));
+			mask &= ~1;
+		} else {
+			oData = _mm_sub_epi8(data, _mm_set1_epi8(42));
+		}
+		if(isRaw) mask |= nextMask;
+		
+		if (mask != 0) {
+			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
+			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
+			
 #define LOAD_HALVES(a, b) _mm_castps_si128(_mm_loadh_pi( \
 	_mm_castsi128_ps(_mm_loadl_epi64((__m128i*)(a))), \
 	(b) \
 ))
-		// firstly, resolve invalid sequences of = to deal with cases like '===='
-		uint16_t maskEq = _mm_movemask_epi8(cmpEq);
-		uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
-		maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
-		
-		unsigned char oldEscFirst = escFirst;
-		escFirst = (maskEq >> (sizeof(__m128i)-1));
-		// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
-		maskEq <<= 1;
-		mask &= ~maskEq;
-		
-		// unescape chars following `=`
+			// firstly, resolve invalid sequences of = to deal with cases like '===='
+			uint16_t maskEq = _mm_movemask_epi8(cmpEq);
+			uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+			maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
+			
+			unsigned char oldEscFirst = escFirst;
+			escFirst = (maskEq >> (sizeof(__m128i)-1));
+			// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
+			maskEq <<= 1;
+			mask &= ~maskEq;
+			
+			// unescape chars following `=`
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
-		// GCC < 7 seems to generate rubbish assembly for this
-		oData = _mm_mask_add_epi8(
-			oData,
-			maskEq,
-			oData,
-			_mm_set1_epi8(-64)
-		);
+			// GCC < 7 seems to generate rubbish assembly for this
+			oData = _mm_mask_add_epi8(
+				oData,
+				maskEq,
+				oData,
+				_mm_set1_epi8(-64)
+			);
 #else
-		oData = _mm_add_epi8(
-			oData,
-			LOAD_HALVES(
-				eqAddLUT + (maskEq&0xff),
-				eqAddLUT + ((maskEq>>8)&0xff)
-			)
-		);
+			oData = _mm_add_epi8(
+				oData,
+				LOAD_HALVES(
+					eqAddLUT + (maskEq&0xff),
+					eqAddLUT + ((maskEq>>8)&0xff)
+				)
+			);
 #endif
-		
-		// handle \r\n. sequences
-		// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
-		if(isRaw || searchEnd) {
-			// find instances of \r\n
-			__m128i tmpData1, tmpData2, tmpData3, tmpData4;
+			
+			// handle \r\n. sequences
+			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
+			if(isRaw || searchEnd) {
+				// find instances of \r\n
+				__m128i tmpData1, tmpData2, tmpData3, tmpData4;
 #if defined(__SSSE3__) && !defined(__tune_btver1__)
+				if(use_ssse3) {
+					__m128i nextData = _mm_load_si128((__m128i *)(src+i) + 1);
+					tmpData1 = _mm_alignr_epi8(nextData, data, 1);
+					tmpData2 = _mm_alignr_epi8(nextData, data, 2);
+					if(searchEnd) tmpData3 = _mm_alignr_epi8(nextData, data, 3);
+					if(searchEnd && isRaw) tmpData4 = _mm_alignr_epi8(nextData, data, 4);
+				} else {
+#endif
+					tmpData1 = _mm_insert_epi16(_mm_srli_si128(data, 1), *(uint16_t*)((src+i) + sizeof(__m128i)-1), 7);
+					tmpData2 = _mm_insert_epi16(_mm_srli_si128(data, 2), *(uint16_t*)((src+i) + sizeof(__m128i)), 7);
+					if(searchEnd)
+						tmpData3 = _mm_insert_epi16(_mm_srli_si128(tmpData1, 2), *(uint16_t*)((src+i) + sizeof(__m128i)+1), 7);
+					if(searchEnd && isRaw)
+						tmpData4 = _mm_insert_epi16(_mm_srli_si128(tmpData2, 2), *(uint16_t*)((src+i) + sizeof(__m128i)+2), 7);
+#ifdef __SSSE3__
+				}
+#endif
+				__m128i matchNl1 = _mm_cmpeq_epi16(data, _mm_set1_epi16(0x0a0d));
+				__m128i matchNl2 = _mm_cmpeq_epi16(tmpData1, _mm_set1_epi16(0x0a0d));
+				
+				__m128i matchDots, matchNlDots;
+				uint16_t killDots;
+				if(isRaw) {
+					matchDots = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
+					// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
+					matchNl1 = _mm_srli_si128(matchNl1, 1);
+					
+					// merge matches of \r\n with those for .
+#ifdef __AVX512VL__
+					matchNlDots = _mm_ternarylogic_epi32(matchDots, matchNl1, matchNl2, 0xE0);
+#else
+					matchNlDots = _mm_and_si128(matchDots, _mm_or_si128(matchNl1, matchNl2));
+#endif
+					killDots = _mm_movemask_epi8(matchNlDots);
+				}
+				
+				if(searchEnd) {
+					__m128i cmpB1 = _mm_cmpeq_epi16(tmpData2, _mm_set1_epi16(0x793d)); // "=y"
+					__m128i cmpB2 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x793d));
+					if(isRaw && killDots) {
+						// match instances of \r\n.\r\n and \r\n.=y
+						__m128i cmpC1 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x0a0d)); // "\r\n"
+						__m128i cmpC2 = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x0a0d));
+						cmpC1 = _mm_or_si128(cmpC1, cmpB2);
+						cmpC2 = _mm_or_si128(cmpC2, _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d)));
+						cmpC2 = _mm_slli_si128(cmpC2, 1);
+						
+						// prepare cmpB
+						cmpB1 = _mm_and_si128(cmpB1, matchNl1);
+						cmpB2 = _mm_and_si128(cmpB2, matchNl2);
+						
+						// and w/ dots
+#ifdef __AVX512VL__
+						cmpC1 = _mm_ternarylogic_epi32(cmpC1, cmpC2, matchNlDots, 0xA8);
+						cmpB1 = _mm_ternarylogic_epi32(cmpB1, cmpB2, cmpC1, 0xFE);
+#else
+						cmpC1 = _mm_and_si128(_mm_or_si128(cmpC1, cmpC2), matchNlDots);
+						cmpB1 = _mm_or_si128(cmpC1, _mm_or_si128(
+							cmpB1, cmpB2
+						));
+#endif
+					} else {
+#ifdef __AVX512VL__
+						cmpB1 = _mm_ternarylogic_epi32(cmpB1, matchNl1, _mm_and_si128(cmpB2, matchNl2), 0xEA);
+#else
+						cmpB1 = _mm_or_si128(
+							_mm_and_si128(cmpB1, matchNl1),
+							_mm_and_si128(cmpB2, matchNl2)
+						);
+#endif
+					}
+					if(_mm_movemask_epi8(cmpB1)) {
+						// terminator found
+						// there's probably faster ways to do this, but reverting to scalar code should be good enough
+						escFirst = oldEscFirst;
+						len += i;
+						break;
+					}
+				}
+				if(isRaw) {
+					mask |= (killDots << 2) & 0xffff;
+					nextMask = killDots >> (sizeof(__m128i)-2);
+				}
+			}
+			
+			// all that's left is to 'compress' the data (skip over masked chars)
+#ifdef __SSSE3__
 			if(use_ssse3) {
-				__m128i nextData = _mm_load_si128((__m128i *)src + 1);
-				tmpData1 = _mm_alignr_epi8(nextData, data, 1);
-				tmpData2 = _mm_alignr_epi8(nextData, data, 2);
-				if(searchEnd) tmpData3 = _mm_alignr_epi8(nextData, data, 3);
-				if(searchEnd && isRaw) tmpData4 = _mm_alignr_epi8(nextData, data, 4);
+# if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
+				unsigned char skipped = _mm_popcnt_u32(mask & 0xff);
+# else
+				unsigned char skipped = BitsSetTable256[mask & 0xff];
+# endif
+				// lookup compress masks and shuffle
+				// load up two halves
+				__m128i shuf = LOAD_HALVES(unshufLUT + (mask&0xff), unshufLUT + (mask>>8));
+				
+				// offset upper half by 8
+				shuf = _mm_add_epi8(shuf, _mm_set_epi32(0x08080808, 0x08080808, 0, 0));
+				// shift down upper half into lower
+				// TODO: consider using `mask & 0xff` in table instead of counting bits
+				shuf = _mm_shuffle_epi8(shuf, _mm_load_si128(pshufb_combine_table + skipped));
+				
+				// shuffle data
+				oData = _mm_shuffle_epi8(oData, shuf);
+				STOREU_XMM(p, oData);
+				
+				// increment output position
+# if defined(__POPCNT__) && !defined(__tune_btver1__)
+				p += XMM_SIZE - _mm_popcnt_u32(mask);
+# else
+				p += XMM_SIZE - skipped - BitsSetTable256[mask >> 8];
+# endif
+				
 			} else {
 #endif
-				tmpData1 = _mm_insert_epi16(_mm_srli_si128(data, 1), *(uint16_t*)(src + sizeof(__m128i)-1), 7);
-				tmpData2 = _mm_insert_epi16(_mm_srli_si128(data, 2), *(uint16_t*)(src + sizeof(__m128i)), 7);
-				if(searchEnd)
-					tmpData3 = _mm_insert_epi16(_mm_srli_si128(tmpData1, 2), *(uint16_t*)(src + sizeof(__m128i)+1), 7);
-				if(searchEnd && isRaw)
-					tmpData4 = _mm_insert_epi16(_mm_srli_si128(tmpData2, 2), *(uint16_t*)(src + sizeof(__m128i)+2), 7);
-#ifdef __SSSE3__
-			}
-#endif
-			__m128i matchNl1 = _mm_cmpeq_epi16(data, _mm_set1_epi16(0x0a0d));
-			__m128i matchNl2 = _mm_cmpeq_epi16(tmpData1, _mm_set1_epi16(0x0a0d));
-			
-			__m128i matchDots, matchNlDots;
-			uint16_t killDots;
-			if(isRaw) {
-				matchDots = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
-				// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
-				matchNl1 = _mm_srli_si128(matchNl1, 1);
+				ALIGN_32(uint32_t mmTmp[4]);
+				_mm_store_si128((__m128i*)mmTmp, oData);
 				
-				// merge matches of \r\n with those for .
-#ifdef __AVX512VL__
-				matchNlDots = _mm_ternarylogic_epi32(matchDots, matchNl1, matchNl2, 0xE0);
-#else
-				matchNlDots = _mm_and_si128(matchDots, _mm_or_si128(matchNl1, matchNl2));
-#endif
-				killDots = _mm_movemask_epi8(matchNlDots);
-			}
-			
-			if(searchEnd) {
-				__m128i cmpB1 = _mm_cmpeq_epi16(tmpData2, _mm_set1_epi16(0x793d)); // "=y"
-				__m128i cmpB2 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x793d));
-				if(isRaw && killDots) {
-					// match instances of \r\n.\r\n and \r\n.=y
-					__m128i cmpC1 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x0a0d)); // "\r\n"
-					__m128i cmpC2 = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x0a0d));
-					cmpC1 = _mm_or_si128(cmpC1, cmpB2);
-					cmpC2 = _mm_or_si128(cmpC2, _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d)));
-					cmpC2 = _mm_slli_si128(cmpC2, 1);
-					
-					// prepare cmpB
-					cmpB1 = _mm_and_si128(cmpB1, matchNl1);
-					cmpB2 = _mm_and_si128(cmpB2, matchNl2);
-					
-					// and w/ dots
-#ifdef __AVX512VL__
-					cmpC1 = _mm_ternarylogic_epi32(cmpC1, cmpC2, matchNlDots, 0xA8);
-					cmpB1 = _mm_ternarylogic_epi32(cmpB1, cmpB2, cmpC1, 0xFE);
-#else
-					cmpC1 = _mm_and_si128(_mm_or_si128(cmpC1, cmpC2), matchNlDots);
-					cmpB1 = _mm_or_si128(cmpC1, _mm_or_si128(
-						cmpB1, cmpB2
-					));
-#endif
-				} else {
-#ifdef __AVX512VL__
-					cmpB1 = _mm_ternarylogic_epi32(cmpB1, matchNl1, _mm_and_si128(cmpB2, matchNl2), 0xEA);
-#else
-					cmpB1 = _mm_or_si128(
-						_mm_and_si128(cmpB1, matchNl1),
-						_mm_and_si128(cmpB2, matchNl2)
-					);
-#endif
+				for(int j=0; j<4; j++) {
+					if(mask & 0xf) {
+						unsigned char* pMmTmp = (unsigned char*)(mmTmp + j);
+						unsigned int maskn = ~mask;
+						*p = pMmTmp[0];
+						p += (maskn & 1);
+						*p = pMmTmp[1];
+						p += (maskn & 2) >> 1;
+						*p = pMmTmp[2];
+						p += (maskn & 4) >> 2;
+						*p = pMmTmp[3];
+						p += (maskn & 8) >> 3;
+					} else {
+						*(uint32_t*)p = mmTmp[j];
+						p += 4;
+					}
+					mask >>= 4;
 				}
-				if(_mm_movemask_epi8(cmpB1)) {
-					// terminator found
-					// there's probably faster ways to do this, but reverting to scalar code should be good enough
-					escFirst = oldEscFirst;
-					return false;
-				}
-			}
-			if(isRaw) {
-				mask |= (killDots << 2) & 0xffff;
-				nextMask = killDots >> (sizeof(__m128i)-2);
-			}
-		}
-		
-		// all that's left is to 'compress' the data (skip over masked chars)
 #ifdef __SSSE3__
-		if(use_ssse3) {
-# if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
-			unsigned char skipped = _mm_popcnt_u32(mask & 0xff);
-# else
-			unsigned char skipped = BitsSetTable256[mask & 0xff];
-# endif
-			// lookup compress masks and shuffle
-			// load up two halves
-			__m128i shuf = LOAD_HALVES(unshufLUT + (mask&0xff), unshufLUT + (mask>>8));
-			
-			// offset upper half by 8
-			shuf = _mm_add_epi8(shuf, _mm_set_epi32(0x08080808, 0x08080808, 0, 0));
-			// shift down upper half into lower
-			// TODO: consider using `mask & 0xff` in table instead of counting bits
-			shuf = _mm_shuffle_epi8(shuf, _mm_load_si128(pshufb_combine_table + skipped));
-			
-			// shuffle data
-			oData = _mm_shuffle_epi8(oData, shuf);
-			STOREU_XMM(p, oData);
-			
-			// increment output position
-# if defined(__POPCNT__) && !defined(__tune_btver1__)
-			p += XMM_SIZE - _mm_popcnt_u32(mask);
-# else
-			p += XMM_SIZE - skipped - BitsSetTable256[mask >> 8];
-# endif
-			
-		} else {
-#endif
-			ALIGN_32(uint32_t mmTmp[4]);
-			_mm_store_si128((__m128i*)mmTmp, oData);
-			
-			for(int j=0; j<4; j++) {
-				if(mask & 0xf) {
-					unsigned char* pMmTmp = (unsigned char*)(mmTmp + j);
-					unsigned int maskn = ~mask;
-					*p = pMmTmp[0];
-					p += (maskn & 1);
-					*p = pMmTmp[1];
-					p += (maskn & 2) >> 1;
-					*p = pMmTmp[2];
-					p += (maskn & 4) >> 2;
-					*p = pMmTmp[3];
-					p += (maskn & 8) >> 3;
-				} else {
-					*(uint32_t*)p = mmTmp[j];
-					p += 4;
-				}
-				mask >>= 4;
 			}
-#ifdef __SSSE3__
-		}
 #endif
 #undef LOAD_HALVES
-	} else {
-		STOREU_XMM(p, oData);
-		p += XMM_SIZE;
-		escFirst = 0;
-		if(isRaw) nextMask = 0;
+		} else {
+			STOREU_XMM(p, oData);
+			p += XMM_SIZE;
+			escFirst = 0;
+			if(isRaw) nextMask = 0;
+		}
 	}
-	return true;
 }
 #endif
 
@@ -729,156 +724,158 @@ ALIGN_32(static const uint8_t pshufb_combine_table[272]) = {
 };
 
 template<bool isRaw, bool searchEnd>
-inline bool do_decode_neon(const uint8_t* src, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
-	uint8x16_t data = vld1q_u8(src);
-	
-	// search for special chars
-	uint8x16_t cmpEq = vceqq_u8(data, vdupq_n_u8('=')),
-	cmp = vorrq_u8(
-		vorrq_u8(
-			vceqq_u8(data, vreinterpretq_u8_u16(vdupq_n_u16(0x0a0d))), // \r\n
-			vceqq_u8(data, vreinterpretq_u8_u16(vdupq_n_u16(0x0d0a)))  // \n\r
-		),
-		cmpEq
-	);
-	uint16_t mask = neon_movemask(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
-	
-	uint8x16_t oData;
-	if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
-		// first byte needs escaping due to preceeding = in last loop iteration
-		oData = vsubq_u8(data, (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42});
-		mask &= ~1;
-	} else {
-		oData = vsubq_u8(data, vdupq_n_u8(42));
-	}
-	if(isRaw) mask |= nextMask;
-	
-	if (mask != 0) {
-		// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
-		// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
+inline void do_decode_neon(const uint8_t* src, long& len, int width, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
+	for(long i = -len; i; i += width) {
+		uint8x16_t data = vld1q_u8(src+i);
 		
-		// firstly, resolve invalid sequences of = to deal with cases like '===='
-		uint16_t maskEq = neon_movemask(cmpEq);
-		uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
-		maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
-		
-		unsigned char oldEscFirst = escFirst;
-		escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
-		// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
-		maskEq <<= 1;
-		mask &= ~maskEq;
-		
-		// unescape chars following `=`
-		oData = vaddq_u8(
-			oData,
-			vcombine_u8(
-				vld1_u8((uint8_t*)(eqAddLUT + (maskEq&0xff))),
-				vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>8)&0xff)))
-			)
+		// search for special chars
+		uint8x16_t cmpEq = vceqq_u8(data, vdupq_n_u8('=')),
+		cmp = vorrq_u8(
+			vorrq_u8(
+				vceqq_u8(data, vreinterpretq_u8_u16(vdupq_n_u16(0x0a0d))), // \r\n
+				vceqq_u8(data, vreinterpretq_u8_u16(vdupq_n_u16(0x0d0a)))  // \n\r
+			),
+			cmpEq
 		);
+		uint16_t mask = neon_movemask(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
 		
-		// handle \r\n. sequences
-		// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
-		if(isRaw || searchEnd) {
-			// find instances of \r\n
-			uint8x16_t tmpData1, tmpData2, tmpData3, tmpData4;
-			uint8x16_t nextData = vld1q_u8(src + sizeof(uint8x16_t));
-			tmpData1 = vextq_u8(data, nextData, 1);
-			tmpData2 = vextq_u8(data, nextData, 2);
-			if(searchEnd) {
-				tmpData3 = vextq_u8(data, nextData, 3);
-				if(isRaw) tmpData4 = vextq_u8(data, nextData, 4);
-			}
-			uint8x16_t matchNl1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(data), vdupq_n_u16(0x0a0d)));
-			uint8x16_t matchNl2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData1), vdupq_n_u16(0x0a0d)));
-			
-			uint8x16_t matchDots, matchNlDots;
-			uint16_t killDots;
-			if(isRaw) {
-				matchDots = vceqq_u8(tmpData2, vdupq_n_u8('.'));
-				// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
-				matchNl1 = vextq_u8(matchNl1, vdupq_n_u8(0), 1);
-				
-				// merge matches of \r\n with those for .
-				matchNlDots = vandq_u8(matchDots, vorrq_u8(matchNl1, matchNl2));
-				killDots = neon_movemask(matchNlDots);
-			}
-			
-			if(searchEnd) {
-				uint8x16_t cmpB1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData2), vdupq_n_u16(0x793d))); // "=y"
-				uint8x16_t cmpB2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x793d)));
-				if(isRaw && killDots) {
-					// match instances of \r\n.\r\n and \r\n.=y
-					uint8x16_t cmpC1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x0a0d)));
-					uint8x16_t cmpC2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x0a0d)));
-					cmpC1 = vorrq_u8(cmpC1, cmpB2);
-					cmpC2 = vorrq_u8(cmpC2, vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d))));
-					cmpC2 = vextq_u8(vdupq_n_u8(0), cmpC2, 15);
-					cmpC1 = vorrq_u8(cmpC1, cmpC2);
-					
-					// and w/ dots
-					cmpC1 = vandq_u8(cmpC1, matchNlDots);
-					// then merge w/ cmpB
-					cmpB1 = vandq_u8(cmpB1, matchNl1);
-					cmpB2 = vandq_u8(cmpB2, matchNl2);
-					
-					cmpB1 = vorrq_u8(cmpC1, vorrq_u8(
-						cmpB1, cmpB2
-					));
-				} else {
-					cmpB1 = vorrq_u8(
-						vandq_u8(cmpB1, matchNl1),
-						vandq_u8(cmpB2, matchNl2)
-					);
-				}
-#ifdef __aarch64__
-				if(vget_lane_u64(vqmovn_u64(vreinterpretq_u64_u8(cmpB1)), 0))
-#else
-				uint32x4_t tmp1 = vreinterpretq_u32_u8(cmpB1);
-				uint32x2_t tmp2 = vorr_u32(vget_low_u32(tmp1), vget_high_u32(tmp1));
-				if(vget_lane_u32(vpmax_u32(tmp2, tmp2), 0))
-#endif
-				{
-					// terminator found
-					// there's probably faster ways to do this, but reverting to scalar code should be good enough
-					escFirst = oldEscFirst;
-					return false;
-				}
-			}
-			if(isRaw) {
-				mask |= (killDots << 2) & 0xffff;
-				nextMask = killDots >> (sizeof(uint8x16_t)-2);
-			}
+		uint8x16_t oData;
+		if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
+			// first byte needs escaping due to preceeding = in last loop iteration
+			oData = vsubq_u8(data, (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42});
+			mask &= ~1;
+		} else {
+			oData = vsubq_u8(data, vdupq_n_u8(42));
 		}
+		if(isRaw) mask |= nextMask;
 		
-		// all that's left is to 'compress' the data (skip over masked chars)
-		unsigned char skipped = BitsSetTable256[mask & 0xff];
-		// lookup compress masks and shuffle
-		oData = vcombine_u8(
-			vtbl1_u8(vget_low_u8(oData),  vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))),
-			vtbl1_u8(vget_high_u8(oData), vld1_u8((uint8_t*)(unshufLUT + (mask>>8))))
-		);
-		// compact down
-		uint8x16_t compact = vld1q_u8(pshufb_combine_table + skipped*sizeof(uint8x16_t));
+		if (mask != 0) {
+			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
+			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
+			
+			// firstly, resolve invalid sequences of = to deal with cases like '===='
+			uint16_t maskEq = neon_movemask(cmpEq);
+			uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+			maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
+			
+			unsigned char oldEscFirst = escFirst;
+			escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
+			// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
+			maskEq <<= 1;
+			mask &= ~maskEq;
+			
+			// unescape chars following `=`
+			oData = vaddq_u8(
+				oData,
+				vcombine_u8(
+					vld1_u8((uint8_t*)(eqAddLUT + (maskEq&0xff))),
+					vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>8)&0xff)))
+				)
+			);
+			
+			// handle \r\n. sequences
+			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
+			if(isRaw || searchEnd) {
+				// find instances of \r\n
+				uint8x16_t tmpData1, tmpData2, tmpData3, tmpData4;
+				uint8x16_t nextData = vld1q_u8(src+i + sizeof(uint8x16_t));
+				tmpData1 = vextq_u8(data, nextData, 1);
+				tmpData2 = vextq_u8(data, nextData, 2);
+				if(searchEnd) {
+					tmpData3 = vextq_u8(data, nextData, 3);
+					if(isRaw) tmpData4 = vextq_u8(data, nextData, 4);
+				}
+				uint8x16_t matchNl1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(data), vdupq_n_u16(0x0a0d)));
+				uint8x16_t matchNl2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData1), vdupq_n_u16(0x0a0d)));
+				
+				uint8x16_t matchDots, matchNlDots;
+				uint16_t killDots;
+				if(isRaw) {
+					matchDots = vceqq_u8(tmpData2, vdupq_n_u8('.'));
+					// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
+					matchNl1 = vextq_u8(matchNl1, vdupq_n_u8(0), 1);
+					
+					// merge matches of \r\n with those for .
+					matchNlDots = vandq_u8(matchDots, vorrq_u8(matchNl1, matchNl2));
+					killDots = neon_movemask(matchNlDots);
+				}
+				
+				if(searchEnd) {
+					uint8x16_t cmpB1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData2), vdupq_n_u16(0x793d))); // "=y"
+					uint8x16_t cmpB2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x793d)));
+					if(isRaw && killDots) {
+						// match instances of \r\n.\r\n and \r\n.=y
+						uint8x16_t cmpC1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x0a0d)));
+						uint8x16_t cmpC2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x0a0d)));
+						cmpC1 = vorrq_u8(cmpC1, cmpB2);
+						cmpC2 = vorrq_u8(cmpC2, vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d))));
+						cmpC2 = vextq_u8(vdupq_n_u8(0), cmpC2, 15);
+						cmpC1 = vorrq_u8(cmpC1, cmpC2);
+						
+						// and w/ dots
+						cmpC1 = vandq_u8(cmpC1, matchNlDots);
+						// then merge w/ cmpB
+						cmpB1 = vandq_u8(cmpB1, matchNl1);
+						cmpB2 = vandq_u8(cmpB2, matchNl2);
+						
+						cmpB1 = vorrq_u8(cmpC1, vorrq_u8(
+							cmpB1, cmpB2
+						));
+					} else {
+						cmpB1 = vorrq_u8(
+							vandq_u8(cmpB1, matchNl1),
+							vandq_u8(cmpB2, matchNl2)
+						);
+					}
+#ifdef __aarch64__
+					if(vget_lane_u64(vqmovn_u64(vreinterpretq_u64_u8(cmpB1)), 0))
+#else
+					uint32x4_t tmp1 = vreinterpretq_u32_u8(cmpB1);
+					uint32x2_t tmp2 = vorr_u32(vget_low_u32(tmp1), vget_high_u32(tmp1));
+					if(vget_lane_u32(vpmax_u32(tmp2, tmp2), 0))
+#endif
+					{
+						// terminator found
+						// there's probably faster ways to do this, but reverting to scalar code should be good enough
+						escFirst = oldEscFirst;
+						len += i;
+						break;
+					}
+				}
+				if(isRaw) {
+					mask |= (killDots << 2) & 0xffff;
+					nextMask = killDots >> (sizeof(uint8x16_t)-2);
+				}
+			}
+			
+			// all that's left is to 'compress' the data (skip over masked chars)
+			unsigned char skipped = BitsSetTable256[mask & 0xff];
+			// lookup compress masks and shuffle
+			oData = vcombine_u8(
+				vtbl1_u8(vget_low_u8(oData),  vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))),
+				vtbl1_u8(vget_high_u8(oData), vld1_u8((uint8_t*)(unshufLUT + (mask>>8))))
+			);
+			// compact down
+			uint8x16_t compact = vld1q_u8(pshufb_combine_table + skipped*sizeof(uint8x16_t));
 # ifdef __aarch64__
-		oData = vqtbl1q_u8(oData, compact);
+			oData = vqtbl1q_u8(oData, compact);
 # else
-		uint8x8x2_t dataH = {vget_low_u8(oData), vget_high_u8(oData)};
-		oData = vcombine_u8(vtbl2_u8(dataH, vget_low_u8(compact)),
-		                    vtbl2_u8(dataH, vget_high_u8(compact)));
+			uint8x8x2_t dataH = {vget_low_u8(oData), vget_high_u8(oData)};
+			oData = vcombine_u8(vtbl2_u8(dataH, vget_low_u8(compact)),
+			                    vtbl2_u8(dataH, vget_high_u8(compact)));
 # endif
-		vst1q_u8(p, oData);
-		
-		// increment output position
-		p += sizeof(uint8x16_t) - skipped - BitsSetTable256[mask >> 8];
-		
-	} else {
-		vst1q_u8(p, oData);
-		p += sizeof(uint8x16_t);
-		escFirst = 0;
-		if(isRaw) nextMask = 0;
+			vst1q_u8(p, oData);
+			
+			// increment output position
+			p += sizeof(uint8x16_t) - skipped - BitsSetTable256[mask >> 8];
+			
+		} else {
+			vst1q_u8(p, oData);
+			p += sizeof(uint8x16_t);
+			escFirst = 0;
+			if(isRaw) nextMask = 0;
+		}
 	}
-	return true;
 }
 
 int (*_do_decode)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_simd<false, false, sizeof(uint8x16_t), do_decode_neon<false, false> >;
