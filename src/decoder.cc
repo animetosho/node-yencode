@@ -326,7 +326,7 @@ int do_decode_scalar(const unsigned char** src, unsigned char** dest, size_t len
 	return 0;
 }
 
-template<bool isRaw, bool searchEnd, int width, void(&kernel)(const uint8_t*, long&, int, unsigned char*&, unsigned char&, uint16_t&)>
+template<bool isRaw, bool searchEnd, int width, void(&kernel)(const uint8_t*, long&, unsigned char*&, unsigned char&, uint16_t&)>
 int do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
 	if(len <= width*2) return do_decode_scalar<isRaw, searchEnd>(src, dest, len, state);
 	
@@ -422,7 +422,7 @@ int do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, 
 		escFirst = (*pState == YDEC_STATE_EQ || *pState == YDEC_STATE_CRLFEQ);
 		
 		// our algorithm may perform an aligned load on the next part, of which we consider 2 bytes (for \r\n. sequence checking)
-		size_t dLen = len - lenBuffer;
+		long dLen = len - lenBuffer;
 		dLen = (dLen + (width-1)) & ~(width-1);
 		
 		kernel((const uint8_t*)(*src) + dLen, dLen, p, escFirst, nextMask);
