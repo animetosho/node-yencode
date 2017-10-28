@@ -556,7 +556,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				__m128i tmpData1, tmpData2, tmpData3, tmpData4;
 #if defined(__SSSE3__) && !defined(__tune_btver1__)
 				if(use_ssse3) {
-					__m128i nextData = _mm_load_si128((__m128i *)(src+i) + 1);
+					__m128i nextData = _mm_loadl_si128((__m128i *)(src+i) + 1);
 					tmpData1 = _mm_alignr_epi8(nextData, data, 1);
 					tmpData2 = _mm_alignr_epi8(nextData, data, 2);
 					if(searchEnd) tmpData3 = _mm_alignr_epi8(nextData, data, 3);
@@ -782,7 +782,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			if(isRaw || searchEnd) {
 				// find instances of \r\n
 				uint8x16_t tmpData1, tmpData2, tmpData3, tmpData4;
-				uint8x16_t nextData = vld1q_u8(src+i + sizeof(uint8x16_t));
+				uint8x16_t nextData = vld1q_u8(src+i + sizeof(uint8x16_t)); // only 32-bits needed, but there doesn't appear a nice way to do this via intrinsics: https://stackoverflow.com/questions/46910799/arm-neon-intrinsics-convert-d-64-bit-register-to-low-half-of-q-128-bit-regis
 				tmpData1 = vextq_u8(data, nextData, 1);
 				tmpData2 = vextq_u8(data, nextData, 2);
 				if(searchEnd) {
