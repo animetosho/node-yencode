@@ -643,11 +643,15 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			// all that's left is to 'compress' the data (skip over masked chars)
 #ifdef __SSSE3__
 			if(use_ssse3) {
-# if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
-				unsigned char skipped = _mm_popcnt_u32(mask & 0xff);
+# if defined(__AVX512VBMI2__) && defined(__POPCNT__) && 0
+				_mm_mask_compressstoreu_epi8(p, ~mask, oData);
+				p += XMM_SIZE - _mm_popcnt_u32(mask);
 # else
+#  if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
+				unsigned char skipped = _mm_popcnt_u32(mask & 0xff);
+#  else
 				unsigned char skipped = BitsSetTable256[mask & 0xff];
-# endif
+#  endif
 				// lookup compress masks and shuffle
 				// load up two halves
 				__m128i shuf = LOAD_HALVES(unshufLUT + (mask&0xff), unshufLUT + (mask>>8));
@@ -663,12 +667,12 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				STOREU_XMM(p, oData);
 				
 				// increment output position
-# if defined(__POPCNT__) && !defined(__tune_btver1__)
+#  if defined(__POPCNT__) && !defined(__tune_btver1__)
 				p += XMM_SIZE - _mm_popcnt_u32(mask);
-# else
+#  else
 				p += XMM_SIZE - skipped - BitsSetTable256[mask >> 8];
+#  endif
 # endif
-				
 			} else {
 #endif
 				ALIGN_32(uint32_t mmTmp[4]);

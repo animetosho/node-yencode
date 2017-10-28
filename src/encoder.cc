@@ -331,7 +331,6 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 		
 		// last line char
 		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
-			last_char:
 			c = es[i++];
 			if (escapedLUT[c] && c != '.'-42) {
 				*(uint16_t*)p = escapedLUT[c];
@@ -422,6 +421,13 @@ static size_t do_encode_fast(int line_size, int* colOffset, const unsigned char*
 				uint8_t m1 = mask & 0xFF;
 				uint8_t m2 = mask >> 8;
 				
+#if defined(__AVX512VBMI2__) && defined(__BMI2__) && 0
+				// TODO: consider expanding into 256b vector
+				__m128i data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), ~m2, _mm_srli_si128(data, 8));
+				data = _mm_mask_expand_epi8(_mm_set1_epi8('='), ~m1, data);
+				data = _mm_mask_add_epi8(data, _pdep_u32(m1, ~m1), data, _mm_set1_epi8(64));
+				data2 = _mm_mask_add_epi8(data2, _pdep_u32(m2, ~m2), data, _mm_set1_epi8(64));
+#else
 				// perform lookup for shuffle mask
 				__m128i shufMA = _mm_load_si128(shufLUT + m1);
 				__m128i shufMB = _mm_load_si128(shufLUT + m2);
@@ -440,6 +446,7 @@ static size_t do_encode_fast(int line_size, int* colOffset, const unsigned char*
 				__m128i shufMixMB = _mm_load_si128(shufMixLUT + m2);
 				data = _mm_add_epi8(data, shufMixMA);
 				data2 = _mm_add_epi8(data2, shufMixMB);
+#endif
 				// store out
 #if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
 				unsigned char shufALen = _mm_popcnt_u32(m1) + 8;
