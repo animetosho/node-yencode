@@ -127,6 +127,7 @@ static int cpu_flags() {
 # define CPU_SHUFFLE_FLAGS 0x200
 #endif
 
+#include <string.h>
 #if !defined(_MSC_VER) || defined(_STDINT) || _MSC_VER >= 1900
 # include <stdint.h>
 # include <stddef.h>

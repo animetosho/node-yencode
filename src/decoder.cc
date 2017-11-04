@@ -45,8 +45,8 @@ size_t do_decode_noend_scalar(const unsigned char* src, unsigned char* dest, siz
 			switch(c) {
 				case '\r':
 					// skip past \r\n. sequences
-					//i += (*(uint16_t*)(es + i + 1) == UINT16_PACK('\n', '.')) << 1;
-					if(*(uint16_t*)(es + i + 1) == UINT16_PACK('\n', '.'))
+					//i += (es[i+1] == '\n' && es[i+2] == '.') << 1;
+					if(es[i+1] == '\n' && es[i+2] == '.')
 						i += 2;
 				case '\n':
 					continue;
@@ -215,9 +215,8 @@ int do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t
 	for(; i < -2; i++) {
 		c = es[i];
 		switch(c) {
-			case '\r': {
-				uint16_t next = *(uint16_t*)(es + i + 1);
-				if(isRaw && next == UINT16_PACK('\n', '.')) {
+			case '\r': if(es[i+1] == '\n') {
+				if(isRaw && es[i+2] == '.') {
 					// skip past \r\n. sequences
 					i += 3;
 					YDEC_CHECK_END(YDEC_STATE_CRLFDT)
@@ -247,7 +246,7 @@ int do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t
 						}
 					} else i--;
 				}
-				else if(next == UINT16_PACK('\n', '=')) {
+				else if(es[i+2] == '=') {
 					i += 3;
 					YDEC_CHECK_END(YDEC_STATE_CRLFEQ)
 					if(es[i] == 'y') {

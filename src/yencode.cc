@@ -4,6 +4,7 @@
 #include <node_version.h>
 #include <v8.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "encoder.h"
 #include "decoder.h"
@@ -232,7 +233,7 @@ static void DecodeIncr(const FunctionCallbackInfo<Value>& args) {
 // for whatever reason, iojs 3 gives buffer corruption if you pass in a pointer without a free function
 #define RETURN_CRC(x) do { \
 	Local<Object> buff = BUFFER_NEW(4); \
-	*(uint32_t*)node::Buffer::Data(buff) = x.u32; \
+	memcpy(node::Buffer::Data(buff), &x.u32, sizeof(uint32_t)); \
 	args.GetReturnValue().Set( buff ); \
 } while(0)
 #else
@@ -260,7 +261,7 @@ static void CRC32(const FunctionCallbackInfo<Value>& args) {
 			);
 			return;
 		}
-		init.u32 = *(uint32_t*)node::Buffer::Data(args[1]);
+		memcpy(&init.u32, node::Buffer::Data(args[1]), sizeof(uint32_t));
 		do_crc32_incremental(
 			(const void*)node::Buffer::Data(args[0]),
 			node::Buffer::Length(args[0]),
@@ -297,8 +298,8 @@ static void CRC32Combine(const FunctionCallbackInfo<Value>& args) {
 	union crc32 crc1, crc2;
 	size_t len = (size_t)args[2]->ToInteger()->Value();
 	
-	crc1.u32 = *(uint32_t*)node::Buffer::Data(args[0]);
-	crc2.u32 = *(uint32_t*)node::Buffer::Data(args[1]);
+	memcpy(&crc1.u32, node::Buffer::Data(args[0]), sizeof(uint32_t));
+	memcpy(&crc2.u32, node::Buffer::Data(args[1]), sizeof(uint32_t));
 	
 	do_crc32_combine(crc1.u8a, crc2.u8a, len);
 	RETURN_CRC(crc1);
@@ -508,7 +509,7 @@ static Handle<Value> CRC32(const Arguments& args) {
 				String::New("Second argument must be a 4 byte buffer"))
 			);
 		
-		init.u32 = *(uint32_t*)node::Buffer::Data(args[1]);
+		memcpy(&init.u32, node::Buffer::Data(args[1]), sizeof(uint32_t));
 		do_crc32_incremental(
 			(const void*)node::Buffer::Data(args[0]),
 			node::Buffer::Length(args[0]),
@@ -542,8 +543,8 @@ static Handle<Value> CRC32Combine(const Arguments& args) {
 	union crc32 crc1, crc2;
 	size_t len = (size_t)args[2]->ToInteger()->Value();
 	
-	crc1.u32 = *(uint32_t*)node::Buffer::Data(args[0]);
-	crc2.u32 = *(uint32_t*)node::Buffer::Data(args[1]);
+	memcpy(&crc1.u32, node::Buffer::Data(args[0]), sizeof(uint32_t));
+	memcpy(&crc2.u32, node::Buffer::Data(args[1]), sizeof(uint32_t));
 	
 	do_crc32_combine(crc1.u8a, crc2.u8a, len);
 	ReturnBuffer(node::Buffer::New((char*)crc1.u8a, 4), 4, 0);
