@@ -8,13 +8,13 @@
         ['OS=="win"', {
           "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
         }, {
-          "cflags": ["-march=native", "-O2"],
-          "cxxflags": ["-march=native", "-O2"]
+          "cflags": ["-march=native", "-O3"],
+          "cxxflags": ["-march=native", "-O3"]
         }],
         ['OS=="mac"', {
           "xcode_settings": {
-            "OTHER_CFLAGS": ["-march=native", "-O2"],
-            "OTHER_CXXFLAGS": ["-march=native", "-O2"]
+            "OTHER_CFLAGS": ["-march=native", "-O3"],
+            "OTHER_CXXFLAGS": ["-march=native", "-O3"]
           }
         }]
       ],
