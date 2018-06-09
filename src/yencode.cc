@@ -17,7 +17,7 @@ union crc32 {
 	unsigned char u8a[4];
 };
 
-void free_buffer(char* data, void* _size) {
+static void free_buffer(char* data, void* _size) {
 #if !NODE_VERSION_AT_LEAST(0, 11, 0)
 	int size = (int)(size_t)_size;
 	V8::AdjustAmountOfExternalAllocatedMemory(-size);
@@ -566,7 +566,7 @@ static Handle<Value> CRC32Zeroes(const Arguments& args) {
 }
 #endif
 
-void init(Handle<Object> target) {
+void yencode_init(Handle<Object> target) {
 	NODE_SET_METHOD(target, "encode", Encode);
 	NODE_SET_METHOD(target, "encodeTo", EncodeTo);
 	NODE_SET_METHOD(target, "decode", Decode<false>);
@@ -584,4 +584,4 @@ void init(Handle<Object> target) {
 	crc_init();
 }
 
-NODE_MODULE(yencode, init);
+NODE_MODULE(yencode, yencode_init);
