@@ -23,7 +23,7 @@ size_t do_decode_noend_scalar(const unsigned char* src, unsigned char* dest, siz
 				if(c == '\r') {
 					*state = YDEC_STATE_CR;
 					if(i >= 0) return 0;
-					// fall through
+					// fall-thru
 				} else {
 					*state = YDEC_STATE_NONE;
 					break;
@@ -33,9 +33,11 @@ size_t do_decode_noend_scalar(const unsigned char* src, unsigned char* dest, siz
 				i++;
 				*state = YDEC_STATE_CRLF;
 				if(i >= 0) return 0;
+				// Else fall-thru
 			case YDEC_STATE_CRLF:
 				// skip past first dot
 				if(es[i] == '.') i++;
+				// fall-thru
 			default: break; // silence compiler warnings
 		} else // treat as YDEC_STATE_CRLF
 			if(es[i] == '.') i++;
@@ -48,6 +50,7 @@ size_t do_decode_noend_scalar(const unsigned char* src, unsigned char* dest, siz
 					//i += (es[i+1] == '\n' && es[i+2] == '.') << 1;
 					if(es[i+1] == '\n' && es[i+2] == '.')
 						i += 2;
+					// fall-thru
 				case '\n':
 					continue;
 				case '=':
@@ -69,6 +72,7 @@ size_t do_decode_noend_scalar(const unsigned char* src, unsigned char* dest, siz
 						*state = YDEC_STATE_CRLF;
 						return p - dest;
 					}
+					// Else fall-thru
 				case '\n':
 					break;
 				case '=':
@@ -160,7 +164,7 @@ int do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t
 				*src = es+i+1;
 				*dest = p;
 				return 1;
-			} // else fall thru and escape
+			} // Else fall-thru
 		case YDEC_STATE_EQ:
 			c = es[i];
 			*p++ = c - 42 - 64;
@@ -262,6 +266,7 @@ int do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t
 						i -= (c == '\r');
 					}
 				}
+				// fall-thru
 			} case '\n':
 				continue;
 			case '=':
@@ -285,6 +290,7 @@ int do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t
 					*dest = p;
 					return 0;
 				}
+				// Else fall-thru
 			case '\n':
 				break;
 			case '=':
