@@ -36,4 +36,7 @@ assert.equal(y.crc32_zeroes(1).toString('hex'), 'd202ef8d', 'Zeroes (1)');
 assert.equal(y.crc32_zeroes(4).toString('hex'), '2144df1c', 'Zeroes (4)');
 
 
+doTest('Random', 'crc32', 'fj[-oqijnw34-59n2345j8a sdasdq2345673-98hq2-9348h-na9we8zdfgh-n9  8qwhn-098');
+
+
 console.log('All tests passed');
