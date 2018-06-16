@@ -648,8 +648,13 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			// all that's left is to 'compress' the data (skip over masked chars)
 #ifdef __SSSE3__
 			if(use_ssse3) {
-# if defined(__AVX512VBMI2__) && defined(__POPCNT__) && 0
+# if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__POPCNT__)
+#  if defined(__clang__) && __clang_major__ == 6 && __clang_minor__ == 0
+				/* VBMI2 introduced in clang 6.0, but misnamed there; presumably will be fixed in 6.1 */
+				_mm128_mask_compressstoreu_epi8(p, ~mask, oData);
+#  else
 				_mm_mask_compressstoreu_epi8(p, ~mask, oData);
+#  endif
 				p += XMM_SIZE - _mm_popcnt_u32(mask);
 # else
 #  if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
