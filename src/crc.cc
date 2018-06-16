@@ -164,9 +164,11 @@ void crc_init() {
 #endif
 #if defined(__ARM_FEATURE_CRC32) || defined(_M_ARM64)
 	if(
-# if defined(AT_HWCAP2)
+# if defined(AT_HWCAP2) && defined(HWCAP2_CRC32)
 		getauxval(AT_HWCAP2) & HWCAP2_CRC32
-# elif defined(ANDROID_CPU_FAMILY_ARM) && defined(ARCH_AARCH64)
+# elif defined(AT_HWCAP) && defined(HWCAP_CRC32)
+		getauxval(AT_HWCAP) & HWCAP_CRC32
+# elif defined(ANDROID_CPU_FAMILY_ARM) && defined(__aarch64__)
 		android_getCpuFeatures() & ANDROID_CPU_ARM64_FEATURE_CRC32
 	/* no 32-bit flag - presumably CRC not allowed on 32-bit CPUs on Android */
 # else

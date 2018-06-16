@@ -107,13 +107,13 @@ static uint16_t neon_movemask(uint8x16_t in) {
 # endif
 static bool cpu_supports_neon() {
 # if defined(AT_HWCAP)
-#  ifdef ARCH_AARCH64
+#  ifdef __aarch64__
 	return getauxval(AT_HWCAP) & HWCAP_ASIMD;
 #  else
 	return getauxval(AT_HWCAP) & HWCAP_NEON;
 #  endif
 # elif defined(ANDROID_CPU_FAMILY_ARM)
-#  ifdef ARCH_AARCH64
+#  ifdef __aarch64__
 	return android_getCpuFeatures() & ANDROID_CPU_ARM64_FEATURE_ASIMD;
 #  else
 	return android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_NEON;

@@ -179,7 +179,7 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 	return p - dest;
 }
 
-#else /* defined(__ARM_NEON) */
+#endif /* defined(__ARM_NEON) */
 
 // runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
 static size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
@@ -369,8 +369,6 @@ static size_t do_encode_generic(int line_size, int* colOffset, const unsigned ch
 	*colOffset = col;
 	return p - dest;
 }
-
-#endif
 
 
 // slightly faster version which improves the worst case scenario significantly; since worst case doesn't happen often, overall speedup is relatively minor
