@@ -408,29 +408,34 @@ static size_t do_encode_ssse3(int line_size, int* colOffset, const unsigned char
 			);
 			i += XMM_SIZE;
 			// search for special chars
+#ifdef __AVX512VL__
+			__m128i cmp = _mm_ternarylogic_epi32(
+				_mm_or_si128(
+					_mm_cmpeq_epi8(data, _mm_setzero_si128()),
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
+				),
+				_mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
+				_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
+				0xFE
+			);
+#else
 			__m128i cmp = _mm_or_si128(
 				_mm_or_si128(
 					_mm_cmpeq_epi8(data, _mm_setzero_si128()),
 					_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
 				),
 				_mm_or_si128(
-					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
-					_mm_cmpeq_epi8(data, _mm_set1_epi8('='))
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r'))
 				)
 			);
+#endif
 			
 			unsigned int mask = _mm_movemask_epi8(cmp);
 			if (mask != 0) { // seems to always be faster than _mm_test_all_zeros, possibly because http://stackoverflow.com/questions/34155897/simd-sse-how-to-check-that-all-vector-elements-are-non-zero#comment-62475316
 				uint8_t m1 = mask & 0xFF;
 				uint8_t m2 = mask >> 8;
 				
-#if defined(__AVX512VBMI2__) && defined(__BMI2__) && 0
-				// TODO: consider expanding into 256b vector
-				__m128i data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), ~m2, _mm_srli_si128(data, 8));
-				data = _mm_mask_expand_epi8(_mm_set1_epi8('='), ~m1, data);
-				data = _mm_mask_add_epi8(data, _pdep_u32(m1, ~m1), data, _mm_set1_epi8(64));
-				data2 = _mm_mask_add_epi8(data2, _pdep_u32(m2, ~m2), data, _mm_set1_epi8(64));
-#else
 				// perform lookup for shuffle mask
 				__m128i shufMA = _mm_load_si128(shufLUT + m1);
 				__m128i shufMB = _mm_load_si128(shufLUT + m2);
@@ -449,7 +454,6 @@ static size_t do_encode_ssse3(int line_size, int* colOffset, const unsigned char
 				__m128i shufMixMB = _mm_load_si128(shufMixLUT + m2);
 				data = _mm_add_epi8(data, shufMixMA);
 				data2 = _mm_add_epi8(data2, shufMixMB);
-#endif
 				// store out
 #if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
 				unsigned char shufALen = _mm_popcnt_u32(m1) + 8;
