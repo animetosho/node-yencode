@@ -55,13 +55,13 @@
         ['OS=="win"', {
           "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
         }, {
-          "cflags": ["-march=native", "-O3", "-fomit-frame-pointer"],
-          "cxxflags": ["-march=native", "-O3", "-fomit-frame-pointer"]
+          "cflags": ["-march=native", "-O3", "-fomit-frame-pointer", "-Wno-expansion-to-defined"],
+          "cxxflags": ["-march=native", "-O3", "-fomit-frame-pointer", "-Wno-expansion-to-defined"]
         }],
         ['OS=="mac"', {
           "xcode_settings": {
-            "OTHER_CFLAGS": ["-march=native", "-O3", "-fomit-frame-pointer"],
-            "OTHER_CXXFLAGS": ["-march=native", "-O3", "-fomit-frame-pointer"]
+            "OTHER_CFLAGS": ["-march=native", "-O3", "-fomit-frame-pointer", "-Wno-expansion-to-defined"],
+            "OTHER_CXXFLAGS": ["-march=native", "-O3", "-fomit-frame-pointer", "-Wno-expansion-to-defined"]
           }
         }]
       ],
