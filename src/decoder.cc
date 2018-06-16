@@ -23,11 +23,11 @@ size_t do_decode_noend_scalar(const unsigned char* src, unsigned char* dest, siz
 				if(c == '\r') {
 					*state = YDEC_STATE_CR;
 					if(i >= 0) return 0;
-					// fall-thru
 				} else {
 					*state = YDEC_STATE_NONE;
 					break;
 				}
+				// fall-thru
 			case YDEC_STATE_CR:
 				if(es[i] != '\n') break;
 				i++;
@@ -171,16 +171,17 @@ int do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t
 			i++;
 			if(c != '\r') break;
 			YDEC_CHECK_END(YDEC_STATE_CR)
-			// fall through
+			// fall-through
 		case YDEC_STATE_CR:
 			if(es[i] != '\n') break;
 			i++;
 			YDEC_CHECK_END(YDEC_STATE_CRLF)
+			// fall-through
 		case YDEC_STATE_CRLF: do_decode_endable_scalar_c0:
 			if(es[i] == '.' && isRaw) {
 				i++;
 				YDEC_CHECK_END(YDEC_STATE_CRLFDT)
-				// fallthru
+				// fall-through
 			} else if(es[i] == '=') {
 				i++;
 				YDEC_CHECK_END(YDEC_STATE_CRLFEQ)
@@ -191,7 +192,7 @@ int do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t
 			if(isRaw && es[i] == '\r') {
 				i++;
 				YDEC_CHECK_END(YDEC_STATE_CRLFDTCR)
-				// fallthru
+				// fall-through
 			} else if(isRaw && es[i] == '=') { // check for dot-stuffed ending: \r\n.=y
 				i++;
 				YDEC_CHECK_END(YDEC_STATE_CRLFEQ)
@@ -266,8 +267,8 @@ int do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t
 						i -= (c == '\r');
 					}
 				}
-				// fall-thru
-			} case '\n':
+			} // fall-thru
+			case '\n':
 				continue;
 			case '=':
 				c = es[i+1];

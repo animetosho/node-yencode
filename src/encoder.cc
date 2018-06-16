@@ -781,8 +781,10 @@ size_t do_encode_fast2(int line_size, int* colOffset, const unsigned char* src, 
 		switch(c) {
 			case '.':
 				if(col > 0) break;
+				// fall-thru
 			case '\t': case ' ':
 				if(col > 0 && col < line_size-1) break;
+				// fall-thru
 			case '\0': case '\r': case '\n': case '=':
 				*(p++) = '=';
 				c += 64;
