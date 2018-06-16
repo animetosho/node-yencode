@@ -1,6 +1,6 @@
 This module provides a very fast (non-JS) compiled implementation of [yEnc
 encoding](<http://www.yenc.org/yenc-draft.1.3.txt>) and CRC32 hash calculation
-for node.js. It's mainly optimised for x86 processors, and will use SIMD
+for node.js. It's mainly optimised for x86/ARM processors, and will use SIMD
 operations if available.
 
 This module should be *significantly* faster than pure Javascript versions.
@@ -8,10 +8,14 @@ This module should be *significantly* faster than pure Javascript versions.
 Supports:
 ---------
 
--   fast raw yEnc encoding with incremental support and the ability to specify
-    line length. Optimised to use SSE2 and SSSE3/SSE4.1 if available - a single
-    thread can achieve \>500MB/s on a low power Atom CPU, or \>3GB/s on a Core-i
-    series CPU.
+-   fast raw yEnc encoding and the ability to specify line length. Optimised to
+    use SSE2 and SSSE3, or NEON, if available - a single thread can achieve
+    \>500MB/s on a low power Atom CPU, or \>3GB/s on a Core-i series CPU.
+
+-   fast yEnc decoding, with and without NNTP layer dot unstuffing. Will also
+    use SSE2, SSSE3 (AVX512 optimizations optional) or NEON if available.
+    (algorithm internally also supports stopping on end markers, but not exposed
+    via node)
 
 -   full yEnc encoding for single and multi-part posts, according to the
     [version 1.3 specifications](<http://www.yenc.org/yenc-draft.1.3.txt>)
@@ -19,15 +23,14 @@ Supports:
 -   fast compiled CRC32 implementation via
     [crcutil](<https://code.google.com/p/crcutil/>) or [PCLMULQDQ
     instruction](<http://www.intel.com/content/dam/www/public/us/en/documents/white-papers/fast-crc-computation-generic-polynomials-pclmulqdq-paper.pdf>)
-    (if available) with incremental support (\>1GB/s on a low power Atom CPU)
+    (if available) or ARMv8’s CRC instructions, with incremental support
+    (\>1GB/s on a low power Atom CPU)
 
 -   ability to combine two CRC32 hashes into one (useful for amalgamating
     pcrc32s into a crc32 for yEnc)
 
--   yEnc decoding, with and without NNTP layer unescaping
-
--   eventually will support incremental processing (algorithms internally
-    support it, they’re just not exposed to the Javascript interface)
+-   eventually may support incremental processing (algorithms internally support
+    it, they’re just not exposed to the Javascript interface)
 
 Should work on nodejs 0.10.x and later.
 
