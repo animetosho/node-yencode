@@ -39,7 +39,11 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 			// search for special chars
 			uint8x16_t cmp = vorrq_u8(
 				vorrq_u8(
+#ifdef __aarch64__
+					vceqzq_u8(data),
+#else
 					vceqq_u8(data, vdupq_n_u8(0)),
+#endif
 					vceqq_u8(data, vdupq_n_u8('\n'))
 				),
 				vorrq_u8(
