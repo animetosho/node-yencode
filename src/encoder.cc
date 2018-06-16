@@ -334,7 +334,9 @@ static size_t do_encode_generic(int line_size, int* colOffset, const unsigned ch
 		
 		// last line char
 		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
+#ifdef __SSE2__
 			last_char:
+#endif
 			c = es[i++];
 			if (escapedLUT[c] && c != '.'-42) {
 				memcpy(p, &escapedLUT[c], sizeof(uint16_t));
