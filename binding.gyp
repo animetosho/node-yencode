@@ -11,6 +11,25 @@
           "cflags": ["-march=native", "-O3"],
           "cxxflags": ["-march=native", "-O3"]
         }],
+        ['OS in "linux android" and target_arch in "arm arm64"', {
+          "variables": {
+            "has_neon%": "<!(grep -e ' neon ' /proc/cpuinfo || true)",
+            "has_crc%": "<!(grep -e ' crc32 ' /proc/cpuinfo || true)",
+            "has_cpuid%": "<!(grep -e ' cpuid' /proc/cpuinfo || true)"
+          },
+          "conditions": [
+            ['has_cpuid=="" and has_neon!=""', {
+              "cflags": ["-mfpu=neon"],
+              "cxxflags": ["-mfpu=neon"]
+            }],
+            ['has_cpuid=="" and has_crc!=""', {
+              "cflags!": ["-march=native"],
+              "cxxflags!": ["-march=native"],
+              "cflags": ["-march=armv8-a+crc"],
+              "cxxflags": ["-march=armv8-a+crc"]
+            }]
+          ]
+        }],
         ['OS=="mac"', {
           "xcode_settings": {
             "OTHER_CFLAGS": ["-march=native", "-O3"],

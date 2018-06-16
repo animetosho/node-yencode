@@ -10,8 +10,7 @@ ALIGN_32(uint8x16_t _shufLUT[258]); // +2 for underflow guard entry
 uint8x16_t* shufLUT = _shufLUT+2;
 ALIGN_32(uint8x16_t shufMixLUT[256]);
 
-// despite the function name, the following is a copy of do_encode_fast ported to NEON
-static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
+static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char* es = (unsigned char*)src + len;
 	unsigned char *p = dest; // destination pointer
 	long i = -len; // input position
@@ -183,7 +182,7 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 #else /* defined(__ARM_NEON) */
 
 // runs at around 380MB/s on 2.4GHz Silvermont (worst: 125MB/s, best: 440MB/s)
-static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
+static size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char* es = (unsigned char*)src + len;
 	unsigned char *p = dest; // destination pointer
 	long i = -len; // input position
@@ -374,15 +373,13 @@ static size_t do_encode_slow(int line_size, int* colOffset, const unsigned char*
 #endif
 
 
-size_t (*_do_encode)(int, int*, const unsigned char*, unsigned char*, size_t) = &do_encode_slow;
-
 // slightly faster version which improves the worst case scenario significantly; since worst case doesn't happen often, overall speedup is relatively minor
 // requires PSHUFB (SSSE3) instruction, but will use POPCNT (SSE4.2 (or AMD's ABM, but Phenom doesn't support SSSE3 so doesn't matter)) if available (these only seem to give minor speedups, so considered optional)
 #ifdef __SSSE3__
 ALIGN_32(__m128i _shufLUT[258]); // +2 for underflow guard entry
 __m128i* shufLUT = _shufLUT+2;
 ALIGN_32(__m128i shufMixLUT[256]);
-static size_t do_encode_fast(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
+static size_t do_encode_ssse3(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char* es = (unsigned char*)src + len;
 	unsigned char *p = dest; // destination pointer
 	long i = -len; // input position
@@ -762,7 +759,7 @@ static const __m128i* pshufb_shift_table = (const __m128i*)_pshufb_shift_table;
 // assumes line_size is reasonably large (probably >32)
 size_t do_encode_fast2(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
 	// TODO: not ideal; leave here so that tests pass
-	if(line_size < 32) return do_encode_fast(line_size, colOffset, src, dest, len);
+	if(line_size < 32) return do_encode_ssse3(line_size, colOffset, src, dest, len);
 	
 	unsigned char *p = dest; // destination pointer
 	unsigned long i = 0; // input position
@@ -1148,8 +1145,9 @@ size_t do_encode_fast2(int line_size, int* colOffset, const unsigned char* src, 
 /*
 // simple naive implementation - most yEnc encoders I've seen do something like the following
 // runs at around 145MB/s on 2.4GHz Silvermont (worst: 135MB/s, best: 158MB/s)
-static inline unsigned long do_encode(int line_size, int col, const unsigned char* src, unsigned char* dest, size_t len) {
+static size_t do_encode_scalar(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char *p = dest;
+	int col = *colOffset;
 	
 	for (unsigned long i = 0; i < len; i++) {
 		unsigned char c = (src[i] + 42) & 0xFF;
@@ -1178,9 +1176,13 @@ static inline unsigned long do_encode(int line_size, int col, const unsigned cha
 		*(uint16_t*)(p-1) = UINT16_PACK('=', lc+64);
 		p++;
 	}
+	*colOffset = col;
 	return p - dest;
 }
 */
+
+size_t (*_do_encode)(int, int*, const unsigned char*, unsigned char*, size_t) = &do_encode_generic;
+
 
 void encoder_init() {
 	for (int i=0; i<256; i++) {
@@ -1202,7 +1204,7 @@ void encoder_init() {
 	
 #ifdef __SSSE3__
 	if((cpu_flags() & CPU_SHUFFLE_FLAGS) == CPU_SHUFFLE_FLAGS) {
-		_do_encode = &do_encode_fast;
+		_do_encode = &do_encode_ssse3;
 		// generate shuf LUT
 		for(int i=0; i<256; i++) {
 			int k = i;
@@ -1235,35 +1237,38 @@ void encoder_init() {
 	}
 #endif
 #ifdef __ARM_NEON
-	// generate shuf LUT
-	for(int i=0; i<256; i++) {
-		int k = i;
-		uint8_t res[16];
-		int p = 0;
-		for(int j=0; j<8; j++) {
-			if(k & 1) {
-				res[j+p] = 0xf0 + j;
-				p++;
+	if(cpu_supports_neon()) {
+		_do_encode = &do_encode_neon;
+		// generate shuf LUT
+		for(int i=0; i<256; i++) {
+			int k = i;
+			uint8_t res[16];
+			int p = 0;
+			for(int j=0; j<8; j++) {
+				if(k & 1) {
+					res[j+p] = 0xf0 + j;
+					p++;
+				}
+				res[j+p] = j;
+				k >>= 1;
 			}
-			res[j+p] = j;
-			k >>= 1;
+			for(; p<8; p++)
+				res[8+p] = 8+p +0x80; // +0x80 => 0 discarded entries; has no effect other than to ease debugging
+			
+			uint8x16_t shuf = vld1q_u8(res);
+			vst1q_u8((uint8_t*)(shufLUT + i), shuf);
+			
+			// calculate add mask for mixing escape chars in
+			uint8x16_t maskEsc = vceqq_u8(vandq_u8(shuf, vdupq_n_u8(0xf0)), vdupq_n_u8(0xf0));
+			uint8x16_t addMask = vandq_u8(vextq_u8(vdupq_n_u8(0), maskEsc, 15), vdupq_n_u8(64));
+			addMask = vorrq_u8(addMask, vandq_u8(maskEsc, vdupq_n_u8('=')));
+			
+			vst1q_u8((uint8_t*)(shufMixLUT + i), addMask);
 		}
-		for(; p<8; p++)
-			res[8+p] = 8+p +0x80; // +0x80 => 0 discarded entries; has no effect other than to ease debugging
-		
-		uint8x16_t shuf = vld1q_u8(res);
-		vst1q_u8((uint8_t*)(shufLUT + i), shuf);
-		
-		// calculate add mask for mixing escape chars in
-		uint8x16_t maskEsc = vceqq_u8(vandq_u8(shuf, vdupq_n_u8(0xf0)), vdupq_n_u8(0xf0));
-		uint8x16_t addMask = vandq_u8(vextq_u8(vdupq_n_u8(0), maskEsc, 15), vdupq_n_u8(64));
-		addMask = vorrq_u8(addMask, vandq_u8(maskEsc, vdupq_n_u8('=')));
-		
-		vst1q_u8((uint8_t*)(shufMixLUT + i), addMask);
+		// underflow guard entries; this may occur when checking for escaped characters, when the shufLUT[0] and shufLUT[-1] are used for testing
+		vst1q_u8((uint8_t*)(_shufLUT +0), vdupq_n_u8(0xFF));
+		vst1q_u8((uint8_t*)(_shufLUT +1), vdupq_n_u8(0xFF));
 	}
-	// underflow guard entries; this may occur when checking for escaped characters, when the shufLUT[0] and shufLUT[-1] are used for testing
-	vst1q_u8((uint8_t*)(_shufLUT +0), vdupq_n_u8(0xFF));
-	vst1q_u8((uint8_t*)(_shufLUT +1), vdupq_n_u8(0xFF));
 #endif
 
 }

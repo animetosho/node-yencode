@@ -12,13 +12,16 @@
 #include "interface.h"
 crcutil_interface::CRC* crc = NULL;
 
-
-#ifdef __ARM_FEATURE_CRC32
+#if defined(__ARM_FEATURE_CRC32) || defined(_M_ARM64) /* TODO: AArch32 for MSVC? */
 /* ARMv8 accelerated CRC */
+#ifdef _MSC_VER
+#include <intrin.h>
+#else
 #include <arm_acle.h>
+#endif
 
 // inspired/stolen off https://github.com/jocover/crc32_armv8/blob/master/crc32_armv8.c
-static uint32_t crc_calc(uint32_t crc, const unsigned char *src, long len) {
+static uint32_t arm_crc_calc(uint32_t crc, const unsigned char *src, long len) {
 	
 	// initial alignment
 	if (len >= 16) { // 16 is an arbitrary number; it just needs to be >=8
@@ -65,67 +68,70 @@ static uint32_t crc_calc(uint32_t crc, const unsigned char *src, long len) {
 	return crc;
 }
 
-void do_crc32(const void* data, size_t length, unsigned char out[4]) {
-	uint32_t crc = crc_calc(~0, (const unsigned char*)data, (long)length);
+static void do_crc32_arm(const void* data, size_t length, unsigned char out[4]) {
+	uint32_t crc = arm_crc_calc(~0, (const unsigned char*)data, (long)length);
 	UNPACK_4(out, ~crc);
 }
-
-void do_crc32_incremental(const void* data, size_t length, unsigned char init[4]) {
+static void do_crc32_incremental_arm(const void* data, size_t length, unsigned char init[4]) {
 	uint32_t crc = PACK_4(init);
-	crc = crc_calc(~crc, (const unsigned char*)data, (long)length);
+	crc = arm_crc_calc(~crc, (const unsigned char*)data, (long)length);
 	UNPACK_4(init, ~crc);
 }
-
-#else
-
-#ifdef X86_PCLMULQDQ_CRC
-bool x86_cpu_has_pclmulqdq = false;
-#include "crc_folding.c"
-#else
-#define x86_cpu_has_pclmulqdq false
-#define crc_fold(a, b) 0
 #endif
 
-void do_crc32(const void* data, size_t length, unsigned char out[4]) {
-	// if we have the pclmulqdq instruction, use the insanely fast folding method
-	if(x86_cpu_has_pclmulqdq) {
-		uint32_t tmp = crc_fold((const unsigned char*)data, (long)length);
-		UNPACK_4(out, tmp);
-	} else {
-		if(!crc) {
-			crc = crcutil_interface::CRC::Create(
-				0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
-			// instance never deleted... oh well...
-		}
-		crcutil_interface::UINT64 tmp = 0;
-		crc->Compute(data, length, &tmp);
-		UNPACK_4(out, tmp);
-	}
-}
-
 crcutil_interface::CRC* crcI = NULL;
-void do_crc32_incremental(const void* data, size_t length, unsigned char init[4]) {
+
+#ifdef X86_PCLMULQDQ_CRC
+#include "crc_folding.c"
+static void do_crc32_clmul(const void* data, size_t length, unsigned char out[4]) {
+	uint32_t tmp = crc_fold((const unsigned char*)data, (long)length);
+	UNPACK_4(out, tmp);
+}
+static void do_crc32_incremental_clmul(const void* data, size_t length, unsigned char init[4]) {
 	if(!crcI) {
 		crcI = crcutil_interface::CRC::Create(
 			0xEDB88320, 0, 32, false, 0, 0, 0, 0, NULL);
 		// instance never deleted... oh well...
 	}
 	
-	if(x86_cpu_has_pclmulqdq) {
-		// TODO: think of a nicer way to do this than a combine
-		crcutil_interface::UINT64 crc1_ = PACK_4(init);
-		crcutil_interface::UINT64 crc2_ = crc_fold((const unsigned char*)data, (long)length);
-		crcI->Concatenate(crc2_, 0, length, &crc1_);
-		UNPACK_4(init, crc1_);
-	} else {
-		crcutil_interface::UINT64 tmp = PACK_4(init) ^ 0xffffffff;
-		crcI->Compute(data, length, &tmp);
-		tmp ^= 0xffffffff;
-		UNPACK_4(init, tmp);
-	}
+	// TODO: think of a nicer way to do this than a combine
+	crcutil_interface::UINT64 crc1_ = PACK_4(init);
+	crcutil_interface::UINT64 crc2_ = crc_fold((const unsigned char*)data, (long)length);
+	crcI->Concatenate(crc2_, 0, length, &crc1_);
+	UNPACK_4(init, crc1_);
 }
-
 #endif
+
+
+
+
+static void do_crc32_generic(const void* data, size_t length, unsigned char out[4]) {
+	if(!crc) {
+		crc = crcutil_interface::CRC::Create(
+			0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
+		// instance never deleted... oh well...
+	}
+	crcutil_interface::UINT64 tmp = 0;
+	crc->Compute(data, length, &tmp);
+	UNPACK_4(out, tmp);
+}
+void (*_do_crc32)(const void*, size_t, unsigned char[4]) = &do_crc32_generic;
+
+static void do_crc32_incremental_generic(const void* data, size_t length, unsigned char init[4]) {
+	if(!crcI) {
+		crcI = crcutil_interface::CRC::Create(
+			0xEDB88320, 0, 32, false, 0, 0, 0, 0, NULL);
+		// instance never deleted... oh well...
+	}
+	
+	crcutil_interface::UINT64 tmp = PACK_4(init) ^ 0xffffffff;
+	crcI->Compute(data, length, &tmp);
+	tmp ^= 0xffffffff;
+	UNPACK_4(init, tmp);
+}
+void (*_do_crc32_incremental)(const void*, size_t, unsigned char[4]) = &do_crc32_incremental_generic;
+
+
 
 void do_crc32_combine(unsigned char crc1[4], const unsigned char crc2[4], size_t len2) {
 	if(!crc) {
@@ -151,6 +157,24 @@ void do_crc32_zeros(unsigned char crc1[4], size_t len) {
 
 void crc_init() {
 #ifdef X86_PCLMULQDQ_CRC
-	x86_cpu_has_pclmulqdq = (cpu_flags() & 0x80202) == 0x80202; // SSE4.1 + SSSE3 + CLMUL
+	if((cpu_flags() & 0x80202) == 0x80202) { // SSE4.1 + SSSE3 + CLMUL
+		_do_crc32 = &do_crc32_clmul;
+		_do_crc32_incremental = &do_crc32_incremental_clmul;
+	}
+#endif
+#if defined(__ARM_FEATURE_CRC32) || defined(_M_ARM64)
+	if(
+# if defined(AT_HWCAP2)
+		getauxval(AT_HWCAP2) & HWCAP2_CRC32
+# elif defined(ANDROID_CPU_FAMILY_ARM) && defined(ARCH_AARCH64)
+		android_getCpuFeatures() & ANDROID_CPU_ARM64_FEATURE_CRC32
+	/* no 32-bit flag - presumably CRC not allowed on 32-bit CPUs on Android */
+# else
+		true /* assume available if compiled as such */
+# endif
+	) {
+		_do_crc32 = &do_crc32_arm;
+		_do_crc32_incremental = &do_crc32_incremental_arm;
+	}
 #endif
 }

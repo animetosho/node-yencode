@@ -886,20 +886,13 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 		}
 	}
 }
-
-int (*_do_decode)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_simd<false, false, sizeof(uint8x16_t), do_decode_neon<false, false> >;
-int (*_do_decode_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_simd<true, false, sizeof(uint8x16_t), do_decode_neon<true, false> >;
-int (*_do_decode_end)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_simd<false, true, sizeof(uint8x16_t), do_decode_neon<false, true> >;
-int (*_do_decode_end_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_simd<true, true, sizeof(uint8x16_t), do_decode_neon<true, true> >;
-
-#else
+#endif
 
 int (*_do_decode)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_scalar<false, false>;
 int (*_do_decode_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_scalar<true, false>;
 int (*_do_decode_end)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_end_scalar<false>;
 int (*_do_decode_end_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_end_scalar<true>;
 
-#endif
 
 void decoder_init() {
 #ifdef __SSE2__
@@ -958,42 +951,49 @@ void decoder_init() {
 #endif
 
 #ifdef __ARM_NEON
-	for(int i=0; i<256; i++) {
-		int k = i;
-		uint8_t res[8];
-		int p = 0;
+	if(cpu_supports_neon()) {
+		_do_decode = &do_decode_simd<false, false, sizeof(uint8x16_t), do_decode_neon<false, false> >;
+		_do_decode_raw = &do_decode_simd<true, false, sizeof(uint8x16_t), do_decode_neon<true, false> >;
+		_do_decode_end = &do_decode_simd<false, true, sizeof(uint8x16_t), do_decode_neon<false, true> >;
+		_do_decode_end_raw = &do_decode_simd<true, true, sizeof(uint8x16_t), do_decode_neon<true, true> >;
 		
-		// fix LUT
-		k = i;
-		p = 0;
-		for(int j=0; j<8; j++) {
-			k = i >> j;
-			if(k & 1) {
-				p |= 1 << j;
-				j++;
+		for(int i=0; i<256; i++) {
+			int k = i;
+			uint8_t res[8];
+			int p = 0;
+			
+			// fix LUT
+			k = i;
+			p = 0;
+			for(int j=0; j<8; j++) {
+				k = i >> j;
+				if(k & 1) {
+					p |= 1 << j;
+					j++;
+				}
 			}
-		}
-		eqFixLUT[i] = p;
-		
-		// sub LUT
-		k = i;
-		for(int j=0; j<8; j++) {
-			res[j] = (k & 1) ? 192 /* == -64 */ : 0;
-			k >>= 1;
-		}
-		vst1_u8((uint8_t*)(eqAddLUT + i), vld1_u8(res));
-		
-		k = i;
-		p = 0;
-		for(int j=0; j<8; j++) {
-			if(!(k & 1)) {
-				res[p++] = j;
+			eqFixLUT[i] = p;
+			
+			// sub LUT
+			k = i;
+			for(int j=0; j<8; j++) {
+				res[j] = (k & 1) ? 192 /* == -64 */ : 0;
+				k >>= 1;
 			}
-			k >>= 1;
+			vst1_u8((uint8_t*)(eqAddLUT + i), vld1_u8(res));
+			
+			k = i;
+			p = 0;
+			for(int j=0; j<8; j++) {
+				if(!(k & 1)) {
+					res[p++] = j;
+				}
+				k >>= 1;
+			}
+			for(; p<8; p++)
+				res[p] = 0;
+			vst1_u8((uint8_t*)(unshufLUT + i), vld1_u8(res));
 		}
-		for(; p<8; p++)
-			res[p] = 0;
-		vst1_u8((uint8_t*)(unshufLUT + i), vld1_u8(res));
 	}
 #endif
 }
