@@ -947,6 +947,7 @@ size_t do_encode_fast2(int line_size, int* colOffset, const unsigned char* src, 
 							shufBLen = ovrflowAmt;
 						}
 						
+						// TODO: is it faster to keep this line?
 						if(tmpInPos >= len) goto encode_fast2_end; // TODO: remove conditional by pre-checking this
 						
 						c = src[tmpInPos];
@@ -1020,29 +1021,26 @@ size_t do_encode_fast2(int line_size, int* colOffset, const unsigned char* src, 
 					// optimisation: check last char here
 					c = src[i - ovrflowAmt];
 					ovrflowAmt--;
-					// TODO: consider doing direct comparisons instead of lookup
-					if (escapedLUT[c] && c != '.'-42) {
+					if (c == 223/*\t*/ || c == 246/* */) {
 						p -= ovrflowAmt-1;
 						*(uint16_t*)(p-2) = escapedLUT[c];
 					} else {
 						p -= ovrflowAmt;
 					}
 					
+					// TODO: keep this line?
 					if(i-ovrflowAmt >= len) goto encode_fast2_end; // TODO: remove conditional by pre-checking this
 					
 					c = src[i - ovrflowAmt];
 					if(ovrflowAmt != 0) {
-						int dataLen;
 						if (escapedLUT[c]) {
 							*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 							col = 2+ovrflowAmt-1;
-							dataLen = ovrflowAmt-1;
-							data = _mm_srli_si128(data, 1);
+							ovrflowAmt--;
 							p += 4;
 						} else {
 							*(uint16_t*)p = UINT16_PACK('\r', '\n');
 							col = ovrflowAmt;
-							dataLen = ovrflowAmt;
 							p += 2;
 						}
 						
@@ -1051,7 +1049,7 @@ size_t do_encode_fast2(int line_size, int* colOffset, const unsigned char* src, 
 						data = _mm_shuffle_epi8(data, shiftThing);
 						// store out data
 						STOREU_XMM(p, data);
-						p += dataLen;
+						p += ovrflowAmt;
 					} else {
 						if (escapedLUT[c]) { // will also handle case which would be handled fine normally, but since we're checking it...
 							// ugly hacky code
