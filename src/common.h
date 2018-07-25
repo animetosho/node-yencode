@@ -1,6 +1,33 @@
 #ifndef __YENC_COMMON
 #define __YENC_COMMON
 
+#if defined(__x86_64__) || \
+    defined(__amd64__ ) || \
+    defined(__LP64    ) || \
+    defined(_M_X64    ) || \
+    defined(_M_AMD64  ) || \
+    defined(_WIN64    ) || \
+    defined(__i386__  ) || \
+    defined(__i486__  ) || \
+    defined(__i586__  ) || \
+    defined(__i686__  ) || \
+    defined(_M_I86    ) || \
+    defined(_M_IX86   ) || \
+    defined(_WIN32    )
+	#define PLATFORM_X86 1
+#endif
+#if defined(__aarch64__) || \
+    defined(__armv7__  ) || \
+    defined(_M_ARM64   ) || \
+    defined(_M_ARM     ) || \
+    defined(__ARM_ARCH_7__ ) || \
+    defined(__ARM_ARCH_7A__) || \
+    defined(__ARM_ARCH_8A__) || \
+    (defined(__ARM_ARCH    ) && __ARM_ARCH >= 7)
+	#define PLATFORM_ARM7 1 // ARMv7+, i.e. possible NEON/CRC support
+#endif
+
+
 // MSVC compatibility
 #if (defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(_M_X64)
 	#define __SSE2__ 1
@@ -36,7 +63,7 @@
 #include <intrin.h>
 #endif
 
-#if defined(__x86_64__) || defined(__i386__)
+#ifdef PLATFORM_X86
 #if !defined(X86_PCLMULQDQ_CRC) && defined(__PCLMUL__) && defined(__SSSE3__) && defined(__SSE4_1__)
 	#define X86_PCLMULQDQ_CRC 1
 #endif
@@ -98,7 +125,9 @@ static uint16_t neon_movemask(uint8x16_t in) {
 	return vget_lane_u16(vreinterpret_u16_u8(res), 0);
 # endif
 }
+#endif
 
+#ifdef PLATFORM_ARM7
 # ifdef __ANDROID__
 #  include <cpu-features.h>
 # elif defined(__linux__)
@@ -119,7 +148,7 @@ static bool cpu_supports_neon() {
 	return android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_NEON;
 #  endif
 # endif
-	return true; // assume NEON support otherwise
+	return true; // assume NEON support, if compiled as such, otherwise
 }
 #endif
 
@@ -144,7 +173,7 @@ static const unsigned char BitsSetTable256[256] =
 
 
 
-#ifdef __SSSE3__
+#ifdef PLATFORM_X86
 static int cpu_flags() {
 #ifdef _MSC_VER
 	int cpuInfo[4];

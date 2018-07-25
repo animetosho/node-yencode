@@ -17,8 +17,15 @@
  * For conditions of distribution and use, see copyright notice in zlib.h
  */
 
-#ifdef X86_PCLMULQDQ_CRC
 
+#if !defined(_MSC_VER) || defined(_STDINT) || _MSC_VER >= 1900
+# include <stdint.h>
+#else
+/* Workaround for older MSVC not supporting stdint.h - just pull it from V8 */
+# include <v8.h>
+#endif
+
+#ifdef X86_PCLMULQDQ_CRC
 #include <inttypes.h>
 #include <immintrin.h>
 #include <wmmintrin.h>
@@ -417,5 +424,7 @@ done:
 }
 
 }
+#else
+uint32_t crc_fold(const unsigned char *src, long len) {return 0;}
 #endif
 

@@ -3,7 +3,12 @@
     {
       "target_name": "yencode",
       "dependencies": ["crcutil"],
-      "sources": ["src/yencode.cc", "src/encoder.cc", "src/decoder.cc", "src/crc.cc"],
+      "sources": [
+        "src/yencode.cc",
+        "src/encoder.cc", "src/encoder_ssse3.cc", "src/encoder_neon.cc",
+        "src/decoder.cc", "src/decoder_sse2.cc", "src/decoder_ssse3.cc", "src/decoder_neon.cc",
+        "src/crc.cc", "src/crc_arm.cc", "src/crc_folding.c"
+      ],
       "conditions": [
         ['OS=="win"', {
           "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}

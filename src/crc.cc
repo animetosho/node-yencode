@@ -1,88 +1,16 @@
 #include "common.h"
+#include "crc_common.h"
 
-
-#define PACK_4(arr) (((uint_fast32_t)arr[0] << 24) | ((uint_fast32_t)arr[1] << 16) | ((uint_fast32_t)arr[2] << 8) | (uint_fast32_t)arr[3])
-#define UNPACK_4(arr, val) { \
-	arr[0] = (unsigned char)(val >> 24) & 0xFF; \
-	arr[1] = (unsigned char)(val >> 16) & 0xFF; \
-	arr[2] = (unsigned char)(val >>  8) & 0xFF; \
-	arr[3] = (unsigned char)val & 0xFF; \
-}
 
 #include "interface.h"
 crcutil_interface::CRC* crc = NULL;
 
-#if defined(__ARM_FEATURE_CRC32) || defined(_M_ARM64) /* TODO: AArch32 for MSVC? */
-/* ARMv8 accelerated CRC */
-#ifdef _MSC_VER
-#include <intrin.h>
-#else
-#include <arm_acle.h>
-#endif
-
-// inspired/stolen off https://github.com/jocover/crc32_armv8/blob/master/crc32_armv8.c
-static uint32_t arm_crc_calc(uint32_t crc, const unsigned char *src, long len) {
-	
-	// initial alignment
-	if (len >= 16) { // 16 is an arbitrary number; it just needs to be >=8
-		if ((uintptr_t)src & sizeof(uint8_t)) {
-			crc = __crc32b(crc, *src);
-			src++;
-			len--;
-		}
-		if ((uintptr_t)src & sizeof(uint16_t)) {
-			crc = __crc32h(crc, *((uint16_t *)src));
-			src += sizeof(uint16_t);
-			len -= sizeof(uint16_t);
-		}
-		
-#ifdef __aarch64__
-		if ((uintptr_t)src & sizeof(uint32_t)) {
-			crc = __crc32w(crc, *((uint32_t *)src));
-			src += sizeof(uint32_t);
-			len -= sizeof(uint32_t);
-		}
-	}
-	while ((len -= sizeof(uint64_t)) >= 0) {
-		crc = __crc32d(crc, *((uint64_t *)src));
-		src += sizeof(uint64_t);
-	}
-	if (len & sizeof(uint32_t)) {
-		crc = __crc32w(crc, *((uint32_t *)src));
-		src += sizeof(uint32_t);
-	}
-#else
-	}
-	while ((len -= sizeof(uint32_t)) >= 0) {
-		crc = __crc32w(crc, *((uint32_t *)src));
-		src += sizeof(uint32_t);
-	}
-#endif
-	if (len & sizeof(uint16_t)) {
-		crc = __crc32h(crc, *((uint16_t *)src));
-		src += sizeof(uint16_t);
-	}
-	if (len & sizeof(uint8_t))
-		crc = __crc32b(crc, *src);
-	
-	return crc;
-}
-
-static void do_crc32_arm(const void* data, size_t length, unsigned char out[4]) {
-	uint32_t crc = arm_crc_calc(~0, (const unsigned char*)data, (long)length);
-	UNPACK_4(out, ~crc);
-}
-static void do_crc32_incremental_arm(const void* data, size_t length, unsigned char init[4]) {
-	uint32_t crc = PACK_4(init);
-	crc = arm_crc_calc(~crc, (const unsigned char*)data, (long)length);
-	UNPACK_4(init, ~crc);
-}
-#endif
-
 crcutil_interface::CRC* crcI = NULL;
 
-#ifdef X86_PCLMULQDQ_CRC
-#include "crc_folding.c"
+// CLMUL method
+extern "C" {
+	uint32_t crc_fold(const unsigned char *src, long len);
+}
 static void do_crc32_clmul(const void* data, size_t length, unsigned char out[4]) {
 	uint32_t tmp = crc_fold((const unsigned char*)data, (long)length);
 	UNPACK_4(out, tmp);
@@ -100,7 +28,6 @@ static void do_crc32_incremental_clmul(const void* data, size_t length, unsigned
 	crcI->Concatenate(crc2_, 0, length, &crc1_);
 	UNPACK_4(init, crc1_);
 }
-#endif
 
 
 
@@ -155,14 +82,17 @@ void do_crc32_zeros(unsigned char crc1[4], size_t len) {
 	UNPACK_4(crc1, crc_);
 }
 
+void crc_arm_set_funcs();
+
 void crc_init() {
-#ifdef X86_PCLMULQDQ_CRC
+#ifdef PLATFORM_X86
 	if((cpu_flags() & 0x80202) == 0x80202) { // SSE4.1 + SSSE3 + CLMUL
+		// TODO: consider splitting this off into crc_folding.c ? (this is only useful for very old compilers which don't support these features though)
 		_do_crc32 = &do_crc32_clmul;
 		_do_crc32_incremental = &do_crc32_incremental_clmul;
 	}
 #endif
-#if defined(__ARM_FEATURE_CRC32) || defined(_M_ARM64)
+#ifdef PLATFORM_ARM7
 	if(
 # if defined(AT_HWCAP2) && defined(HWCAP2_CRC32)
 		getauxval(AT_HWCAP2) & HWCAP2_CRC32
@@ -171,12 +101,13 @@ void crc_init() {
 # elif defined(ANDROID_CPU_FAMILY_ARM) && defined(__aarch64__)
 		android_getCpuFeatures() & ANDROID_CPU_ARM64_FEATURE_CRC32
 	/* no 32-bit flag - presumably CRC not allowed on 32-bit CPUs on Android */
-# else
+# elif defined(__ARM_FEATURE_CRC32)
 		true /* assume available if compiled as such */
+# else
+		false
 # endif
 	) {
-		_do_crc32 = &do_crc32_arm;
-		_do_crc32_incremental = &do_crc32_incremental_arm;
+		crc_arm_set_funcs();
 	}
 #endif
 }
