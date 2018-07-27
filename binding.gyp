@@ -13,8 +13,8 @@
         ['OS=="win"', {
           "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
         }, {
-          "cflags": ["-march=native", "-O3"],
-          "cxxflags": ["-march=native", "-O3"]
+          "cflags": ["-march=native", "-O3", "-Wno-unused-function"],
+          "cxxflags": ["-march=native", "-O3", "-Wno-unused-function"]
         }],
         ['OS in "linux android" and target_arch in "arm arm64"', {
           "variables": {
