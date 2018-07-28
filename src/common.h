@@ -195,9 +195,9 @@ static int cpu_flags() {
 enum YEncDecIsaLevel {
 	ISA_LEVEL_SSE2,
 	ISA_LEVEL_SSSE3,
-	ISA_LEVEL_AVX,
-	ISA_LEVEL_AVX3,
-	ISA_LEVEL_VBMI2
+	ISA_LEVEL_AVX, // includes POPCNT
+	ISA_LEVEL_AVX3, // SKX variant; AVX512VL + AVX512BW
+	ISA_LEVEL_VBMI2 // ICL
 };
 #endif
 

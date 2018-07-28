@@ -9,7 +9,7 @@ void encoder_ssse3_init(const unsigned char* _escapeLUT, const uint16_t* _escape
 	escapeLUT = _escapeLUT;
 	escapedLUT = _escapedLUT;
 	
-	_do_encode = &do_encode_sse;
+	_do_encode = &do_encode_sse<ISA_LEVEL_SSSE3>;
 	// generate shuf LUT
 	for(int i=0; i<256; i++) {
 		int k = i;

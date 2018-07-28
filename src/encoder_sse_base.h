@@ -15,7 +15,7 @@ static uint16_t expandLUT[256];
 static const unsigned char* escapeLUT;
 static const uint16_t* escapedLUT;
 
-
+template<enum YEncDecIsaLevel use_isa>
 static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char* es = (unsigned char*)src + len;
 	unsigned char *p = dest; // destination pointer
@@ -43,142 +43,156 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 			);
 			i += XMM_SIZE;
 			// search for special chars
+			__m128i cmp;
 #ifdef __AVX512VL__
-			__m128i cmp = _mm_ternarylogic_epi32(
-				_mm_or_si128(
-					_mm_cmpeq_epi8(data, _mm_setzero_si128()),
-					_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
-				),
-				_mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
-				_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
-				0xFE
-			);
-#else
-			__m128i cmp = _mm_or_si128(
-				_mm_or_si128(
-					_mm_cmpeq_epi8(data, _mm_setzero_si128()),
-					_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
-				),
-				_mm_or_si128(
+			if(use_isa >= ISA_LEVEL_AVX3) {
+				cmp = _mm_ternarylogic_epi32(
+					_mm_or_si128(
+						_mm_cmpeq_epi8(data, _mm_setzero_si128()),
+						_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
+					),
 					_mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
-					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r'))
-				)
-			);
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
+					0xFE
+				);
+			} else
 #endif
+			{
+				cmp = _mm_or_si128(
+					_mm_or_si128(
+						_mm_cmpeq_epi8(data, _mm_setzero_si128()),
+						_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
+					),
+					_mm_or_si128(
+						_mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
+						_mm_cmpeq_epi8(data, _mm_set1_epi8('\r'))
+					)
+				);
+			}
 			
 			unsigned int mask = _mm_movemask_epi8(cmp);
 			if (mask != 0) { // seems to always be faster than _mm_test_all_zeros, possibly because http://stackoverflow.com/questions/34155897/simd-sse-how-to-check-that-all-vector-elements-are-non-zero#comment-62475316
 #ifdef __SSSE3__
-				uint8_t m1 = mask & 0xFF;
-				uint8_t m2 = mask >> 8;
-				
+				if(use_isa >= ISA_LEVEL_SSSE3) {
+					uint8_t m1 = mask & 0xFF;
+					uint8_t m2 = mask >> 8;
+					
+					__m128i data2;
 # if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && 0
-				// TODO: will need to see if this is actually faster; vpexpand* is rather slow on SKX, even for 128b ops, so this could be slower
-				// on SKX, mask-shuffle is faster than expand, but requires loading shuffle masks, and ends up being slower than the SSSE3 method
-				data = _mm_mask_add_epi8(data, mask, data, _mm_set1_epi8(64));
-				__m128i data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m2], _mm_srli_si128(data, 8));
-				data = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m1], data);
-# else
-				
-				// perform lookup for shuffle mask
-				__m128i shufMA = _mm_load_si128(shufLUT + m1);
-				__m128i shufMB = _mm_load_si128(shufLUT + m2);
-				
-				// second mask processes on second half, so add to the offsets
-				// this seems to be faster than right-shifting data by 8 bytes on Intel chips, maybe due to psrldq always running on port5? may be different on AMD
-				shufMB = _mm_add_epi8(shufMB, _mm_set1_epi8(8));
-				
-				// expand halves
-				//shuf = _mm_or_si128(_mm_cmpgt_epi8(shuf, _mm_set1_epi8(15)), shuf);
-				__m128i data2 = _mm_shuffle_epi8(data, shufMB);
-				data = _mm_shuffle_epi8(data, shufMA);
-				
-				// add in escaped chars
-				__m128i shufMixMA = _mm_load_si128(shufMixLUT + m1);
-				__m128i shufMixMB = _mm_load_si128(shufMixLUT + m2);
-				data = _mm_add_epi8(data, shufMixMA);
-				data2 = _mm_add_epi8(data2, shufMixMB);
+					if(use_isa >= ISA_LEVEL_VBMI2) {
+						// TODO: will need to see if this is actually faster; vpexpand* is rather slow on SKX, even for 128b ops, so this could be slower
+						// on SKX, mask-shuffle is faster than expand, but requires loading shuffle masks, and ends up being slower than the SSSE3 method
+						data = _mm_mask_add_epi8(data, mask, data, _mm_set1_epi8(64));
+						data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m2], _mm_srli_si128(data, 8));
+						data = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m1], data);
+					} else
 # endif
-				// store out
+					{
+						// perform lookup for shuffle mask
+						__m128i shufMA = _mm_load_si128(shufLUT + m1);
+						__m128i shufMB = _mm_load_si128(shufLUT + m2);
+						
+						// second mask processes on second half, so add to the offsets
+						// this seems to be faster than right-shifting data by 8 bytes on Intel chips, maybe due to psrldq always running on port5? may be different on AMD
+						shufMB = _mm_add_epi8(shufMB, _mm_set1_epi8(8));
+						
+						// expand halves
+						//shuf = _mm_or_si128(_mm_cmpgt_epi8(shuf, _mm_set1_epi8(15)), shuf);
+						data2 = _mm_shuffle_epi8(data, shufMB);
+						data = _mm_shuffle_epi8(data, shufMA);
+						
+						// add in escaped chars
+						__m128i shufMixMA = _mm_load_si128(shufMixLUT + m1);
+						__m128i shufMixMB = _mm_load_si128(shufMixLUT + m2);
+						data = _mm_add_epi8(data, shufMixMA);
+						data2 = _mm_add_epi8(data2, shufMixMB);
+					}
+					// store out
+					unsigned char shufALen, shufBLen;
 # if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
-				unsigned char shufALen = _mm_popcnt_u32(m1) + 8;
-				unsigned char shufBLen = _mm_popcnt_u32(m2) + 8;
-# else
-				unsigned char shufALen = BitsSetTable256[m1] + 8;
-				unsigned char shufBLen = BitsSetTable256[m2] + 8;
+					if(use_isa >= ISA_LEVEL_AVX) {
+						shufALen = _mm_popcnt_u32(m1) + 8;
+						shufBLen = _mm_popcnt_u32(m2) + 8;
+					} else
 # endif
-				STOREU_XMM(p, data);
-				p += shufALen;
-				STOREU_XMM(p, data2);
-				p += shufBLen;
-				col += shufALen + shufBLen;
-				
-				int ovrflowAmt = col - (line_size-1);
-				if(ovrflowAmt > 0) {
-					// we overflowed - find correct position to revert back to
-					p -= ovrflowAmt;
-					if(ovrflowAmt == shufBLen) {
-						i -= 8;
-						goto last_char_fast;
-					} else {
-						int isEsc;
-						uint16_t tst;
-						int offs = shufBLen - ovrflowAmt -1;
-						if(ovrflowAmt > shufBLen) {
-							tst = *(uint16_t*)((char*)(shufLUT+m1) + shufALen+offs);
+					{
+						shufALen = BitsSetTable256[m1] + 8;
+						shufBLen = BitsSetTable256[m2] + 8;
+					}
+					STOREU_XMM(p, data);
+					p += shufALen;
+					STOREU_XMM(p, data2);
+					p += shufBLen;
+					col += shufALen + shufBLen;
+					
+					int ovrflowAmt = col - (line_size-1);
+					if(ovrflowAmt > 0) {
+						// we overflowed - find correct position to revert back to
+						p -= ovrflowAmt;
+						if(ovrflowAmt == shufBLen) {
 							i -= 8;
-						} else {
-							tst = *(uint16_t*)((char*)(shufLUT+m2) + offs);
-						}
-						isEsc = (0xf0 == (tst&0xF0));
-						p += isEsc;
-						i -= 8 - ((tst>>8)&0xf) - isEsc;
-						//col = line_size-1 + isEsc; // doesn't need to be set, since it's never read again
-						if(isEsc)
-							goto after_last_char_fast;
-						else
 							goto last_char_fast;
+						} else {
+							int isEsc;
+							uint16_t tst;
+							int offs = shufBLen - ovrflowAmt -1;
+							if(ovrflowAmt > shufBLen) {
+								tst = *(uint16_t*)((char*)(shufLUT+m1) + shufALen+offs);
+								i -= 8;
+							} else {
+								tst = *(uint16_t*)((char*)(shufLUT+m2) + offs);
+							}
+							isEsc = (0xf0 == (tst&0xF0));
+							p += isEsc;
+							i -= 8 - ((tst>>8)&0xf) - isEsc;
+							//col = line_size-1 + isEsc; // doesn't need to be set, since it's never read again
+							if(isEsc)
+								goto after_last_char_fast;
+							else
+								goto last_char_fast;
+						}
 					}
-				}
-#else
-				unsigned char* sp = p;
-				ALIGN_32(uint32_t mmTmp[4]);
-				// special characters exist
-				_mm_store_si128((__m128i*)mmTmp, data);
-				#define DO_THING(n) \
-					c = es[i-XMM_SIZE+n], escaped = escapeLUT[c]; \
-					if (escaped) \
-						*(p+n) = escaped; \
-					else { \
-						memcpy(p+n, &escapedLUT[c], sizeof(uint16_t)); \
-						p++; \
-					}
-				#define DO_THING_4(n) \
-					if(mask & (0xF << n)) { \
-						DO_THING(n); \
-						DO_THING(n+1); \
-						DO_THING(n+2); \
-						DO_THING(n+3); \
-					} else { \
-						memcpy(p+n, &mmTmp[n>>2], sizeof(uint32_t)); \
-					}
-				DO_THING_4(0);
-				DO_THING_4(4);
-				DO_THING_4(8);
-				DO_THING_4(12);
-				p += XMM_SIZE;
-				col += (int)(p - sp);
-				
-				if(col > line_size-1) {
-					// TODO: consider revert optimisation from SSSE3 route
-					// we overflowed - need to revert and use slower method :(
-					col -= (int)(p - sp);
-					p = sp;
-					break;
-				}
-				#undef DO_THING_4
-				#undef DO_THING
+				} else
 #endif
+				{
+					unsigned char* sp = p;
+					ALIGN_32(uint32_t mmTmp[4]);
+					// special characters exist
+					_mm_store_si128((__m128i*)mmTmp, data);
+					#define DO_THING(n) \
+						c = es[i-XMM_SIZE+n], escaped = escapeLUT[c]; \
+						if (escaped) \
+							*(p+n) = escaped; \
+						else { \
+							memcpy(p+n, &escapedLUT[c], sizeof(uint16_t)); \
+							p++; \
+						}
+					#define DO_THING_4(n) \
+						if(mask & (0xF << n)) { \
+							DO_THING(n); \
+							DO_THING(n+1); \
+							DO_THING(n+2); \
+							DO_THING(n+3); \
+						} else { \
+							memcpy(p+n, &mmTmp[n>>2], sizeof(uint32_t)); \
+						}
+					DO_THING_4(0);
+					DO_THING_4(4);
+					DO_THING_4(8);
+					DO_THING_4(12);
+					p += XMM_SIZE;
+					col += (int)(p - sp);
+					
+					if(col > line_size-1) {
+						// TODO: consider revert optimisation from SSSE3 route
+						// we overflowed - need to revert and use slower method :(
+						col -= (int)(p - sp);
+						p = sp;
+						break;
+					}
+					#undef DO_THING_4
+					#undef DO_THING
+				}
 			} else {
 				STOREU_XMM(p, data);
 				p += XMM_SIZE;
