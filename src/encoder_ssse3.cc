@@ -9,6 +9,8 @@ ALIGN_32(__m128i _shufLUT[258]); // +2 for underflow guard entry
 __m128i* shufLUT = _shufLUT+2;
 ALIGN_32(__m128i shufMixLUT[256]);
 
+static uint16_t expandLUT[256];
+
 static const unsigned char* escapeLUT;
 static const uint16_t* escapedLUT;
 
@@ -68,6 +70,14 @@ static size_t do_encode_ssse3(int line_size, int* colOffset, const unsigned char
 				uint8_t m1 = mask & 0xFF;
 				uint8_t m2 = mask >> 8;
 				
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && 0
+				// TODO: will need to see if this is actually faster; vpexpand* is rather slow on SKX, even for 128b ops, so this could be slower
+				// on SKX, mask-shuffle is faster than expand, but requires loading shuffle masks, and ends up being slower than the SSSE3 method
+				data = _mm_mask_add_epi8(data, mask, data, _mm_set1_epi8(64));
+				__m128i data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m2], _mm_srli_si128(data, 8));
+				data = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m1], data);
+#else
+				
 				// perform lookup for shuffle mask
 				__m128i shufMA = _mm_load_si128(shufLUT + m1);
 				__m128i shufMB = _mm_load_si128(shufLUT + m2);
@@ -86,6 +96,7 @@ static size_t do_encode_ssse3(int line_size, int* colOffset, const unsigned char
 				__m128i shufMixMB = _mm_load_si128(shufMixLUT + m2);
 				data = _mm_add_epi8(data, shufMixMA);
 				data2 = _mm_add_epi8(data2, shufMixMB);
+#endif
 				// store out
 #if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
 				unsigned char shufALen = _mm_popcnt_u32(m1) + 8;
@@ -202,6 +213,7 @@ void encoder_ssse3_init(const unsigned char* _escapeLUT, const uint16_t* _escape
 	for(int i=0; i<256; i++) {
 		int k = i;
 		uint8_t res[16];
+		uint16_t expand = 0;
 		int p = 0;
 		for(int j=0; j<8; j++) {
 			if(k & 1) {
@@ -209,6 +221,7 @@ void encoder_ssse3_init(const unsigned char* _escapeLUT, const uint16_t* _escape
 				p++;
 			}
 			res[j+p] = j;
+			expand |= 1<<(j+p);
 			k >>= 1;
 		}
 		for(; p<8; p++)
@@ -216,6 +229,7 @@ void encoder_ssse3_init(const unsigned char* _escapeLUT, const uint16_t* _escape
 		
 		__m128i shuf = _mm_loadu_si128((__m128i*)res);
 		_mm_store_si128(shufLUT + i, shuf);
+		expandLUT[i] = expand;
 		
 		// calculate add mask for mixing escape chars in
 		__m128i maskEsc = _mm_cmpeq_epi8(_mm_and_si128(shuf, _mm_set1_epi8(0xf0)), _mm_set1_epi8(0xf0));
