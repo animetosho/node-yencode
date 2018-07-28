@@ -123,6 +123,7 @@ static size_t do_encode_generic(int line_size, int* colOffset, const unsigned ch
 
 size_t (*_do_encode)(int, int*, const unsigned char*, unsigned char*, size_t) = &do_encode_generic;
 
+void encoder_sse2_init(const unsigned char*, const uint16_t*);
 void encoder_ssse3_init(const unsigned char*, const uint16_t*);
 void encoder_neon_init(const unsigned char*, const uint16_t*);
 
@@ -147,6 +148,8 @@ void encoder_init() {
 #ifdef PLATFORM_X86
 	if((cpu_flags() & CPU_SHUFFLE_FLAGS) == CPU_SHUFFLE_FLAGS)
 		encoder_ssse3_init(escapeLUT, escapedLUT);
+	else
+		encoder_sse2_init(escapeLUT, escapedLUT);
 #endif
 #ifdef PLATFORM_ARM7
 	if(cpu_supports_neon())
