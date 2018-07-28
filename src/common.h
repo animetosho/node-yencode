@@ -191,6 +191,14 @@ static int cpu_flags() {
 	return flags;
 #endif
 }
+
+enum YEncDecIsaLevel {
+	ISA_LEVEL_SSE2,
+	ISA_LEVEL_SSSE3,
+	ISA_LEVEL_AVX,
+	ISA_LEVEL_AVX3,
+	ISA_LEVEL_VBMI2
+};
 #endif
 
 #ifdef __POPCNT__
