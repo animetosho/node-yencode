@@ -67,16 +67,17 @@ static size_t do_encode_ssse3(int line_size, int* colOffset, const unsigned char
 			
 			unsigned int mask = _mm_movemask_epi8(cmp);
 			if (mask != 0) { // seems to always be faster than _mm_test_all_zeros, possibly because http://stackoverflow.com/questions/34155897/simd-sse-how-to-check-that-all-vector-elements-are-non-zero#comment-62475316
+#ifdef __SSSE3__
 				uint8_t m1 = mask & 0xFF;
 				uint8_t m2 = mask >> 8;
 				
-#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && 0
+# if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && 0
 				// TODO: will need to see if this is actually faster; vpexpand* is rather slow on SKX, even for 128b ops, so this could be slower
 				// on SKX, mask-shuffle is faster than expand, but requires loading shuffle masks, and ends up being slower than the SSSE3 method
 				data = _mm_mask_add_epi8(data, mask, data, _mm_set1_epi8(64));
 				__m128i data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m2], _mm_srli_si128(data, 8));
 				data = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m1], data);
-#else
+# else
 				
 				// perform lookup for shuffle mask
 				__m128i shufMA = _mm_load_si128(shufLUT + m1);
@@ -96,15 +97,15 @@ static size_t do_encode_ssse3(int line_size, int* colOffset, const unsigned char
 				__m128i shufMixMB = _mm_load_si128(shufMixLUT + m2);
 				data = _mm_add_epi8(data, shufMixMA);
 				data2 = _mm_add_epi8(data2, shufMixMB);
-#endif
+# endif
 				// store out
-#if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
+# if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
 				unsigned char shufALen = _mm_popcnt_u32(m1) + 8;
 				unsigned char shufBLen = _mm_popcnt_u32(m2) + 8;
-#else
+# else
 				unsigned char shufALen = BitsSetTable256[m1] + 8;
 				unsigned char shufBLen = BitsSetTable256[m2] + 8;
-#endif
+# endif
 				STOREU_XMM(p, data);
 				p += shufALen;
 				STOREU_XMM(p, data2);
@@ -138,6 +139,45 @@ static size_t do_encode_ssse3(int line_size, int* colOffset, const unsigned char
 							goto last_char_fast;
 					}
 				}
+#else
+				unsigned char* sp = p;
+				ALIGN_32(uint32_t mmTmp[4]);
+				// special characters exist
+				_mm_store_si128((__m128i*)mmTmp, data);
+				#define DO_THING(n) \
+					c = es[i-XMM_SIZE+n], escaped = escapeLUT[c]; \
+					if (escaped) \
+						*(p+n) = escaped; \
+					else { \
+						memcpy(p+n, &escapedLUT[c], sizeof(uint16_t)); \
+						p++; \
+					}
+				#define DO_THING_4(n) \
+					if(mask & (0xF << n)) { \
+						DO_THING(n); \
+						DO_THING(n+1); \
+						DO_THING(n+2); \
+						DO_THING(n+3); \
+					} else { \
+						memcpy(p+n, &mmTmp[n>>2], sizeof(uint32_t)); \
+					}
+				DO_THING_4(0);
+				DO_THING_4(4);
+				DO_THING_4(8);
+				DO_THING_4(12);
+				p += XMM_SIZE;
+				col += (int)(p - sp);
+				
+				if(col > line_size-1) {
+					// TODO: consider revert optimisation from SSSE3 route
+					// we overflowed - need to revert and use slower method :(
+					col -= (int)(p - sp);
+					p = sp;
+					break;
+				}
+				#undef DO_THING_4
+				#undef DO_THING
+#endif
 			} else {
 				STOREU_XMM(p, data);
 				p += XMM_SIZE;
