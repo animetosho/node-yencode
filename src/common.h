@@ -191,6 +191,17 @@ static int cpu_flags() {
 	return flags;
 #endif
 }
+#ifdef _MSC_VER
+# if _MSC_VER >= 1600
+#  define _cpuidX __cpuidex
+# else
+// not supported
+#  define _cpuidX(ar, eax, ecx) ar[0]=0, ar[1]=0, ar[2]=0, ar[3]=0
+# endif
+#else
+# include <cpuid.h>
+# define _cpuidX(ar, eax, ecx) __cpuid_count(eax, ecx, ar[0], ar[1], ar[2], ar[3])
+#endif
 
 enum YEncDecIsaLevel {
 	ISA_LEVEL_SSE2,
@@ -199,12 +210,6 @@ enum YEncDecIsaLevel {
 	ISA_LEVEL_AVX3, // SKX variant; AVX512VL + AVX512BW
 	ISA_LEVEL_VBMI2 // ICL
 };
-#endif
-
-#ifdef __POPCNT__
-# define CPU_SHUFFLE_FLAGS 0x800200
-#else
-# define CPU_SHUFFLE_FLAGS 0x200
 #endif
 
 #include <string.h>

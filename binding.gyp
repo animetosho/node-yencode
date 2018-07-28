@@ -5,8 +5,8 @@
       "dependencies": ["crcutil"],
       "sources": [
         "src/yencode.cc",
-        "src/encoder.cc", "src/encoder_sse2.cc", "src/encoder_ssse3.cc", "src/encoder_neon.cc",
-        "src/decoder.cc", "src/decoder_sse2.cc", "src/decoder_ssse3.cc", "src/decoder_neon.cc",
+        "src/encoder.cc", "src/encoder_sse2.cc", "src/encoder_ssse3.cc", "src/encoder_avx.cc", "src/encoder_neon.cc",
+        "src/decoder.cc", "src/decoder_sse2.cc", "src/decoder_ssse3.cc", "src/decoder_avx.cc", "src/decoder_avx3.cc", "src/decoder_neon.cc",
         "src/crc.cc", "src/crc_arm.cc", "src/crc_folding.c"
       ],
       "conditions": [

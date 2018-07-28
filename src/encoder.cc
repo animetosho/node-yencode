@@ -125,6 +125,7 @@ size_t (*_do_encode)(int, int*, const unsigned char*, unsigned char*, size_t) = 
 
 void encoder_sse2_init(const unsigned char*, const uint16_t*);
 void encoder_ssse3_init(const unsigned char*, const uint16_t*);
+void encoder_avx_init(const unsigned char*, const uint16_t*);
 void encoder_neon_init(const unsigned char*, const uint16_t*);
 
 void encoder_init() {
@@ -146,9 +147,12 @@ void encoder_init() {
 	escapedLUT['.' - 42	] =  UINT16_PACK('=', '.'+64);
 	
 #ifdef PLATFORM_X86
-	if((cpu_flags() & CPU_SHUFFLE_FLAGS) == CPU_SHUFFLE_FLAGS)
-		encoder_ssse3_init(escapeLUT, escapedLUT);
-	else
+	if((cpu_flags() & 0x200) == 0x200) {
+		if((cpu_flags() & 0x10800000) == 0x10800000) // POPCNT + AVX
+			encoder_avx_init(escapeLUT, escapedLUT);
+		else
+			encoder_ssse3_init(escapeLUT, escapedLUT);
+	} else
 		encoder_sse2_init(escapeLUT, escapedLUT);
 #endif
 #ifdef PLATFORM_ARM7
