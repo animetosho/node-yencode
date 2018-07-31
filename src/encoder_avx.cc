@@ -12,8 +12,8 @@ void encoder_avx_init(const unsigned char* _escapeLUT, const uint16_t* _escapedL
 }
 #else
 void encoder_ssse3_init(const unsigned char*, const uint16_t*);
-void encoder_avx_init(const unsigned char*, const uint16_t*) {
-	encoder_ssse3_init();
+void encoder_avx_init(const unsigned char* _escapeLUT, const uint16_t* _escapedLUT) {
+	encoder_ssse3_init(_escapeLUT, _escapedLUT);
 }
 #endif
 

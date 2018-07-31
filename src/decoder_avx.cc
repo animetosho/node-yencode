@@ -1,6 +1,6 @@
+#include "common.h"
 
 #if defined(__AVX__) && defined(__POPCNT__)
-#include "common.h"
 #include "decoder_sse_base.h"
 #include "decoder_common.h"
 void decoder_set_avx_funcs() {

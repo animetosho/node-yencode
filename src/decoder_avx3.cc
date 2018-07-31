@@ -1,6 +1,6 @@
+#include "common.h"
 
 #if defined(__AVX512BW__) && defined(__AVX512VL__)
-#include "common.h"
 #include "decoder_sse_base.h"
 #include "decoder_common.h"
 void decoder_set_avx3_funcs() {

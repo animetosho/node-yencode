@@ -34,7 +34,7 @@
 	#define __SSSE3__ 1
 	//#define __SSE4_1__ 1
 	#if defined(_MSC_VER) && _MSC_VER >= 1600
-		#define X86_PCLMULQDQ_CRC 1
+		#define __POPCNT__ 1
 	#endif
 	#if !defined(__AVX2__) && (_MSC_VER >= 1800 && defined(__SSE2__))
 		#define __AVX2__ 1
@@ -63,11 +63,6 @@
 #include <intrin.h>
 #endif
 
-#ifdef PLATFORM_X86
-#if !defined(X86_PCLMULQDQ_CRC) && defined(__PCLMUL__) && defined(__SSSE3__) && defined(__SSE4_1__)
-	#define X86_PCLMULQDQ_CRC 1
-#endif
-#endif
 
 // combine two 8-bit ints into a 16-bit one
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__

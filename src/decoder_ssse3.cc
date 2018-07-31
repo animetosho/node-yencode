@@ -1,6 +1,6 @@
+#include "common.h"
 
 #ifdef __SSSE3__
-#include "common.h"
 #include "decoder_sse_base.h"
 #include "decoder_common.h"
 void decoder_set_ssse3_funcs() {

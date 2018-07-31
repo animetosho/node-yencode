@@ -17,7 +17,7 @@
  * For conditions of distribution and use, see copyright notice in zlib.h
  */
 
-
+ 
 #if !defined(_MSC_VER) || defined(_STDINT) || _MSC_VER >= 1900
 # include <stdint.h>
 #else
@@ -25,7 +25,7 @@
 # include <v8.h>
 #endif
 
-#ifdef X86_PCLMULQDQ_CRC
+#if (defined(__PCLMUL__) && defined(__SSSE3__) && defined(__SSE4_1__)) || (defined(_MSC_VER) && _MSC_VER >= 1600)
 #include <inttypes.h>
 #include <immintrin.h>
 #include <wmmintrin.h>
