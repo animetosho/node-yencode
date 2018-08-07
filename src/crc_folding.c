@@ -30,6 +30,10 @@
 #include <immintrin.h>
 #include <wmmintrin.h>
 
+#if defined(__AVX512VL__) || defined(__GFNI__)
+#include <immintrin.h>
+#endif
+
 #define local static
 
 #ifdef _MSC_VER
@@ -39,10 +43,29 @@
 #endif
 
 
+// interestingly, MSVC seems to generate better code if using VXORPS over VPXOR
+// original Intel code uses XORPS for many XOR operations, but PXOR is pretty much always better (more port freedom on Intel CPUs). The only advantage of XORPS is that it's 1 byte shorter, an advantage which disappears under AVX as both instructions have the same length
+#ifdef __AVX__
+# define fold_xor _mm_xor_si128
+#else
 local __m128i fold_xor(__m128i a, __m128i b) {
 	return _mm_castps_si128(_mm_xor_ps(_mm_castsi128_ps(a), _mm_castsi128_ps(b)));
 }
+#endif
 
+#ifdef __AVX512VL__
+local __m128i do_one_fold_merge(__m128i src, __m128i data) {
+    const __m128i xmm_fold4 = _mm_set_epi32(
+            0x00000001, 0x54442bd4,
+            0x00000001, 0xc6e41596);
+    return _mm_ternarylogic_epi32(
+      _mm_clmulepi64_si128(src, xmm_fold4, 0x01),
+      _mm_clmulepi64_si128(src, xmm_fold4, 0x10),
+      data,
+      0x96
+    );
+}
+#else
 local __m128i do_one_fold(__m128i src) {
     const __m128i xmm_fold4 = _mm_set_epi32(
             0x00000001, 0x54442bd4,
@@ -52,6 +75,7 @@ local __m128i do_one_fold(__m128i src) {
       _mm_clmulepi64_si128(src, xmm_fold4, 0x10)
     );
 }
+#endif
 
 ALIGN(32, local const unsigned  pshufb_shf_table[60]) = {
     0x84838281, 0x88878685, 0x8c8b8a89, 0x008f8e8d, /* shl 15 (16 - 1)/shr1 */
@@ -74,13 +98,10 @@ ALIGN(32, local const unsigned  pshufb_shf_table[60]) = {
 local void partial_fold(const size_t len, __m128i *xmm_crc0, __m128i *xmm_crc1,
         __m128i *xmm_crc2, __m128i *xmm_crc3, __m128i *xmm_crc_part) {
 
-    const __m128i xmm_fold4 = _mm_set_epi32(
-            0x00000001, 0x54442bd4,
-            0x00000001, 0xc6e41596);
     const __m128i xmm_mask3 = _mm_set1_epi32(0x80808080);
 
     __m128i xmm_shl, xmm_shr, xmm_tmp1, xmm_tmp2, xmm_tmp3;
-    __m128i xmm_a0_0, xmm_a0_1;
+    __m128i xmm_a0_0;
 
     xmm_shl = _mm_load_si128((__m128i *)pshufb_shf_table + (len - 1));
     xmm_shr = xmm_shl;
@@ -104,13 +125,14 @@ local void partial_fold(const size_t len, __m128i *xmm_crc0, __m128i *xmm_crc1,
     *xmm_crc_part = _mm_shuffle_epi8(*xmm_crc_part, xmm_shl);
     *xmm_crc3 = _mm_or_si128(*xmm_crc3, *xmm_crc_part);
 
-    xmm_a0_1 = _mm_clmulepi64_si128(xmm_a0_0, xmm_fold4, 0x10);
-    xmm_a0_0 = _mm_clmulepi64_si128(xmm_a0_0, xmm_fold4, 0x01);
-
+#ifdef __AVX512VL__
+    *xmm_crc3 = do_one_fold_merge(xmm_a0_0, *xmm_crc3);
+#else
     *xmm_crc3 = fold_xor(
-      fold_xor(*xmm_crc3, xmm_a0_0),
-      xmm_a0_1
+      do_one_fold(xmm_a0_0),
+      *xmm_crc3
     );
+#endif
 }
 
 ALIGN(16, local const unsigned crc_k[]) = {
@@ -131,6 +153,12 @@ ALIGN(16, local const unsigned crc_mask2[4]) = {
 };
 
 local __m128i reverse_bits_epi8(__m128i src) {
+#ifdef __GFNI__
+    return _mm_gf2p8affine_epi64_epi8(src, _mm_set_epi32(
+      0x80402010, 0x08040201,
+      0x80402010, 0x08040201
+    ), 0);
+#else
     __m128i xmm_t0 = _mm_and_si128(src, _mm_set1_epi8(0x0f));
     __m128i xmm_t1 = _mm_and_si128(_mm_srli_epi16(src, 4), _mm_set1_epi8(0x0f));
     xmm_t0 = _mm_shuffle_epi8(_mm_set_epi8(
@@ -140,6 +168,7 @@ local __m128i reverse_bits_epi8(__m128i src) {
       15, 7, 11, 3, 13, 5, 9, 1, 14, 6, 10, 2, 12, 4, 8, 0
     ), xmm_t1);
     return _mm_or_si128(xmm_t0, xmm_t1);
+#endif
 }
 
 #ifdef _MSC_VER
@@ -204,6 +233,12 @@ uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
         xmm_t2 = _mm_load_si128((__m128i *)src + 2);
         xmm_t3 = _mm_load_si128((__m128i *)src + 3);
 
+#ifdef __AVX512VL__
+        xmm_crc0 = do_one_fold_merge(xmm_crc0, xmm_t0);
+        xmm_crc1 = do_one_fold_merge(xmm_crc1, xmm_t1);
+        xmm_crc2 = do_one_fold_merge(xmm_crc2, xmm_t2);
+        xmm_crc3 = do_one_fold_merge(xmm_crc3, xmm_t3);
+#else
         // nesting do_one_fold() in _mm_xor_si128() seems to cause MSVC to generate horrible code, so separate it out
         xmm_crc0 = do_one_fold(xmm_crc0);
         xmm_crc1 = do_one_fold(xmm_crc1);
@@ -213,6 +248,7 @@ uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
         xmm_crc1 = _mm_xor_si128(xmm_crc1, xmm_t1);
         xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_t2);
         xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t3);
+#endif
 
         src += 64;
     }
@@ -228,12 +264,18 @@ uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
         xmm_t2 = _mm_load_si128((__m128i *)src + 2);
 
         xmm_t3 = xmm_crc3;
+#ifdef __AVX512VL__
+        xmm_crc3 = do_one_fold_merge(xmm_crc2, xmm_t2);
+        xmm_crc2 = do_one_fold_merge(xmm_crc1, xmm_t1);
+        xmm_crc1 = do_one_fold_merge(xmm_crc0, xmm_t0);
+#else
         xmm_crc3 = do_one_fold(xmm_crc2);
         xmm_crc2 = do_one_fold(xmm_crc1);
         xmm_crc1 = do_one_fold(xmm_crc0);
         xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t2);
         xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_t1);
         xmm_crc1 = _mm_xor_si128(xmm_crc1, xmm_t0);
+#endif
         xmm_crc0 = xmm_t3;
 
         if (len == 0)
@@ -248,10 +290,15 @@ uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
 
         xmm_t2 = xmm_crc2;
         xmm_t3 = xmm_crc3;
+#ifdef __AVX512VL__
+        xmm_crc3 = do_one_fold_merge(xmm_crc1, xmm_t1);
+        xmm_crc2 = do_one_fold_merge(xmm_crc0, xmm_t0);
+#else
         xmm_crc3 = do_one_fold(xmm_crc1);
         xmm_crc2 = do_one_fold(xmm_crc0);
         xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t1);
         xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_t0);
+#endif
         xmm_crc1 = xmm_t3;
         xmm_crc0 = xmm_t2;
 
@@ -265,7 +312,11 @@ uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
         xmm_t0 = _mm_load_si128((__m128i *)src);
 
         xmm_t3 = xmm_crc3;
+#ifdef __AVX512VL__
+        xmm_crc3 = do_one_fold_merge(xmm_crc0, xmm_t0);
+#else
         xmm_crc3 = _mm_xor_si128(do_one_fold(xmm_crc0), xmm_t0);
+#endif
         xmm_crc0 = xmm_crc1;
         xmm_crc1 = xmm_crc2;
         xmm_crc2 = xmm_t3;
@@ -288,8 +339,6 @@ done:
 {
     const __m128i xmm_mask  = _mm_load_si128((__m128i *)crc_mask);
     const __m128i xmm_mask2 = _mm_load_si128((__m128i *)crc_mask2);
-
-    uint32_t crc;
     __m128i x_tmp0, x_tmp1, x_tmp2, crc_fold;
 
     /*
@@ -299,18 +348,30 @@ done:
 
     x_tmp0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x10);
     xmm_crc0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x01);
+#ifdef __AVX512VL__
+    xmm_crc1 = _mm_ternarylogic_epi32(xmm_crc1, x_tmp0, xmm_crc0, 0x96);
+#else
     xmm_crc1 = _mm_xor_si128(xmm_crc1, x_tmp0);
     xmm_crc1 = _mm_xor_si128(xmm_crc1, xmm_crc0);
+#endif
 
     x_tmp1 = _mm_clmulepi64_si128(xmm_crc1, crc_fold, 0x10);
     xmm_crc1 = _mm_clmulepi64_si128(xmm_crc1, crc_fold, 0x01);
+#ifdef __AVX512VL__
+    xmm_crc2 = _mm_ternarylogic_epi32(xmm_crc2, x_tmp1, xmm_crc1, 0x96);
+#else
     xmm_crc2 = _mm_xor_si128(xmm_crc2, x_tmp1);
     xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_crc1);
+#endif
 
     x_tmp2 = _mm_clmulepi64_si128(xmm_crc2, crc_fold, 0x10);
     xmm_crc2 = _mm_clmulepi64_si128(xmm_crc2, crc_fold, 0x01);
+#ifdef __AVX512VL__
+    xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, x_tmp2, xmm_crc2, 0x96);
+#else
     xmm_crc3 = _mm_xor_si128(xmm_crc3, x_tmp2);
     xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
+#endif
 
     /*
      * k5
@@ -325,8 +386,13 @@ done:
     xmm_crc0 = xmm_crc3;
     xmm_crc3 = _mm_slli_si128(xmm_crc3, 4);
     xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0x10);
+#ifdef __AVX512VL__
+    //xmm_crc3 = _mm_maskz_xor_epi32(14, xmm_crc3, xmm_crc0);
+    xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, xmm_crc0, xmm_mask2, 0x28);
+#else
     xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc0);
     xmm_crc3 = _mm_and_si128(xmm_crc3, xmm_mask2);
+#endif
 
     /*
      * k7
@@ -336,16 +402,24 @@ done:
     crc_fold = _mm_load_si128((__m128i *)crc_k + 2);
 
     xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0);
+#ifdef __AVX512VL__
+    //xmm_crc3 = _mm_maskz_xor_epi32(3, xmm_crc3, xmm_crc2);
+    xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, xmm_crc2, xmm_mask, 0x28);
+#else
     xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
     xmm_crc3 = _mm_and_si128(xmm_crc3, xmm_mask);
+#endif
 
     xmm_crc2 = xmm_crc3;
     xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0x10);
+#ifdef __AVX512VL__
+    xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, xmm_crc2, xmm_crc1, 0x69); // NOT(double-XOR)
+    return _mm_extract_epi32(xmm_crc3, 2);
+#else
     xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
     xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc1);
-
-    crc = _mm_extract_epi32(xmm_crc3, 2);
-    return ~crc;
+    return ~_mm_extract_epi32(xmm_crc3, 2);
+#endif
 }
 
 }
