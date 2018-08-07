@@ -38,19 +38,18 @@
 	#if defined(_MSC_VER) && _MSC_VER >= 1600
 		#define __POPCNT__ 1
 	#endif
-	#if !defined(__AVX2__) && (_MSC_VER >= 1800 && defined(__SSE2__))
-		#define __AVX2__ 1
+	#if !defined(__AVX__) && (_MSC_VER >= 1700 && defined(__SSE2__))
+		#define __AVX__ 1
 	#endif
-	/* since we don't have dynamic dispatch for AVX512, don't enable it for now */
 	/* AVX512 requires VS 15.3 */
-	/*#if !defined(__AVX512F__) && (_MSC_VER >= 1911 && defined(__AVX2__))
+	#if !defined(__AVX512F__) && (_MSC_VER >= 1911 && defined(__AVX__))
 		#define __AVX512BW__ 1
 		#define __AVX512F__ 1
-	#endif*/
+	#endif
 	/* AVX512VL not available until VS 15.5 */
-	/*#if defined(__AVX512F__) && _MSC_VER >= 1912
+	#if defined(__AVX512F__) && _MSC_VER >= 1912
 		#define __AVX512VL__ 1
-	#endif*/
+	#endif
 #endif
 #if defined(_M_ARM64)
 	#define __aarch64__ 1
@@ -84,14 +83,11 @@
 #ifdef __SSSE3__
 #include <tmmintrin.h>
 #endif
-#ifdef __SSE4_1__
-#include <smmintrin.h>
-#endif
 #ifdef __POPCNT__
 #include <nmmintrin.h>
 #endif
 
-#if defined(__AVX2__) || defined(__AVX512F__)
+#if defined(__AVX512F__)
 #include <immintrin.h>
 #endif
 

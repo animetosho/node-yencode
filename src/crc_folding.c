@@ -31,16 +31,17 @@
 #include <immintrin.h>
 #include <wmmintrin.h>
 
-#if defined(__AVX512VL__) || defined(__GFNI__)
-#include <immintrin.h>
-#endif
-
 #define local static
 
 #ifdef _MSC_VER
-#define ALIGN(_a, v) __declspec(align(_a)) v
+# define ALIGN(_a, v) __declspec(align(_a)) v
+/* Because we don't have dynamic dispatch for AVX, disable it for MSVC builds (only use AVX for -march=native style builds) */
+# undef __AVX__
+# undef __AVX512F__
+# undef __AVX512VL__
+# undef __GFNI__
 #else
-#define ALIGN(_a, v) v __attribute__((aligned(_a)))
+# define ALIGN(_a, v) v __attribute__((aligned(_a)))
 #endif
 
 
