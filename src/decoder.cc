@@ -33,7 +33,7 @@ void decoder_init() {
 	} else
 		decoder_set_sse2_funcs();
 #endif
-#ifdef PLATFORM_ARM7
+#ifdef PLATFORM_ARM
 	if(cpu_supports_neon())
 		decoder_set_neon_funcs();
 #endif

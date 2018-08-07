@@ -67,7 +67,7 @@ void crc_init() {
 	if((cpu_flags() & 0x80202) == 0x80202) // SSE4.1 + SSSE3 + CLMUL
 		crc_clmul_set_funcs(&_do_crc32, &_do_crc32_incremental);
 #endif
-#ifdef PLATFORM_ARM7
+#ifdef PLATFORM_ARM
 	if(
 # if defined(AT_HWCAP2) && defined(HWCAP2_CRC32)
 		getauxval(AT_HWCAP2) & HWCAP2_CRC32

@@ -155,7 +155,7 @@ void encoder_init() {
 	} else
 		encoder_sse2_init(escapeLUT, escapedLUT);
 #endif
-#ifdef PLATFORM_ARM7
+#ifdef PLATFORM_ARM
 	if(cpu_supports_neon())
 		encoder_neon_init(escapeLUT, escapedLUT);
 #endif

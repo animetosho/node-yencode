@@ -18,13 +18,15 @@
 #endif
 #if defined(__aarch64__) || \
     defined(__armv7__  ) || \
+    defined(__arm__    ) || \
     defined(_M_ARM64   ) || \
     defined(_M_ARM     ) || \
+    defined(__ARM_ARCH_6__ ) || \
     defined(__ARM_ARCH_7__ ) || \
     defined(__ARM_ARCH_7A__) || \
     defined(__ARM_ARCH_8A__) || \
-    (defined(__ARM_ARCH    ) && __ARM_ARCH >= 7)
-	#define PLATFORM_ARM7 1 // ARMv7+, i.e. possible NEON/CRC support
+    (defined(__ARM_ARCH    ) && __ARM_ARCH >= 6)
+	#define PLATFORM_ARM 1
 #endif
 
 
@@ -122,7 +124,7 @@ static uint16_t neon_movemask(uint8x16_t in) {
 }
 #endif
 
-#ifdef PLATFORM_ARM7
+#ifdef PLATFORM_ARM
 # ifdef __ANDROID__
 #  include <cpu-features.h>
 # elif defined(__linux__)
