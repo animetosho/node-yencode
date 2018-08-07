@@ -6,3 +6,6 @@
 	arr[2] = (unsigned char)(val >>  8) & 0xFF; \
 	arr[3] = (unsigned char)val & 0xFF; \
 }
+
+#include <stddef.h> // for size_t
+typedef void (*crc_func)(const void*, size_t, unsigned char[4]);

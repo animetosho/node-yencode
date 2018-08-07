@@ -17,6 +17,7 @@
  * For conditions of distribution and use, see copyright notice in zlib.h
  */
 
+#include "crc_common.h"
  
 #if !defined(_MSC_VER) || defined(_STDINT) || _MSC_VER >= 1900
 # include <stdint.h>
@@ -179,7 +180,7 @@ local __m128i reverse_bits_epi8(__m128i src) {
 # define BSWAP32(n) ((((n)&0xff)<<24) | (((n)&0xff00)<<8) | (((n)&0xff0000)>>8) | (((n)&0xff000000)>>24))
 #endif
 
-uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
+local uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
     unsigned long algn_diff;
     __m128i xmm_t0, xmm_t1, xmm_t2, xmm_t3;
 
@@ -423,7 +424,21 @@ done:
 }
 
 }
+
+static void do_crc32_clmul(const void* data, size_t length, unsigned char out[4]) {
+	uint32_t tmp = crc_fold((const unsigned char*)data, (long)length, 0);
+	UNPACK_4(out, tmp);
+}
+static void do_crc32_incremental_clmul(const void* data, size_t length, unsigned char init[4]) {
+	uint32_t tmp = crc_fold((const unsigned char*)data, (long)length, PACK_4(init));
+	UNPACK_4(init, tmp);
+}
+
+void crc_clmul_set_funcs(crc_func* _do_crc32, crc_func* _do_crc32_incremental) {
+	*_do_crc32 = &do_crc32_clmul;
+	*_do_crc32_incremental = &do_crc32_incremental_clmul;
+}
 #else
-uint32_t crc_fold(const unsigned char *src, long len) {return 0;}
+void crc_clmul_set_funcs(crc_func* _do_crc32, crc_func* _do_crc32_incremental) {}
 #endif
 

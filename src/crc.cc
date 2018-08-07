@@ -7,20 +7,6 @@ crcutil_interface::CRC* crc = NULL;
 
 crcutil_interface::CRC* crcI = NULL;
 
-// CLMUL method
-extern "C" {
-	uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial);
-}
-static void do_crc32_clmul(const void* data, size_t length, unsigned char out[4]) {
-	uint32_t tmp = crc_fold((const unsigned char*)data, (long)length, 0);
-	UNPACK_4(out, tmp);
-}
-static void do_crc32_incremental_clmul(const void* data, size_t length, unsigned char init[4]) {
-	uint32_t tmp = crc_fold((const unsigned char*)data, (long)length, PACK_4(init));
-	UNPACK_4(init, tmp);
-}
-
-
 
 
 static void do_crc32_generic(const void* data, size_t length, unsigned char out[4]) {
@@ -33,7 +19,7 @@ static void do_crc32_generic(const void* data, size_t length, unsigned char out[
 	crc->Compute(data, length, &tmp);
 	UNPACK_4(out, tmp);
 }
-void (*_do_crc32)(const void*, size_t, unsigned char[4]) = &do_crc32_generic;
+crc_func _do_crc32 = &do_crc32_generic;
 
 static void do_crc32_incremental_generic(const void* data, size_t length, unsigned char init[4]) {
 	if(!crcI) {
@@ -47,7 +33,7 @@ static void do_crc32_incremental_generic(const void* data, size_t length, unsign
 	tmp ^= 0xffffffff;
 	UNPACK_4(init, tmp);
 }
-void (*_do_crc32_incremental)(const void*, size_t, unsigned char[4]) = &do_crc32_incremental_generic;
+crc_func _do_crc32_incremental = &do_crc32_incremental_generic;
 
 
 
@@ -73,15 +59,13 @@ void do_crc32_zeros(unsigned char crc1[4], size_t len) {
 	UNPACK_4(crc1, crc_);
 }
 
-void crc_arm_set_funcs();
+extern "C" void crc_clmul_set_funcs(crc_func*, crc_func*);
+void crc_arm_set_funcs(crc_func*, crc_func*);
 
 void crc_init() {
 #ifdef PLATFORM_X86
-	if((cpu_flags() & 0x80202) == 0x80202) { // SSE4.1 + SSSE3 + CLMUL
-		// TODO: consider splitting this off into crc_folding.c ? (this is only useful for very old compilers which don't support these features though)
-		_do_crc32 = &do_crc32_clmul;
-		_do_crc32_incremental = &do_crc32_incremental_clmul;
-	}
+	if((cpu_flags() & 0x80202) == 0x80202) // SSE4.1 + SSSE3 + CLMUL
+		crc_clmul_set_funcs(&_do_crc32, &_do_crc32_incremental);
 #endif
 #ifdef PLATFORM_ARM7
 	if(
@@ -98,7 +82,7 @@ void crc_init() {
 		false
 # endif
 	) {
-		crc_arm_set_funcs();
+		crc_arm_set_funcs(&_do_crc32, &_do_crc32_incremental);
 	}
 #endif
 }

@@ -1,7 +1,7 @@
 #include "common.h"
+#include "crc_common.h"
 
 #if defined(__ARM_FEATURE_CRC32) || defined(_M_ARM64) /* TODO: AArch32 for MSVC? */
-#include "crc_common.h"
 
 /* ARMv8 accelerated CRC */
 #ifdef _MSC_VER
@@ -68,11 +68,10 @@ static void do_crc32_incremental_arm(const void* data, size_t length, unsigned c
 	UNPACK_4(init, ~crc);
 }
 
-#include "crc.h"
-void crc_arm_set_funcs() {
-	_do_crc32 = &do_crc32_arm;
-	_do_crc32_incremental = &do_crc32_incremental_arm;
+void crc_arm_set_funcs(crc_func* _do_crc32, crc_func* _do_crc32_incremental) {
+	*_do_crc32 = &do_crc32_arm;
+	*_do_crc32_incremental = &do_crc32_incremental_arm;
 }
 #else
-void crc_arm_set_funcs() {}
+void crc_arm_set_funcs(crc_func* _do_crc32, crc_func* _do_crc32_incremental) {}
 #endif
