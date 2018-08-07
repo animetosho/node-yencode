@@ -9,24 +9,15 @@ crcutil_interface::CRC* crcI = NULL;
 
 // CLMUL method
 extern "C" {
-	uint32_t crc_fold(const unsigned char *src, long len);
+	uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial);
 }
 static void do_crc32_clmul(const void* data, size_t length, unsigned char out[4]) {
-	uint32_t tmp = crc_fold((const unsigned char*)data, (long)length);
+	uint32_t tmp = crc_fold((const unsigned char*)data, (long)length, 0);
 	UNPACK_4(out, tmp);
 }
 static void do_crc32_incremental_clmul(const void* data, size_t length, unsigned char init[4]) {
-	if(!crcI) {
-		crcI = crcutil_interface::CRC::Create(
-			0xEDB88320, 0, 32, false, 0, 0, 0, 0, NULL);
-		// instance never deleted... oh well...
-	}
-	
-	// TODO: think of a nicer way to do this than a combine
-	crcutil_interface::UINT64 crc1_ = PACK_4(init);
-	crcutil_interface::UINT64 crc2_ = crc_fold((const unsigned char*)data, (long)length);
-	crcI->Concatenate(crc2_, 0, length, &crc1_);
-	UNPACK_4(init, crc1_);
+	uint32_t tmp = crc_fold((const unsigned char*)data, (long)length, PACK_4(init));
+	UNPACK_4(init, tmp);
 }
 
 
