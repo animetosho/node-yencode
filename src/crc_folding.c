@@ -204,10 +204,15 @@ uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
         xmm_t2 = _mm_load_si128((__m128i *)src + 2);
         xmm_t3 = _mm_load_si128((__m128i *)src + 3);
 
-        xmm_crc0 = _mm_xor_si128(do_one_fold(xmm_crc0), xmm_t0);
-        xmm_crc1 = _mm_xor_si128(do_one_fold(xmm_crc1), xmm_t1);
-        xmm_crc2 = _mm_xor_si128(do_one_fold(xmm_crc2), xmm_t2);
-        xmm_crc3 = _mm_xor_si128(do_one_fold(xmm_crc3), xmm_t3);
+        // nesting do_one_fold() in _mm_xor_si128() seems to cause MSVC to generate horrible code, so separate it out
+        xmm_crc0 = do_one_fold(xmm_crc0);
+        xmm_crc1 = do_one_fold(xmm_crc1);
+        xmm_crc2 = do_one_fold(xmm_crc2);
+        xmm_crc3 = do_one_fold(xmm_crc3);
+        xmm_crc0 = _mm_xor_si128(xmm_crc0, xmm_t0);
+        xmm_crc1 = _mm_xor_si128(xmm_crc1, xmm_t1);
+        xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_t2);
+        xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t3);
 
         src += 64;
     }
@@ -223,9 +228,12 @@ uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
         xmm_t2 = _mm_load_si128((__m128i *)src + 2);
 
         xmm_t3 = xmm_crc3;
-        xmm_crc3 = _mm_xor_si128(do_one_fold(xmm_crc2), xmm_t2);
-        xmm_crc2 = _mm_xor_si128(do_one_fold(xmm_crc1), xmm_t1);
-        xmm_crc1 = _mm_xor_si128(do_one_fold(xmm_crc0), xmm_t0);
+        xmm_crc3 = do_one_fold(xmm_crc2);
+        xmm_crc2 = do_one_fold(xmm_crc1);
+        xmm_crc1 = do_one_fold(xmm_crc0);
+        xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t2);
+        xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_t1);
+        xmm_crc1 = _mm_xor_si128(xmm_crc1, xmm_t0);
         xmm_crc0 = xmm_t3;
 
         if (len == 0)
@@ -240,8 +248,10 @@ uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
 
         xmm_t2 = xmm_crc2;
         xmm_t3 = xmm_crc3;
-        xmm_crc3 = _mm_xor_si128(do_one_fold(xmm_crc1), xmm_t1);
-        xmm_crc2 = _mm_xor_si128(do_one_fold(xmm_crc0), xmm_t0);
+        xmm_crc3 = do_one_fold(xmm_crc1);
+        xmm_crc2 = do_one_fold(xmm_crc0);
+        xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_t1);
+        xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_t0);
         xmm_crc1 = xmm_t3;
         xmm_crc0 = xmm_t2;
 
