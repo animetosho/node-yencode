@@ -1,21 +1,24 @@
 This module provides a very fast (non-JS) compiled implementation of
 [yEnc](http://www.yenc.org/yenc-draft.1.3.txt) and CRC32 hash calculation for
-node.js. It's mainly optimised for x86/ARM processors, and will use SIMD
-operations if available.
+node.js. The implementations are optimised for speed, and can optionally use
+x86/ARM SIMD optimised routines if available.
 
 This module should be *significantly* faster than pure Javascript versions.
 
 Supports:
 ---------
 
--   fast raw yEnc encoding and the ability to specify line length. Optimised to
-    use SSE2 and SSSE3, or NEON, if available - a single thread can achieve
-    \>500MB/s on a low power Atom CPU, or \>3GB/s on a Core-i series CPU.
+-   fast raw yEnc encoding and the ability to specify line length. A single
+    thread can achieve \>500MB/s on a low power Atom CPU, or \>3GB/s on a Core-i
+    series CPU.
 
--   fast yEnc decoding, with and without NNTP layer dot unstuffing. Will also
-    use SSE2 and SSSE3, or NEON, if available. (algorithm internally also
-    supports stopping on end markers, but not exposed via node) Can achieve
-    \>2GB/s on one thread on a modern Intel CPU.
+-   fast yEnc decoding, with and without NNTP layer dot unstuffing. (algorithm
+    internally also supports stopping on end markers, but not exposed via node)
+    Can achieve \>2GB/s on one thread on a modern Intel CPU.
+
+-   SIMD optimised encoding and decoding routines, which can use ARM NEON or the
+    following x86 CPU features when available (with dynamic dispatch): SSE2,
+    SSSE3, AVX, AVX512BW (128-bit), VBMI2
 
 -   full yEnc encoding for single and multi-part posts, according to the
     [version 1.3 specifications](http://www.yenc.org/yenc-draft.1.3.txt)
@@ -52,10 +55,28 @@ Note, Windows builds are always compiled with SSE2 support. If you can’t have
 this, delete all instances of `"msvs_settings": {"VCCLCompilerTool":
 {"EnableEnhancedInstructionSet": "2"}},` in *binding.gyp* before compiling.
 
-Some versions of GCC/Clang don't like the `-march=native` switch. If you're
-having build issues with these compilers, try removing all instances of
-`"-march=native",` from *binding.gyp* and recompiling. Note that some CPU
-specific optimisations may not be enabled if the flag is removed.
+Some versions of GCC/Clang don't like the `-march=native` switch. If you're such
+having build issues, see the following section.
+
+Redistributable Builds
+----------------------
+
+By default, non-Windows builds are built with `-march=native` flag, which means
+that the compiler will optimise the build for the CPU of the build machine. If
+you’re looking to run built binaries elsewhere, this may be undesirable. To make
+builds redistributable, try removing all instances of `"-march=native",` from
+*binding.gyp* and recompiling.
+
+Windows builds are redistributable by default.
+
+Older Compilers
+---------------
+
+Unfortunately node-gyp doesn’t provide much in the way of compiler version
+detection. As such, the build script assumes the compiler isn’t too old and
+supports AVX. If you are trying to build using an older compiler (such as Visual
+Studio 2008), you may need to edit *binding.gyp* to remove AVX related options,
+such as `-mavx`, `-mpopcnt` and `"EnableEnhancedInstructionSet": "3"`
 
 API
 ===

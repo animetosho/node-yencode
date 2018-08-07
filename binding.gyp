@@ -1,48 +1,146 @@
 {
+  "target_defaults": {
+    "conditions": [
+      ['target_arch=="ia32"', {
+        "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
+      }]
+    ],
+    "cflags": ["-march=native", "-O3", "-Wno-unused-function"],
+    "cxxflags": ["-march=native", "-O3", "-Wno-unused-function"],
+    "xcode_settings": {
+      "OTHER_CFLAGS": ["-march=native", "-O3", "-Wno-unused-function"],
+      "OTHER_CXXFLAGS": ["-march=native", "-O3", "-Wno-unused-function"]
+    }
+  },
   "targets": [
     {
       "target_name": "yencode",
-      "dependencies": ["crcutil"],
+      "dependencies": ["crcutil", "yencode_ssse3", "yencode_clmul", "yencode_avx", "yencode_avx3", "yencode_neon", "yencode_armcrc"],
       "sources": [
         "src/yencode.cc",
-        "src/encoder.cc", "src/encoder_sse2.cc", "src/encoder_ssse3.cc", "src/encoder_avx.cc", "src/encoder_neon.cc",
-        "src/decoder.cc", "src/decoder_sse2.cc", "src/decoder_ssse3.cc", "src/decoder_avx.cc", "src/decoder_avx3.cc", "src/decoder_neon.cc",
-        "src/crc.cc", "src/crc_arm.cc", "src/crc_folding.c"
+        "src/encoder.cc", "src/encoder_sse2.cc",
+        "src/decoder.cc", "src/decoder_sse2.cc",
+        "src/crc.cc"
+      ],
+      "include_dirs": ["crcutil-1.0/code","crcutil-1.0/examples"]
+    },
+    {
+      "target_name": "yencode_ssse3",
+      "type": "static_library",
+      "sources": [
+        "src/encoder_ssse3.cc",
+        "src/decoder_ssse3.cc"
       ],
       "conditions": [
-        ['OS=="win"', {
-          "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
-        }, {
-          "cflags": ["-march=native", "-O3", "-Wno-unused-function"],
-          "cxxflags": ["-march=native", "-O3", "-Wno-unused-function"]
-        }],
-        ['OS in "linux android" and target_arch in "arm arm64"', {
-          "variables": {
-            "has_neon%": "<!(grep -e ' neon ' /proc/cpuinfo || true)",
-            "has_crc%": "<!(grep -e ' crc32 ' /proc/cpuinfo || true)",
-            "has_cpuid%": "<!(grep -e ' cpuid' /proc/cpuinfo || true)"
-          },
+        ['target_arch in "ia32 x64"', {
+          "cflags": ["-mssse3"],
+          "cxxflags": ["-mssse3"],
+          "xcode_settings": {
+            "OTHER_CFLAGS": ["-mssse3"],
+            "OTHER_CXXFLAGS": ["-mssse3"],
+          }
+        }]
+      ]
+    },
+    {
+      "target_name": "yencode_clmul",
+      "type": "static_library",
+      "sources": [
+        "src/crc_folding.c"
+      ],
+      "conditions": [
+        ['target_arch in "ia32 x64"', {
+          "cflags": ["-mssse3", "-msse4.1", "-mpclmul"],
+          "cxxflags": ["-mssse3", "-msse4.1", "-mpclmul"],
+          "xcode_settings": {
+            "OTHER_CFLAGS": ["-mssse3", "-msse4.1", "-mpclmul"],
+            "OTHER_CXXFLAGS": ["-mssse3", "-msse4.1", "-mpclmul"],
+          }
+        }]
+      ]
+    },
+    {
+      "target_name": "yencode_avx",
+      "type": "static_library",
+      "sources": [
+        "src/encoder_avx.cc",
+        "src/decoder_avx.cc"
+      ],
+      "conditions": [
+        ['target_arch in "ia32 x64"', {
+          "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "3"}},
+          "cflags": ["-mavx", "-mpopcnt"],
+          "cxxflags": ["-mavx", "-mpopcnt"],
+          "xcode_settings": {
+            "OTHER_CFLAGS": ["-mavx", "-mpopcnt"],
+            "OTHER_CXXFLAGS": ["-mavx", "-mpopcnt"],
+          }
+        }]
+      ]
+    },
+    {
+      "target_name": "yencode_avx3",
+      "type": "static_library",
+      "sources": [
+        "src/decoder_avx3.cc"
+      ],
+      "conditions": [
+        ['target_arch in "ia32 x64" and OS!="win"', {
+          "variables": {"supports_avx3%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -dM -E src/decoder_avx3.cc -mavx512vl -mavx512bw 2>/dev/null || true)"},
           "conditions": [
-            ['has_cpuid=="" and has_neon!=""', {
-              "cflags": ["-mfpu=neon"],
-              "cxxflags": ["-mfpu=neon"]
-            }],
-            ['has_cpuid=="" and has_crc!=""', {
-              "cflags!": ["-march=native"],
-              "cxxflags!": ["-march=native"],
-              "cflags": ["-march=armv8-a+crc"],
-              "cxxflags": ["-march=armv8-a+crc"]
+            ['supports_avx3!=""', {
+              "cflags": ["-mavx512vl", "-mavx512bw"],
+              "cxxflags": ["-mavx512vl", "-mavx512bw"],
+              "xcode_settings": {
+                "OTHER_CFLAGS": ["-mavx512vl", "-mavx512bw"],
+                "OTHER_CXXFLAGS": ["-mavx512vl", "-mavx512bw"],
+              }
             }]
           ]
         }],
-        ['OS=="mac"', {
+        ['target_arch in "ia32 x64" and OS=="win"', {
+          "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "3"}}
+        }]
+      ]
+    },
+    {
+      "target_name": "yencode_neon",
+      "type": "static_library",
+      "sources": [
+        "src/encoder_neon.cc",
+        "src/decoder_neon.cc"
+      ],
+      "conditions": [
+        ['target_arch in "arm arm64"', {
+          "cflags": ["-mfpu=neon"],
+          "cxxflags": ["-mfpu=neon"],
           "xcode_settings": {
-            "OTHER_CFLAGS": ["-march=native", "-O3"],
-            "OTHER_CXXFLAGS": ["-march=native", "-O3"]
+            "OTHER_CFLAGS": ["-mfpu=neon"],
+            "OTHER_CXXFLAGS": ["-mfpu=neon"],
           }
         }]
+      ]
+    },
+    {
+      "target_name": "yencode_armcrc",
+      "type": "static_library",
+      "sources": [
+        "src/crc_arm.cc"
       ],
-      "include_dirs": ["crcutil-1.0/code","crcutil-1.0/examples"]
+      "conditions": [
+        ['target_arch in "arm arm64"', {
+          "cflags!": ["-march=native"],
+          "cxxflags!": ["-march=native"],
+          "cflags": ["-march=armv8-a+crc"],
+          "cxxflags": ["-march=armv8-a+crc"],
+          "xcode_settings": {
+            "OTHER_CFLAGS!": ["-march=native"],
+            "OTHER_CXXFLAGS!": ["-march=native"],
+            "OTHER_CFLAGS": ["-march=armv8-a+crc"],
+            "OTHER_CXXFLAGS": ["-march=armv8-a+crc"],
+          }
+        }]
+      ]
     },
     {
       "target_name": "crcutil",
@@ -56,20 +154,12 @@
         "crcutil-1.0/code/multiword_128_64_gcc_amd64_sse2.cc",
         "crcutil-1.0/examples/interface.cc"
       ],
-      "conditions": [
-        ['OS=="win"', {
-          "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
-        }, {
-          "cflags": ["-march=native", "-O3", "-fomit-frame-pointer", "-Wno-expansion-to-defined"],
-          "cxxflags": ["-march=native", "-O3", "-fomit-frame-pointer", "-Wno-expansion-to-defined"]
-        }],
-        ['OS=="mac"', {
-          "xcode_settings": {
-            "OTHER_CFLAGS": ["-march=native", "-O3", "-fomit-frame-pointer", "-Wno-expansion-to-defined"],
-            "OTHER_CXXFLAGS": ["-march=native", "-O3", "-fomit-frame-pointer", "-Wno-expansion-to-defined"]
-          }
-        }]
-      ],
+      "cflags": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"],
+      "cxxflags": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"],
+      "xcode_settings": {
+        "OTHER_CFLAGS": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"],
+        "OTHER_CXXFLAGS": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"]
+      },
       "include_dirs": ["crcutil-1.0/code", "crcutil-1.0/tests"],
       "defines": ["CRCUTIL_USE_MM_CRC32=0"]
     }
