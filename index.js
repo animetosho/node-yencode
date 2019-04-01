@@ -2,7 +2,9 @@
 
 var y = require('./build/Release/yencode.node');
 
-var nl = new Buffer([13, 10]);
+var toBuffer = Buffer.alloc ? Buffer.from : Buffer;
+
+var nl = toBuffer([13, 10]);
 var RE_BADCHAR = /\r\n\0/g;
 
 module.exports = {
@@ -44,14 +46,14 @@ module.exports = {
 	post: function(filename, data, line_size) {
 		if(!line_size) line_size = 128;
 		
-		if(!Buffer.isBuffer(data)) data = new Buffer(data);
+		if(!Buffer.isBuffer(data)) data = toBuffer(data);
 		
-		filename = new Buffer(filename.replace(RE_BADCHAR, '').substr(0, 256), exports.encoding);
+		filename = toBuffer(filename.replace(RE_BADCHAR, '').substr(0, 256), exports.encoding);
 		return Buffer.concat([
-			new Buffer('=ybegin line='+line_size+' size='+data.length+' name='),
+			toBuffer('=ybegin line='+line_size+' size='+data.length+' name='),
 			filename, nl,
 			y.encode(data, line_size),
-			new Buffer('\r\n=yend size='+data.length+' crc32=' + y.crc32(data).toString('hex'))
+			toBuffer('\r\n=yend size='+data.length+' crc32=' + y.crc32(data).toString('hex'))
 		]);
 	},
 	multi_post: function(filename, size, parts, line_size) {
@@ -68,17 +70,17 @@ function YEncoder(filename, size, parts, line_size) {
 	
 	this.part = 0;
 	this.pos = 0;
-	this.crc = new Buffer([0,0,0,0]);
+	this.crc = toBuffer([0,0,0,0]);
 	
-	filename = new Buffer(filename.replace(RE_BADCHAR, '').substr(0, 256), exports.encoding);
+	filename = toBuffer(filename.replace(RE_BADCHAR, '').substr(0, 256), exports.encoding);
 	if(parts > 1) {
 		this.yInfo = Buffer.concat([
-			new Buffer(' total='+parts+' line='+line_size+' size='+size+' name='),
+			toBuffer(' total='+parts+' line='+line_size+' size='+size+' name='),
 			filename, nl
 		]);
 	} else {
 		this.yInfo = Buffer.concat([
-			new Buffer('=ybegin line='+line_size+' size='+size+' name='),
+			toBuffer('=ybegin line='+line_size+' size='+size+' name='),
 			filename, nl
 		]);
 		this.encode = this._encodeSingle;
@@ -89,7 +91,7 @@ var singleEncodeError = function() {
 };
 YEncoder.prototype = {
 	encode: function(data) {
-		if(!Buffer.isBuffer(data)) data = new Buffer(data);
+		if(!Buffer.isBuffer(data)) data = toBuffer(data);
 		
 		this.part++;
 		if(this.part > this.parts)
@@ -110,11 +112,11 @@ YEncoder.prototype = {
 		}
 		
 		var ret = Buffer.concat([
-			new Buffer('=ybegin part='+this.part),
+			toBuffer('=ybegin part='+this.part),
 			yInfo,
-			new Buffer('=ypart begin='+( this.pos+1 )+' end='+end+'\r\n'),
+			toBuffer('=ypart begin='+( this.pos+1 )+' end='+end+'\r\n'),
 			y.encode(data, this.line_size),
-			new Buffer('\r\n=yend size='+data.length+' part='+this.part+' pcrc32='+crc.toString('hex')+fullCrc)
+			toBuffer('\r\n=yend size='+data.length+' part='+this.part+' pcrc32='+crc.toString('hex')+fullCrc)
 		]);
 		
 		this.pos = end;
@@ -122,7 +124,7 @@ YEncoder.prototype = {
 	},
 	
 	_encodeSingle: function(data) {
-		if(!Buffer.isBuffer(data)) data = new Buffer(data);
+		if(!Buffer.isBuffer(data)) data = toBuffer(data);
 		
 		if(this.size != data.length)
 			throw new Error('File size doesn\'t match total data length');
@@ -137,7 +139,7 @@ YEncoder.prototype = {
 		return Buffer.concat([
 			yInfo,
 			y.encode(data, this.line_size),
-			new Buffer('\r\n=yend size='+data.length+' crc32=' + this.crc.toString('hex'))
+			toBuffer('\r\n=yend size='+data.length+' crc32=' + this.crc.toString('hex'))
 		]);
 	}
 };
