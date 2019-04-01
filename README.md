@@ -186,11 +186,12 @@ y.crc32_combine(
 // <Buffer 70 4f 00 7e>
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Buffer(4) crc32_zeroes(int len)
+Buffer(4) crc32_zeroes(int len, Buffer(4) initial=false)
 -------------------------------
 
 Calculates the CRC32 of a sequence of *len* null bytes, returning the resulting
 CRC32 as a 4 byte Buffer.
+You can supply a starting CRC32 value by passing it in the second parameter.
 
 **Example**
 
@@ -199,6 +200,10 @@ y.crc32_zeroes(2)
 // <Buffer 41 d9 12 ff>
 y.crc32(new Buffer([0, 0]))
 // <Buffer 41 d9 12 ff>
+y.crc32_zeroes(2, y.crc32(new Buffer([1, 2])))
+// <Buffer 9a 7c 6c 17>
+y.crc32(new Buffer([1, 2, 0, 0]))
+// <Buffer 9a 7c 6c 17>
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Buffer post(string filename, data, int line_size=128)

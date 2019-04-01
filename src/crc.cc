@@ -29,7 +29,7 @@ void do_crc32_combine(unsigned char crc1[4], const unsigned char crc2[4], size_t
 }
 
 void do_crc32_zeros(unsigned char crc1[4], size_t len) {
-	crcutil_interface::UINT64 crc_ = 0;
+	crcutil_interface::UINT64 crc_ = PACK_4(crc1);
 	crc->CrcOfZeroes(len, &crc_);
 	UNPACK_4(crc1, crc_);
 }

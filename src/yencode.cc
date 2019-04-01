@@ -298,6 +298,13 @@ FUNC(CRC32Zeroes) {
 		RETURN_ERROR("At least 1 argument required");
 	
 	union crc32 crc1;
+	if (args.Length() >= 2) {
+		if (!node::Buffer::HasInstance(args[1]) || node::Buffer::Length(args[1]) != 4)
+			RETURN_ERROR("Second argument must be a 4 byte buffer");
+		memcpy(&crc1.u32, node::Buffer::Data(args[1]), sizeof(uint32_t));
+	} else {
+		crc1.u32 = 0;
+	}
 	size_t len = (size_t)args[0]->ToInteger()->Value();
 	do_crc32_zeros(crc1.u8a, len);
 	RETURN_CRC(crc1);

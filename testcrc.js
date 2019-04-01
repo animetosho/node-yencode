@@ -35,6 +35,11 @@ assert.equal(y.crc32_zeroes(0).toString('hex'), '00000000', 'Zeroes (0)');
 assert.equal(y.crc32_zeroes(1).toString('hex'), 'd202ef8d', 'Zeroes (1)');
 assert.equal(y.crc32_zeroes(4).toString('hex'), '2144df1c', 'Zeroes (4)');
 
+assert.equal(y.crc32_zeroes(0, ycrc32('')).toString('hex'), '00000000', 'Zeroes-Join (0)');
+assert.equal(y.crc32_zeroes(1, ycrc32('')).toString('hex'), 'd202ef8d', 'Zeroes-Join (1)');
+assert.equal(y.crc32_zeroes(0, ycrc32('z')).toString('hex'), crc32('z').toString('hex'), 'Zeroes Empty Join');
+assert.equal(y.crc32_zeroes(4, ycrc32('z')).toString('hex'), crc32('z\u0000\u0000\u0000\u0000').toString('hex'), 'Zeroes (4) Join');
+
 
 doTest('Random', 'crc32', 'fj[-oqijnw34-59n26 4345j8yn89032q78t9ab9gabh023quhoiBO Z GEB780a sdasdq2345673-98hq2-9348h-na9we8zdfgh-n9  8qwhn-098');
 doTest('Random Continue', 'crc32', ['KZSHZ5EDOVAmDdakZZOrGSUGGKSpCJoWH7M0MHy6ohnSzvHY4DjpxXmyfWYJQoJ7tKdNhGcuRVUzrgXM', ycrc32('BdenbmoBgiB10ZkeUBjrsZV3dg2Da2fhHqU9TMdi69AHhLRck3Nk60YuFBXh6lvtefBpjdTxbeEmsaEm')], crc32('BdenbmoBgiB10ZkeUBjrsZV3dg2Da2fhHqU9TMdi69AHhLRck3Nk60YuFBXh6lvtefBpjdTxbeEmsaEmKZSHZ5EDOVAmDdakZZOrGSUGGKSpCJoWH7M0MHy6ohnSzvHY4DjpxXmyfWYJQoJ7tKdNhGcuRVUzrgXM'));
