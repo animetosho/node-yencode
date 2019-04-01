@@ -14,14 +14,27 @@ module.exports = {
 	decodeTo: y.decodeTo,
 	decodeNntp: y.decodeNntp,
 	decodeNntpTo: y.decodeNntpTo,
-	maxSize: function(length, line_size) {
+	
+	minSize: function(length, line_size) {
 		if(!length) return 0;
-		return Math.floor(
-			  length*2 // all characters escaped
-			+ ((length*4) / (line_size||128)) // newlines, considering the possibility of all chars escaped
+		return length // no characters escaped
+			+ 2 * Math.floor(length / (line_size||128)) // newlines
+		);
+	},
+	maxSize: function(length, line_size, esc_ratio) {
+		if(!length) return 0;
+		if(!esc_ratio || esc_ratio !== 0)
+			esc_ratio = 2;
+		else
+			esc_ratio++;
+		if(esc_ratio < 1 || esc_ratio > 2)
+			throw new Error('yEnc escape ratio must be between 0 and 1');
+		return
+			  Math.ceil(length*esc_ratio) // all characters escaped
+			+ 2 * Math.floor((length*esc_ratio) / (line_size||128)) // newlines, considering the possibility of all chars escaped
 			+ 2 // allocation for offset and that a newline may occur early
 			+ 32 // extra space just in case things go awry... just kidding, it's just extra padding to make SIMD logic easier
-		);
+		;
 	},
 	// TODO: check ordering of CRC32
 	crc32: y.crc32,

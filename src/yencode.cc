@@ -30,16 +30,19 @@ static void free_buffer(char* data, void* _size) {
 //       line limit + return input consumed
 //       async processing?
 
-#define YENC_MAX_SIZE(len, line_size) ( \
-		  len * 2    /* all characters escaped */ \
-		+ ((len*4) / line_size) /* newlines, considering the possibility of all chars escaped */ \
-		+ 2 /* allocation for offset and that a newline may occur early */ \
-		+ 32 /* allocation for XMM overflowing */ \
-	)
+static inline size_t YENC_MAX_SIZE(size_t len, size_t line_size) {
+	size_t ret = len * 2    /* all characters escaped */
+		+ 2 /* allocation for offset and that a newline may occur early */
+		+ 32 /* allocation for XMM overflowing */
+	;
+	/* add newlines, considering the possibility of all chars escaped */
+	if(line_size == 128) // optimize common case
+		return ret + 2 * (len >> 6);
+	return ret + 2 * ((len*2) / line_size);
+}
 
 
-// encode(str, line_size, col)
-// crc32(str, init)
+
 #if NODE_VERSION_AT_LEAST(0, 11, 0)
 // for node 0.12.x
 #define FUNC(name) static void name(const FunctionCallbackInfo<Value>& args)

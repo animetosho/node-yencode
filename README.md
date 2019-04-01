@@ -105,13 +105,22 @@ the function returns 0 and does not encode anything. Whilst this amount of space
 is usually not required, for performance reasons this is not checked during
 encoding, so the space is needed to prevent possible overflow conditions.
 
-int maxSize(int length, int line_size=128)
+int maxSize(int length, int line_size=128, float escape_ratio=1)
 ------------------------------------------
 
 Returns the maximum possible size for a raw yEnc encoded message of *length*
 bytes. Note that this does include some provision for dealing with alignment
 issues specific to *yencode*‘s implementation; in other words, the returned
 value is actually an over-estimate for the maximum size.
+
+You can manually specify expected yEnc character escaping ratio with the *escape_ratio* parameter if you wish to calculate an “expected size” rather than the maximum. The ratio must be between 0 (no characters ever escaped) and 1 (all characters escaped, i.e. calculates maximum possible size, the default behavior).
+For random data, and a line size of 128, the expected escape ratio for yEnc is roughly 0.0158. For 1KB of random data, the probability that the escape ratio exceeds 5% would be about 2.188\*10^-12^ (or 1 in 4.571\*10^11^). For 128KB of random data, exceeding a 1.85% ratio has a likelihood of 1.174\*10^-14^ (or 1 in 8.517\*10^13^).
+
+## int minSize(int length, int line_size=128)
+
+Returns the minimum possible size for a raw yEnc encoded message of *length* bytes. Unlike `maxSize`, this does not include alignment provisions for *yencode*‘s implementation of yEnc.
+
+This is equivalent to `maxSize(length, line_size, 0) - 2` (`maxSize` adds a 2 to provision for an early end-of-line due to a line offset being used).
 
 Buffer decode(Buffer data)
 --------------------------
