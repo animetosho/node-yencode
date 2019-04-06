@@ -50,6 +50,9 @@
 	#if defined(__AVX512F__) && _MSC_VER >= 1912
 		#define __AVX512VL__ 1
 	#endif
+	#if defined(__AVX512F__) && _MSC_VER >= 1920
+		#define __AVX512VBMI2__ 1
+	#endif
 #endif
 #if defined(_M_ARM64)
 	#define __aarch64__ 1
