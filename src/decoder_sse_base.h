@@ -129,7 +129,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				if(isRaw) {
 					matchDots = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
 					// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
-					matchNl1 = _mm_srli_si128(matchNl1, 1);
+					matchNl1 = _mm_and_si128(matchNl1, _mm_set1_epi16(0xff));
 					
 					// merge matches of \r\n with those for .
 #ifdef __AVX512VL__
@@ -149,8 +149,20 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 						__m128i cmpC1 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x0a0d)); // "\r\n"
 						__m128i cmpC2 = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x0a0d));
 						cmpC1 = _mm_or_si128(cmpC1, cmpB2);
-						cmpC2 = _mm_or_si128(cmpC2, _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d)));
-						cmpC2 = _mm_slli_si128(cmpC2, 1);
+#ifdef __AVX512VL__
+						if(use_isa >= ISA_LEVEL_AVX3) {
+							cmpC2 = _mm_ternarylogic_epi32(
+								cmpC2,
+								_mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d)),
+								_mm_set1_epi16(0xff),
+								0x54
+							);
+						} else
+#endif
+						{
+							cmpC2 = _mm_or_si128(cmpC2, _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d)));
+							cmpC2 = _mm_andnot_si128(_mm_set1_epi16(0xff), cmpC2);
+						}
 						
 						// prepare cmpB
 						cmpB1 = _mm_and_si128(cmpB1, matchNl1);
