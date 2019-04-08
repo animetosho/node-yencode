@@ -106,7 +106,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				__m128i tmpData1, tmpData2, tmpData3, tmpData4;
 #if defined(__SSSE3__) && !defined(__tune_btver1__)
 				if(use_isa >= ISA_LEVEL_SSSE3) {
-					__m128i nextData = _mm_loadl_epi64((__m128i *)(src+i) + 1);
+					__m128i nextData = _mm_cvtsi32_si128(*(uint32_t*)(src+i + sizeof(__m128i)));
 					tmpData1 = _mm_alignr_epi8(nextData, data, 1);
 					tmpData2 = _mm_alignr_epi8(nextData, data, 2);
 					if(searchEnd) tmpData3 = _mm_alignr_epi8(nextData, data, 3);
