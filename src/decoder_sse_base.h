@@ -51,10 +51,10 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 		__m128i oData;
 		if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
 			// first byte needs escaping due to preceeding = in last loop iteration
-			oData = _mm_sub_epi8(data, _mm_set_epi8(42,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42+64));
+			oData = _mm_add_epi8(data, _mm_set_epi8(-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64));
 			mask &= ~1;
 		} else {
-			oData = _mm_sub_epi8(data, _mm_set1_epi8(42));
+			oData = _mm_add_epi8(data, _mm_set1_epi8(-42));
 		}
 		if(isRaw) mask |= nextMask;
 		
