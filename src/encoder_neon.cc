@@ -3,8 +3,7 @@
 #ifdef __ARM_NEON
 #include "encoder.h"
 
-ALIGN_32(uint8x16_t _shufLUT[258]); // +2 for underflow guard entry
-uint8x16_t* shufLUT = _shufLUT+2;
+ALIGN_32(uint8x16_t shufLUT[256]);
 ALIGN_32(uint8x16_t shufMixLUT[256]);
 
 static const unsigned char* escapeLUT;
@@ -100,12 +99,12 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 					} else {
 						int isEsc;
 						uint16_t tst;
-						int offs = shufBLen - ovrflowAmt -1;
+						int midPointOffset = ovrflowAmt - shufBLen +1;
 						if(ovrflowAmt > shufBLen) {
-							tst = *(uint16_t*)((char*)(shufLUT+m1) + shufALen+offs);
+							tst = *(uint16_t*)((char*)(shufLUT+m1) + shufALen - midPointOffset);
 							i -= 8;
 						} else {
-							tst = *(uint16_t*)((char*)(shufLUT+m2) + offs);
+							tst = *(uint16_t*)((char*)(shufLUT+m2) + midPointOffset);
 						}
 						isEsc = (0xf0 == (tst&0xF0));
 						p += isEsc;
@@ -214,9 +213,6 @@ void encoder_neon_init(const unsigned char* _escapeLUT, const uint16_t* _escaped
 		
 		vst1q_u8((uint8_t*)(shufMixLUT + i), addMask);
 	}
-	// underflow guard entries; this may occur when checking for escaped characters, when the shufLUT[0] and shufLUT[-1] are used for testing
-	vst1q_u8((uint8_t*)(_shufLUT +0), vdupq_n_u8(0xFF));
-	vst1q_u8((uint8_t*)(_shufLUT +1), vdupq_n_u8(0xFF));
 }
 #else
 void encoder_neon_init(const unsigned char*, const uint16_t*) {}

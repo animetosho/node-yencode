@@ -5,8 +5,7 @@
 #include "encoder.h"
 
 #ifdef __SSSE3__
-ALIGN_32(static __m128i _shufLUT[258]); // +2 for underflow guard entry
-static __m128i* shufLUT = _shufLUT+2;
+ALIGN_32(static __m128i shufLUT[256]);
 ALIGN_32(static __m128i shufMixLUT[256]);
 
 static uint16_t expandLUT[256];
@@ -40,9 +39,6 @@ static void encoder_ssse3_lut() {
 		
 		_mm_store_si128(shufMixLUT + i, addMask);
 	}
-	// underflow guard entries; this may occur when checking for escaped characters, when the shufLUT[0] and shufLUT[-1] are used for testing
-	_mm_store_si128(_shufLUT +0, _mm_set1_epi8(0xFF));
-	_mm_store_si128(_shufLUT +1, _mm_set1_epi8(0xFF));
 }
 #endif
 
@@ -169,12 +165,16 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						} else {
 							int isEsc;
 							uint16_t tst;
-							int offs = shufBLen - ovrflowAmt -1;
+							int midPointOffset = ovrflowAmt - shufBLen +1;
 							if(ovrflowAmt > shufBLen) {
-								tst = *(uint16_t*)((char*)(shufLUT+m1) + shufALen+offs);
+								// `shufALen - midPointOffset` expands to `shufALen + shufBLen - ovrflowAmt -1`
+								// since `shufALen + shufBLen` > ovrflowAmt is implied (i.e. you can't overflow more than you've added)
+								// ...the expression cannot underflow, and cannot exceed 14
+								tst = *(uint16_t*)((char*)(shufLUT+m1) + shufALen - midPointOffset);
 								i -= 8;
-							} else {
-								tst = *(uint16_t*)((char*)(shufLUT+m2) + offs);
+							} else { // i.e. ovrflowAmt < shufBLen (== case handled above)
+								// -14 <= midPointOffset <= 0, should be true here
+								tst = *(uint16_t*)((char*)(shufLUT+m2) - midPointOffset);
 							}
 							isEsc = (0xf0 == (tst&0xF0));
 							p += isEsc;
