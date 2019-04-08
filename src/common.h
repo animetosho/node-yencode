@@ -190,13 +190,21 @@ static int cpu_flags() {
 #ifdef _MSC_VER
 # if _MSC_VER >= 1600
 #  define _cpuidX __cpuidex
+#  include <immintrin.h>
+#  define _GET_XCR() _xgetbv(_XCR_XFEATURE_ENABLED_MASK)
 # else
 // not supported
 #  define _cpuidX(ar, eax, ecx) ar[0]=0, ar[1]=0, ar[2]=0, ar[3]=0
+#  define _GET_XCR() 0
 # endif
 #else
 # include <cpuid.h>
 # define _cpuidX(ar, eax, ecx) __cpuid_count(eax, ecx, ar[0], ar[1], ar[2], ar[3])
+static inline int _GET_XCR() {
+	int xcr0;
+	__asm__ __volatile__("xgetbv" : "=a" (xcr0) : "c" (0) : "%edx");
+	return xcr0;
+}
 #endif
 
 enum YEncDecIsaLevel {

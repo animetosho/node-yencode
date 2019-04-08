@@ -147,8 +147,9 @@ void encoder_init() {
 	escapedLUT['.' - 42	] =  UINT16_PACK('=', '.'+64);
 	
 #ifdef PLATFORM_X86
-	if((cpu_flags() & 0x200) == 0x200) {
-		if((cpu_flags() & 0x10800000) == 0x10800000) // POPCNT + AVX
+	int flags = cpu_flags();
+	if((flags & 0x200) == 0x200) {
+		if(((flags & 0x18800000) == 0x18800000) && ((_GET_XCR() & 6) == 6)) // POPCNT + OSXSAVE + AVX
 			encoder_avx_init(escapeLUT, escapedLUT);
 		else
 			encoder_ssse3_init(escapeLUT, escapedLUT);
