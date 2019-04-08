@@ -5,8 +5,10 @@
 #include "encoder.h"
 
 #ifdef __SSSE3__
-ALIGN_32(static __m128i shufLUT[256]);
-ALIGN_32(static __m128i shufMixLUT[256]);
+struct TShufMix {
+	__m128i shuf, mix;
+};
+ALIGN_32(static struct TShufMix shufMixLUT[256]);
 
 static uint16_t expandLUT[256];
 
@@ -29,7 +31,7 @@ static void encoder_ssse3_lut() {
 			res[8+p] = 8+p +0x80; // +0x80 causes PSHUFB to 0 discarded entries; has no effect other than to ease debugging
 		
 		__m128i shuf = _mm_loadu_si128((__m128i*)res);
-		_mm_store_si128(shufLUT + i, shuf);
+		_mm_store_si128(&(shufMixLUT[i].shuf), shuf);
 		expandLUT[i] = expand;
 		
 		// calculate add mask for mixing escape chars in
@@ -37,7 +39,7 @@ static void encoder_ssse3_lut() {
 		__m128i addMask = _mm_and_si128(_mm_slli_si128(maskEsc, 1), _mm_set1_epi8(64));
 		addMask = _mm_or_si128(addMask, _mm_and_si128(maskEsc, _mm_set1_epi8('=')));
 		
-		_mm_store_si128(shufMixLUT + i, addMask);
+		_mm_store_si128(&(shufMixLUT[i].mix), addMask);
 	}
 }
 #endif
@@ -119,8 +121,8 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 # endif
 					{
 						// perform lookup for shuffle mask
-						__m128i shufMA = _mm_load_si128(shufLUT + m1);
-						__m128i shufMB = _mm_load_si128(shufLUT + m2);
+						__m128i shufMA = _mm_load_si128(&(shufMixLUT[m1].shuf));
+						__m128i shufMB = _mm_load_si128(&(shufMixLUT[m2].shuf));
 						
 						// second mask processes on second half, so add to the offsets
 						// this seems to be faster than right-shifting data by 8 bytes on Intel chips, maybe due to psrldq always running on port5? may be different on AMD
@@ -132,8 +134,8 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						data = _mm_shuffle_epi8(data, shufMA);
 						
 						// add in escaped chars
-						__m128i shufMixMA = _mm_load_si128(shufMixLUT + m1);
-						__m128i shufMixMB = _mm_load_si128(shufMixLUT + m2);
+						__m128i shufMixMA = _mm_load_si128(&(shufMixLUT[m1].mix));
+						__m128i shufMixMB = _mm_load_si128(&(shufMixLUT[m2].mix));
 						data = _mm_add_epi8(data, shufMixMA);
 						data2 = _mm_add_epi8(data2, shufMixMB);
 					}
@@ -170,11 +172,11 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 								// `shufALen - midPointOffset` expands to `shufALen + shufBLen - ovrflowAmt -1`
 								// since `shufALen + shufBLen` > ovrflowAmt is implied (i.e. you can't overflow more than you've added)
 								// ...the expression cannot underflow, and cannot exceed 14
-								tst = *(uint16_t*)((char*)(shufLUT+m1) + shufALen - midPointOffset);
+								tst = *(uint16_t*)((char*)(&(shufMixLUT[m1].shuf)) + shufALen - midPointOffset);
 								i -= 8;
 							} else { // i.e. ovrflowAmt < shufBLen (== case handled above)
 								// -14 <= midPointOffset <= 0, should be true here
-								tst = *(uint16_t*)((char*)(shufLUT+m2) - midPointOffset);
+								tst = *(uint16_t*)((char*)(&(shufMixLUT[m2].shuf)) - midPointOffset);
 							}
 							isEsc = (0xf0 == (tst&0xF0));
 							p += isEsc;
