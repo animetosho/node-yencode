@@ -129,6 +129,7 @@ doTest('Dot stuffed end sequence', '\r\n.=y');
 doTest('Dot stuffed bad escape sequence', '\r\n.=.');
 doTest('Broken end sequence', '\r\n.\ra\n');
 doTest('NNTP end sequence, badly dot stuffed', '\r\n..\r\n');
+doTest('NNTP end sequence, badly dot stuffed (2)', '\r\n.a=y');
 doTest('Bad escape, NNTP end sequence', '=\r\n.\r\n');
 doTest('Bad escape, Yenc end sequence', '=\r\n=y');
 

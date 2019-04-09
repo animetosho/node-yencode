@@ -59,44 +59,69 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 		if(isRaw) mask |= nextMask;
 		
 		if (mask != 0) {
-			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
-			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			
 #define LOAD_HALVES(a, b) _mm_castps_si128(_mm_loadh_pi( \
 	_mm_castsi128_ps(_mm_loadl_epi64((__m128i*)(a))), \
 	(b) \
 ))
-			// firstly, resolve invalid sequences of = to deal with cases like '===='
+			
+			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
+			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
+			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
 			uint16_t maskEq = _mm_movemask_epi8(cmpEq);
-			uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
-			maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
-			
 			unsigned char oldEscFirst = escFirst;
-			escFirst = (maskEq >> (sizeof(__m128i)-1));
-			// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
-			maskEq <<= 1;
-			mask &= ~maskEq;
-			
-			// unescape chars following `=`
+			if(maskEq & ((maskEq << 1) + escFirst)) {
+				// resolve invalid sequences of = to deal with cases like '===='
+				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
+				
+				escFirst = (maskEq >> (sizeof(__m128i)-1));
+				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
+				maskEq <<= 1;
+				mask &= ~maskEq;
+				
+				// unescape chars following `=`
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
-			if(use_isa >= ISA_LEVEL_AVX3) {
-				// GCC < 7 seems to generate rubbish assembly for this
-				oData = _mm_mask_add_epi8(
-					oData,
-					maskEq,
-					oData,
-					_mm_set1_epi8(-64)
-				);
-			} else
+				if(use_isa >= ISA_LEVEL_AVX3) {
+					// GCC < 7 seems to generate rubbish assembly for this
+					oData = _mm_mask_add_epi8(
+						oData,
+						maskEq,
+						oData,
+						_mm_set1_epi8(-64)
+					);
+				} else
 #endif
-			{
-				oData = _mm_add_epi8(
-					oData,
-					LOAD_HALVES(
-						eqAddLUT + (maskEq&0xff),
-						eqAddLUT + ((maskEq>>8)&0xff)
-					)
-				);
+				{
+					oData = _mm_add_epi8(
+						oData,
+						LOAD_HALVES(
+							eqAddLUT + (maskEq&0xff),
+							eqAddLUT + ((maskEq>>8)&0xff)
+						)
+					);
+				}
+			} else {
+				// no invalid = sequences found - we can cut out some things from above
+				// this code path is a shortened version of above; it's here because it's faster, and what we'll be dealing with most of the time
+				escFirst = (maskEq >> (sizeof(__m128i)-1));
+				maskEq <<= 1;
+				mask &= ~maskEq;
+				
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+				if(use_isa >= ISA_LEVEL_AVX3) {
+					oData = _mm_mask_add_epi8(oData, maskEq, oData, _mm_set1_epi8(-64));
+				} else
+#endif
+				{
+					oData = _mm_add_epi8(
+						oData,
+						_mm_and_si128(
+							_mm_slli_si128(cmpEq, 1),
+							_mm_set1_epi8(-64)
+						)
+					);
+				}
 			}
 			
 			// handle \r\n. sequences

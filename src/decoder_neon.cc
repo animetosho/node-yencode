@@ -44,26 +44,41 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 		if (mask != 0) {
 			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
-			
-			// firstly, resolve invalid sequences of = to deal with cases like '===='
+			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
 			uint16_t maskEq = neon_movemask(cmpEq);
-			uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
-			maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
-			
 			unsigned char oldEscFirst = escFirst;
-			escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
-			// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
-			maskEq <<= 1;
-			mask &= ~maskEq;
-			
-			// unescape chars following `=`
-			oData = vaddq_u8(
-				oData,
-				vcombine_u8(
-					vld1_u8((uint8_t*)(eqAddLUT + (maskEq&0xff))),
-					vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>8)&0xff)))
-				)
-			);
+			if(maskEq & ((maskEq << 1) | escFirst)) {
+				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
+				
+				escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
+				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
+				maskEq <<= 1;
+				mask &= ~maskEq;
+				
+				// unescape chars following `=`
+				oData = vaddq_u8(
+					oData,
+					vcombine_u8(
+						vld1_u8((uint8_t*)(eqAddLUT + (maskEq&0xff))),
+						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>8)&0xff)))
+					)
+				);
+			} else {
+				// no invalid = sequences found - we can cut out some things from above
+				// this code path is a shortened version of above; it's here because it's faster, and what we'll be dealing with most of the time
+				escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
+				maskEq <<= 1;
+				mask &= ~maskEq;
+				
+				oData = vaddq_u8(
+					oData,
+					vandq_u8(
+						vextq_u8(vdupq_n_u8(0), cmpEq, 15),
+						vdupq_n_u8(-64)
+					)
+				);
+			}
 			
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
