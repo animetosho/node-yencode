@@ -15,6 +15,7 @@ int (*_do_decode_end_raw)(const unsigned char**, unsigned char**, size_t, YencDe
 void decoder_set_sse2_funcs();
 void decoder_set_ssse3_funcs();
 void decoder_set_avx_funcs();
+void decoder_set_avx2_funcs();
 void decoder_set_avx3_funcs();
 void decoder_set_neon_funcs();
 
@@ -29,6 +30,8 @@ void decoder_init() {
 				_cpuidX(cpuInfo, 7, 0);
 				if(((xcr & 0xE0) == 0xE0) && (cpuInfo[1] & 0x40010000) == 0x40010000) // AVX512BW + AVX512VL
 					decoder_set_avx3_funcs();
+				else if((cpuInfo[1] & 0x20) == 0x20)
+					decoder_set_avx2_funcs();
 				else
 					decoder_set_avx_funcs();
 			} else

@@ -5,6 +5,7 @@
         "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
       }]
     ],
+    "defines": ["YENC_ENABLE_AVX256=0"],
     "cflags": ["-march=native", "-O3", "-Wno-unused-function"],
     "cxxflags": ["-march=native", "-O3", "-Wno-unused-function"],
     "xcode_settings": {
@@ -15,7 +16,7 @@
   "targets": [
     {
       "target_name": "yencode",
-      "dependencies": ["crcutil", "yencode_ssse3", "yencode_clmul", "yencode_avx", "yencode_avx3", "yencode_neon", "yencode_armcrc"],
+      "dependencies": ["crcutil", "yencode_ssse3", "yencode_clmul", "yencode_avx", "yencode_avx2", "yencode_avx3", "yencode_neon", "yencode_armcrc"],
       "sources": [
         "src/yencode.cc",
         "src/encoder.cc", "src/encoder_sse2.cc",
@@ -75,6 +76,31 @@
             "OTHER_CFLAGS": ["-mavx", "-mpopcnt"],
             "OTHER_CXXFLAGS": ["-mavx", "-mpopcnt"],
           }
+        }]
+      ]
+    },
+    {
+      "target_name": "yencode_avx2",
+      "type": "static_library",
+      "sources": [
+        "src/decoder_avx2.cc"
+      ],
+      "conditions": [
+        ['target_arch in "ia32 x64" and OS!="win"', {
+          "variables": {"supports_avx2%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -dM -E src/decoder_avx2.cc -mavx2 2>/dev/null || true)"},
+          "conditions": [
+            ['supports_avx2!=""', {
+              "cflags": ["-mavx2"],
+              "cxxflags": ["-mavx2"],
+              "xcode_settings": {
+                "OTHER_CFLAGS": ["-mavx2"],
+                "OTHER_CXXFLAGS": ["-mavx2"],
+              }
+            }]
+          ]
+        }],
+        ['target_arch in "ia32 x64" and OS=="win"', {
+          "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "3"}}
         }]
       ]
     },

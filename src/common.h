@@ -41,6 +41,9 @@
 	#if !defined(__AVX__) && (_MSC_VER >= 1700 && defined(__SSE2__))
 		#define __AVX__ 1
 	#endif
+	#if !defined(__AVX2__) && (_MSC_VER >= 1800 && defined(__SSE2__))
+		#define __AVX2__ 1
+	#endif
 	/* AVX512 requires VS 15.3 */
 	#if !defined(__AVX512F__) && (_MSC_VER >= 1911 && defined(__AVX__))
 		#define __AVX512BW__ 1
@@ -90,7 +93,7 @@
 #include <nmmintrin.h>
 #endif
 
-#if defined(__AVX512F__)
+#if defined(__AVX2__) || defined(__AVX512F__)
 #include <immintrin.h>
 #endif
 
