@@ -124,6 +124,16 @@ static uint16_t neon_movemask(uint8x16_t in) {
 	return vget_lane_u16(vreinterpret_u16_u8(res), 0);
 # endif
 }
+static bool neon_vect_is_nonzero(uint8x16_t v) {
+# ifdef __aarch64__
+	return !!(vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(v))), 0));
+# else
+	uint32x4_t tmp1 = vreinterpretq_u32_u8(v);
+	uint32x2_t tmp2 = vorr_u32(vget_low_u32(tmp1), vget_high_u32(tmp1));
+	return !!(vget_lane_u32(vpmax_u32(tmp2, tmp2), 0));
+# endif
+}
+
 #endif
 
 #ifdef PLATFORM_ARM
