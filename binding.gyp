@@ -137,7 +137,7 @@
         "src/decoder_neon.cc"
       ],
       "conditions": [
-        ['target_arch in "arm arm64"', {
+        ['target_arch=="arm"', {
           "cflags": ["-mfpu=neon"],
           "cxxflags": ["-mfpu=neon"],
           "xcode_settings": {
