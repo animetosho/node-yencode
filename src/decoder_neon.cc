@@ -29,23 +29,48 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			),
 			cmpEq
 		);
-		uint16_t mask = neon_movemask(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
 		
 		uint8x16_t oData;
 		if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
 			// first byte needs escaping due to preceeding = in last loop iteration
 			oData = vsubq_u8(data, (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42});
-			mask &= ~1;
+			cmp = vandq_u8(cmp, (uint8x16_t){0,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 		} else {
 			oData = vsubq_u8(data, vdupq_n_u8(42));
+			cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 		}
-		if(isRaw) mask |= nextMask;
 		
-		if (mask != 0) {
+#ifdef __aarch64__
+		if (neon_vect_is_nonzero(cmp) || (isRaw && nextMask)) {
+			/* for if CPU has fast VADD?
+			uint16_t mask = (vaddv_u8(vget_high_u8(cmp)) << 8) | vaddv_u8(vget_low_u8(cmp));
+			uint16_t maskEq = neon_movemask(cmpEq);
+			*/
+			
+			uint8x16_t cmpEqMasked = vandq_u8(cmpEq, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+			uint8x16_t cmpCombined = vpaddq_u8(cmp, cmpEqMasked);
+			uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmpCombined), vget_high_u8(cmpCombined));
+			cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
+			uint16_t mask = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 0);
+			uint16_t maskEq = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 1);
+			
+#else
+		uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmp), vget_high_u8(cmp));
+		cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
+		if(vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0) || (isRaw && nextMask)) {
+			uint8x16_t cmpEqMasked = vandq_u8(cmpEq, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+			uint8x8_t cmpEqPacked = vpadd_u8(vget_low_u8(cmpEqMasked), vget_high_u8(cmpEqMasked));
+			cmpEqPacked = vpadd_u8(cmpEqPacked, cmpEqPacked);
+			
+			cmpPacked = vpadd_u8(cmpPacked, cmpEqPacked);
+			uint16_t mask = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 0);
+			uint16_t maskEq = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 2);
+#endif
+			if(isRaw) mask |= nextMask;
+			
 			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
-			uint16_t maskEq = neon_movemask(cmpEq);
 			unsigned char oldEscFirst = escFirst;
 			if(maskEq & ((maskEq << 1) | escFirst)) {
 				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
