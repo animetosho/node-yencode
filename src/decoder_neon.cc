@@ -152,7 +152,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 				if(isRaw) {
 					matchDots = vceqq_u8(tmpData2, vdupq_n_u8('.'));
 					// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
-					matchNl1 = vbicq_u8(matchNl1, vdupq_n_u8(0xff00));
+					matchNl1 = vbicq_u8(matchNl1, vreinterpretq_u8_u16(vdupq_n_u16(0xff00)));
 					
 					// merge matches of \r\n with those for .
 					matchNlDots = vandq_u8(matchDots, vorrq_u8(matchNl1, matchNl2));
@@ -168,7 +168,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 						uint8x16_t cmpC2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x0a0d)));
 						cmpC1 = vorrq_u8(cmpC1, cmpB2);
 						cmpC2 = vorrq_u8(cmpC2, vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d))));
-						cmpC2 = vandq_u8(cmpC2, vdupq_n_u8(0xff00));
+						cmpC2 = vandq_u8(cmpC2, vreinterpretq_u8_u16(vdupq_n_u16(0xff00)));
 						cmpC1 = vorrq_u8(cmpC1, cmpC2);
 						
 						// and w/ dots
