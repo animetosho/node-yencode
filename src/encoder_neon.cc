@@ -106,7 +106,7 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 							tst = *(uint16_t*)((char*)(&(shufMixLUT[m1].shuf)) + shufALen - midPointOffset);
 							i -= 8;
 						} else {
-							tst = *(uint16_t*)((char*)(&(shufMixLUT[m2].shuf)) + midPointOffset);
+							tst = *(uint16_t*)((char*)(&(shufMixLUT[m2].shuf)) - midPointOffset);
 						}
 						isEsc = (0xf0 == (tst&0xF0));
 						p += isEsc;
