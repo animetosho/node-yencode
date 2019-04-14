@@ -1,5 +1,32 @@
 #include "common.h"
 #ifdef __ARM_NEON
+
+static uint16_t neon_movemask(uint8x16_t in) {
+	uint8x16_t mask = vandq_u8(in, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+# if defined(__aarch64__)
+	/* if VADD is slow, can save one using 
+	mask = vzip1q_u8(mask, vextq_u8(mask, mask, 8));
+	return vaddvq_u16(vreinterpretq_u16_u8(mask));
+	*/
+	return (vaddv_u8(vget_high_u8(mask)) << 8) | vaddv_u8(vget_low_u8(mask));
+# else
+	uint8x8_t res = vpadd_u8(vget_low_u8(mask), vget_high_u8(mask));
+	res = vpadd_u8(res, res);
+	res = vpadd_u8(res, res);
+	return vget_lane_u16(vreinterpret_u16_u8(res), 0);
+# endif
+}
+static bool neon_vect_is_nonzero(uint8x16_t v) {
+# ifdef __aarch64__
+	return !!(vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(v))), 0));
+# else
+	uint32x4_t tmp1 = vreinterpretq_u32_u8(v);
+	uint32x2_t tmp2 = vorr_u32(vget_low_u32(tmp1), vget_high_u32(tmp1));
+	return !!(vget_lane_u32(vpmax_u32(tmp2, tmp2), 0));
+# endif
+}
+
+
 static uint8_t eqFixLUT[256];
 ALIGN_32(static uint8x8_t eqAddLUT[256]);
 ALIGN_32(static uint8x8_t unshufLUT[256]);

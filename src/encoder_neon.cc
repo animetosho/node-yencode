@@ -54,7 +54,7 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 			);
 			
 #ifdef __aarch64__
-			if (neon_vect_is_nonzero(cmp)) {
+			if (vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(cmp))), 0)) {
 				cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 				uint8_t m1 = vaddv_u8(vget_low_u8(cmp));
 				uint8_t m2 = vaddv_u8(vget_high_u8(cmp));
