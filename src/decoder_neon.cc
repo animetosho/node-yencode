@@ -160,13 +160,20 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 				vtbl1_u8(vget_high_u8(oData), vld1_u8((uint8_t*)(unshufLUT + (mask>>8))))
 			);
 			// compact down
-			uint8x16_t compact = vld1q_u8(pshufb_combine_table + skipped*sizeof(uint8x16_t));
 # ifdef __aarch64__
+			uint8x16_t compact = vld1q_u8(pshufb_combine_table + skipped*sizeof(uint8x16_t));
 			oData = vqtbl1q_u8(oData, compact);
 # else
-			uint8x8x2_t dataH = {vget_low_u8(oData), vget_high_u8(oData)};
-			oData = vcombine_u8(vtbl2_u8(dataH, vget_low_u8(compact)),
-			                    vtbl2_u8(dataH, vget_high_u8(compact)));
+			uint64x1_t dataH = vreinterpret_u64_u8(vget_high_u8(oData));
+			int32_t byteShift = -(skipped*8);
+			oData = vcombine_u8(
+				vorr_u8(
+					vget_low_u8(oData),
+					// VSHL only interprets the least significant byte for shift amount, so junk in higher bytes is okay
+					vreinterpret_u8_u64(vshl_u64(dataH, vreinterpret_u64_u32(vmov_n_u32(64+byteShift))))
+				),
+				vreinterpret_u8_u64(vshl_u64(dataH, vreinterpret_u64_u32(vmov_n_u32(byteShift))))
+			);
 # endif
 			vst1q_u8(p, oData);
 			

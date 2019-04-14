@@ -499,7 +499,7 @@ static inline void decoder_init_lut() {
 			k >>= 1;
 		}
 		for(; p<8; p++)
-			res[p] = 0;
+			res[p] = 0x80;
 	}
 }
 
