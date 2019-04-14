@@ -53,10 +53,21 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 				)
 			);
 			
-			uint16_t mask = neon_movemask(cmp);
-			if (mask != 0) {
-				uint8_t m1 = mask & 0xFF;
-				uint8_t m2 = mask >> 8;
+#ifdef __aarch64__
+			if (neon_vect_is_nonzero(cmp)) {
+				cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+				uint8_t m1 = vaddv_u8(vget_low_u8(cmp));
+				uint8_t m2 = vaddv_u8(vget_high_u8(cmp));
+#else
+			cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+			uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmp), vget_high_u8(cmp));
+			cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
+			uint32_t mask2 = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
+			if(mask2 != 0) {
+				mask2 += (mask2 & 0xff00ff00) >> 8;
+				uint8_t m1 = (mask2 & 0xff);
+				uint8_t m2 = ((mask2 & 0xff0000) >> 16);
+#endif
 				
 				// perform lookup for shuffle mask
 				uint8x16_t shufMA = vld1q_u8((uint8_t*)(&(shufMixLUT[m1].shuf)));
