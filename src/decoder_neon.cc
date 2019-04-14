@@ -195,9 +195,9 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 				vorr_u8(
 					vget_low_u8(oData),
 					// VSHL only interprets the least significant byte for shift amount, so junk in higher bytes is okay
-					vreinterpret_u8_u64(vshl_u64(dataH, vreinterpret_u64_u32(vmov_n_u32(64+byteShift))))
+					vreinterpret_u8_u64(vshl_u64(dataH, vreinterpret_s64_s32(vmov_n_s32(64+byteShift))))
 				),
-				vreinterpret_u8_u64(vshl_u64(dataH, vreinterpret_u64_u32(vmov_n_u32(byteShift))))
+				vreinterpret_u8_u64(vshl_u64(dataH, vreinterpret_s64_s32(vmov_n_s32(byteShift))))
 			);
 # endif
 			vst1q_u8(p, oData);
