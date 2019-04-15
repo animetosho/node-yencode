@@ -109,14 +109,66 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 					uint8_t m1 = mask & 0xFF;
 					uint8_t m2 = mask >> 8;
 					
-					__m128i data2;
 # if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && 0
 					if(use_isa >= ISA_LEVEL_VBMI2) {
+						data = _mm_mask_add_epi8(data, mask, data, _mm_set1_epi8(64));
+						
 						// TODO: will need to see if this is actually faster; vpexpand* is rather slow on SKX, even for 128b ops, so this could be slower
 						// on SKX, mask-shuffle is faster than expand, but requires loading shuffle masks, and ends up being slower than the SSSE3 method
-						data = _mm_mask_add_epi8(data, mask, data, _mm_set1_epi8(64));
-						data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m2], _mm_srli_si128(data, 8));
+						__m128i data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m2], _mm_srli_si128(data, 8));
 						data = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m1], data);
+						
+						/*
+						// other idea, using expand/compact
+						// expand compactMask
+						uint32_t compactMask = _pdep_u32(mask, 0x55555555); // could also use pclmul
+						compactMask |= 0xaaaaaaaa; // set all high bits to keep them
+						
+#  if 0
+						// uses 256b instructions, but probably more efficient
+						__m256i paddedData = _mm256_permute4x64_epi64(_mm256_castsi128_si256(data), 0x50);
+						paddedData = _mm256_unpacklo_epi8(_mm256_set1_epi8('='), paddedData);
+						_mm256_mask_compressstoreu_epi8(p, compactMask, paddedData);
+						
+						int bytes = _mm_popcnt_u32(mask) + 16;
+						p += bytes;
+						col += bytes;
+						
+						ovrflowAmt = col - (line_size-1);
+						if(ovrflowAmt > 0) {
+#   if (defined(__tune_znver1__) || defined(__tune_btver2__))
+							shufALen = _mm_popcnt_u32(m1) + 8;
+							shufBLen = _mm_popcnt_u32(m2) + 8;
+#   else
+							shufALen = BitsSetTable256[m1] + 8;
+							shufBLen = BitsSetTable256[m2] + 8;
+#   endif
+						}
+#  else
+						__m128i data1 = _mm_unpacklo_epi8(_mm256_set1_epi8('='), data);
+						__m128i data2 = _mm_unpackhi_epi8(_mm256_set1_epi8('='), data);
+#   if (defined(__tune_znver1__) || defined(__tune_btver2__))
+						shufALen = _mm_popcnt_u32(m1) + 8;
+						shufBLen = _mm_popcnt_u32(m2) + 8;
+#   else
+						shufALen = BitsSetTable256[m1] + 8;
+						shufBLen = BitsSetTable256[m2] + 8;
+#   endif
+						_mm_mask_compressstoreu_epi8(p, compactMask & 0xffff, data1);
+						p += shufALen;
+						_mm_mask_compressstoreu_epi8(p, compactMask >> 16, data2);
+						p += shufBLen;
+						col += shufALen + shufBLen;
+						
+						ovrflowAmt = col - (line_size-1);
+#  endif
+
+						// TODO: improve overflow handling - do we need to calculate all this?
+						if(ovrflowAmt > 0) { // calculate parts if overflowed
+							m1 = mask & 0xFF;
+							m2 = mask >> 8;
+						}
+						*/
 					} else
 # endif
 					{
@@ -130,7 +182,7 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						
 						// expand halves
 						//shuf = _mm_or_si128(_mm_cmpgt_epi8(shuf, _mm_set1_epi8(15)), shuf);
-						data2 = _mm_shuffle_epi8(data, shufMB);
+						__m128i data2 = _mm_shuffle_epi8(data, shufMB);
 						data = _mm_shuffle_epi8(data, shufMA);
 						
 						// add in escaped chars
