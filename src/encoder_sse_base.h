@@ -28,7 +28,7 @@ static void encoder_ssse3_lut() {
 			k >>= 1;
 		}
 		for(; p<8; p++)
-			res[8+p] = 8+p +0x80; // +0x80 causes PSHUFB to 0 discarded entries; has no effect other than to ease debugging
+			res[8+p] = 8+p +0x40; // +0x40 is an arbitrary value to make debugging slightly easier?  the top bit cannot be set
 		
 		__m128i shuf = _mm_loadu_si128((__m128i*)res);
 		_mm_store_si128(&(shufMixLUT[i].shuf), shuf);
@@ -108,6 +108,8 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 				if(use_isa >= ISA_LEVEL_SSSE3) {
 					uint8_t m1 = mask & 0xFF;
 					uint8_t m2 = mask >> 8;
+					__m128i shufMA, shufMB;
+					__m128i data2;
 					
 # if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && 0
 					if(use_isa >= ISA_LEVEL_VBMI2) {
@@ -115,7 +117,7 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						
 						// TODO: will need to see if this is actually faster; vpexpand* is rather slow on SKX, even for 128b ops, so this could be slower
 						// on SKX, mask-shuffle is faster than expand, but requires loading shuffle masks, and ends up being slower than the SSSE3 method
-						__m128i data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m2], _mm_srli_si128(data, 8));
+						data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m2], _mm_srli_si128(data, 8));
 						data = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m1], data);
 						
 						/*
@@ -146,7 +148,7 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						}
 #  else
 						__m128i data1 = _mm_unpacklo_epi8(_mm256_set1_epi8('='), data);
-						__m128i data2 = _mm_unpackhi_epi8(_mm256_set1_epi8('='), data);
+						data2 = _mm_unpackhi_epi8(_mm256_set1_epi8('='), data);
 #   if (defined(__tune_znver1__) || defined(__tune_btver2__))
 						shufALen = _mm_popcnt_u32(m1) + 8;
 						shufBLen = _mm_popcnt_u32(m2) + 8;
@@ -173,8 +175,8 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 # endif
 					{
 						// perform lookup for shuffle mask
-						__m128i shufMA = _mm_load_si128(&(shufMixLUT[m1].shuf));
-						__m128i shufMB = _mm_load_si128(&(shufMixLUT[m2].shuf));
+						shufMA = _mm_load_si128(&(shufMixLUT[m1].shuf));
+						shufMB = _mm_load_si128(&(shufMixLUT[m2].shuf));
 						
 						// second mask processes on second half, so add to the offsets
 						// this seems to be faster than right-shifting data by 8 bytes on Intel chips, maybe due to psrldq always running on port5? may be different on AMD
@@ -182,7 +184,7 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						
 						// expand halves
 						//shuf = _mm_or_si128(_mm_cmpgt_epi8(shuf, _mm_set1_epi8(15)), shuf);
-						__m128i data2 = _mm_shuffle_epi8(data, shufMB);
+						data2 = _mm_shuffle_epi8(data, shufMB);
 						data = _mm_shuffle_epi8(data, shufMA);
 						
 						// add in escaped chars
@@ -211,33 +213,48 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 					
 					int ovrflowAmt = col - (line_size-1);
 					if(ovrflowAmt > 0) {
-						// we overflowed - find correct position to revert back to
-						p -= ovrflowAmt;
-						if(ovrflowAmt == shufBLen) {
-							i -= 8;
-							goto last_char_fast;
-						} else {
-							int isEsc;
-							uint16_t tst;
-							int midPointOffset = ovrflowAmt - shufBLen +1;
-							if(ovrflowAmt > shufBLen) {
-								// `shufALen - midPointOffset` expands to `shufALen + shufBLen - ovrflowAmt -1`
-								// since `shufALen + shufBLen` > ovrflowAmt is implied (i.e. you can't overflow more than you've added)
-								// ...the expression cannot underflow, and cannot exceed 14
-								tst = *(uint16_t*)((char*)(&(shufMixLUT[m1].shuf)) + shufALen - midPointOffset);
-								i -= 8;
-							} else { // i.e. ovrflowAmt < shufBLen (== case handled above)
-								// -14 <= midPointOffset <= 0, should be true here
-								tst = *(uint16_t*)((char*)(&(shufMixLUT[m2].shuf)) - midPointOffset);
-							}
-							isEsc = (0xf0 == (tst&0xF0));
-							p += isEsc;
-							i -= 8 - ((tst>>8)&0xf) - isEsc;
-							//col = line_size-1 + isEsc; // doesn't need to be set, since it's never read again
-							if(isEsc)
+# if defined(__POPCNT__)
+						if(use_isa >= ISA_LEVEL_AVX) {
+							// from experimentation, it doesn't seem like it's worth trying to branch here, i.e. it isn't worth trying to avoid a pmovmskb+shift+or by checking overflow amount
+							uint32_t eqMask = (_mm_movemask_epi8(shufMB) << shufALen) | _mm_movemask_epi8(shufMA);
+							eqMask >>= shufBLen+shufALen - ovrflowAmt -1;
+							i -= ovrflowAmt - _mm_popcnt_u32(eqMask);
+							p -= ovrflowAmt - (eqMask & 1);
+							if(eqMask & 1)
 								goto after_last_char_fast;
 							else
 								goto last_char_fast;
+						} else
+# endif
+						{
+							// we overflowed - find correct position to revert back to
+							p -= ovrflowAmt;
+							if(ovrflowAmt == shufBLen) {
+								i -= 8;
+								goto last_char_fast;
+							} else {
+								int isEsc;
+								uint16_t tst;
+								int midPointOffset = ovrflowAmt - shufBLen +1;
+								if(ovrflowAmt > shufBLen) {
+									// `shufALen - midPointOffset` expands to `shufALen + shufBLen - ovrflowAmt -1`
+									// since `shufALen + shufBLen` > ovrflowAmt is implied (i.e. you can't overflow more than you've added)
+									// ...the expression cannot underflow, and cannot exceed 14
+									tst = *(uint16_t*)((char*)(&(shufMixLUT[m1].shuf)) + shufALen - midPointOffset);
+									i -= 8;
+								} else { // i.e. ovrflowAmt < shufBLen (== case handled above)
+									// -14 <= midPointOffset <= 0, should be true here
+									tst = *(uint16_t*)((char*)(&(shufMixLUT[m2].shuf)) - midPointOffset);
+								}
+								isEsc = (0xf0 == (tst&0xF0));
+								p += isEsc;
+								i -= 8 - ((tst>>8)&0xf) - isEsc;
+								//col = line_size-1 + isEsc; // doesn't need to be set, since it's never read again
+								if(isEsc)
+									goto after_last_char_fast;
+								else
+									goto last_char_fast;
+							}
 						}
 					}
 				} else
