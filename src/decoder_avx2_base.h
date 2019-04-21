@@ -48,7 +48,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 		uint32_t mask = _mm256_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
 		
 		__m256i oData;
-		if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
+		if(LIKELIHOOD(0.01, escFirst!=0)) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
 			// first byte needs escaping due to preceeding = in last loop iteration
 			oData = _mm256_add_epi8(data, _mm256_set_epi8(
 				-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,
@@ -60,10 +60,10 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 		}
 		if(isRaw) mask |= nextMask;
 		
-		if (mask != 0) {
+		if (LIKELIHOOD(0.42 /*guess*/, mask != 0)) {
 			uint32_t maskEq = _mm256_movemask_epi8(cmpEq);
 			unsigned char oldEscFirst = escFirst;
-			if(maskEq & ((maskEq << 1) + escFirst)) {
+			if(LIKELIHOOD(0.0001, (maskEq & ((maskEq << 1) + escFirst)) != 0)) {
 				uint8_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 				uint64_t maskEq2 = tmp;
 				for(int j=8; j<32; j+=8) {
@@ -169,7 +169,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				if(searchEnd) {
 					__m256i cmpB1 = _mm256_cmpeq_epi16(tmpData2, _mm256_set1_epi16(0x793d)); // "=y"
 					__m256i cmpB2 = _mm256_cmpeq_epi16(tmpData3, _mm256_set1_epi16(0x793d));
-					if(isRaw && killDots) {
+					if(isRaw && LIKELIHOOD(0.002, killDots)) {
 						// match instances of \r\n.\r\n and \r\n.=y
 						__m256i cmpC1 = _mm256_cmpeq_epi16(tmpData3, _mm256_set1_epi16(0x0a0d)); // "\r\n"
 						__m256i cmpC2 = _mm256_cmpeq_epi16(tmpData4, _mm256_set1_epi16(0x0a0d));
@@ -217,7 +217,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 								_mm256_and_si256(cmpB2, matchNl2)
 							);
 					}
-					if(_mm256_movemask_epi8(cmpB1)) {
+					if(LIKELIHOOD(0.002, _mm256_movemask_epi8(cmpB1))) {
 						// terminator found
 						// there's probably faster ways to do this, but reverting to scalar code should be good enough
 						escFirst = oldEscFirst;

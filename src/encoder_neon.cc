@@ -19,9 +19,9 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 	unsigned char c, escaped; // input character; escaped input character
 	int col = *colOffset;
 	
-	if (col == 0) {
+	if (LIKELIHOOD(0.999, col == 0)) {
 		c = es[i++];
-		if (escapedLUT[c]) {
+		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
 			*(uint16_t*)p = escapedLUT[c];
 			p += 2;
 			col = 2;
@@ -55,7 +55,7 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 			);
 			
 #ifdef __aarch64__
-			if (vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(cmp))), 0)) {
+			if (LIKELIHOOD(0.2227, vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(cmp))), 0)!=0)) {
 				cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 				uint8_t m1 = vaddv_u8(vget_low_u8(cmp));
 				uint8_t m2 = vaddv_u8(vget_high_u8(cmp));
@@ -64,7 +64,7 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 			uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmp), vget_high_u8(cmp));
 			cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
 			uint32_t mask2 = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
-			if(mask2 != 0) {
+			if(LIKELIHOOD(0.2227, mask2 != 0)) {
 				mask2 += (mask2 & 0xff00ff00) >> 8;
 				uint8_t m1 = (mask2 & 0xff);
 				uint8_t m2 = ((mask2 & 0xff0000) >> 16);
@@ -104,7 +104,7 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 				col += shufALen + shufBLen;
 				
 				int ovrflowAmt = col - (line_size-1);
-				if(ovrflowAmt > 0) {
+				if(LIKELIHOOD(0.15, ovrflowAmt > 0)) {
 					// we overflowed - find correct position to revert back to
 					p -= ovrflowAmt;
 					if(ovrflowAmt == shufBLen) {
@@ -145,7 +145,7 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 		// handle remaining chars
 		while(col < line_size-1) {
 			c = es[i++], escaped = escapeLUT[c];
-			if (escaped) {
+			if (LIKELIHOOD(0.9844, escaped!=0)) {
 				*(p++) = escaped;
 				col++;
 			}
@@ -154,14 +154,14 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 				p += 2;
 				col += 2;
 			}
-			if (i >= 0) goto end;
+			if (LIKELIHOOD(0.001, i >= 0)) goto end;
 		}
 		
 		// last line char
-		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
+		if(LIKELIHOOD(0.95, col < line_size)) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
 			last_char_fast:
 			c = es[i++];
-			if (escapedLUT[c] && c != '.'-42) {
+			if (LIKELIHOOD(0.0234, escapedLUT[c] && c != '.'-42)) {
 				*(uint16_t*)p = escapedLUT[c];
 				p += 2;
 			} else {
@@ -170,10 +170,10 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 		}
 		
 		after_last_char_fast:
-		if (i >= 0) break;
+		if (LIKELIHOOD(0.001, i >= 0)) break;
 		
 		c = es[i++];
-		if (escapedLUT[c]) {
+		if (LIKELIHOOD(0.0273, escapedLUT[c])) {
 			*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 			p += 4;
 			col = 2;

@@ -60,7 +60,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 		);
 		
 		uint8x16_t oData;
-		if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
+		if(LIKELIHOOD(0.01 /* guess */, escFirst!=0)) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
 			// first byte needs escaping due to preceeding = in last loop iteration
 			oData = vsubq_u8(data, (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42});
 			cmp = vandq_u8(cmp, (uint8x16_t){0,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
@@ -70,7 +70,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 		}
 		
 #ifdef __aarch64__
-		if (neon_vect_is_nonzero(cmp) || (isRaw && nextMask)) {
+		if (LIKELIHOOD(0.25 /*guess*/, neon_vect_is_nonzero(cmp)) || (isRaw && LIKELIHOOD(0.001, nextMask!=0))) {
 			/* for if CPU has fast VADD?
 			uint16_t mask = (vaddv_u8(vget_high_u8(cmp)) << 8) | vaddv_u8(vget_low_u8(cmp));
 			uint16_t maskEq = neon_movemask(cmpEq);
@@ -86,7 +86,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 #else
 		uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmp), vget_high_u8(cmp));
 		cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
-		if(vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0) || (isRaw && nextMask)) {
+		if(LIKELIHOOD(0.25, vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0) != 0) || (isRaw && LIKELIHOOD(0.001, nextMask!=0))) {
 			uint8x16_t cmpEqMasked = vandq_u8(cmpEq, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 			uint8x8_t cmpEqPacked = vpadd_u8(vget_low_u8(cmpEqMasked), vget_high_u8(cmpEqMasked));
 			cmpEqPacked = vpadd_u8(cmpEqPacked, cmpEqPacked);
@@ -101,7 +101,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
 			unsigned char oldEscFirst = escFirst;
-			if(maskEq & ((maskEq << 1) | escFirst)) {
+			if(LIKELIHOOD(0.0001, (maskEq & ((maskEq << 1) | escFirst)) != 0)) {
 				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
 				
@@ -164,7 +164,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 				if(searchEnd) {
 					uint8x16_t cmpB1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData2), vdupq_n_u16(0x793d))); // "=y"
 					uint8x16_t cmpB2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x793d)));
-					if(isRaw && hasDots) {
+					if(isRaw && LIKELIHOOD(0.001, hasDots)) {
 						// match instances of \r\n.\r\n and \r\n.=y
 						uint8x16_t cmpC1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x0a0d)));
 						uint8x16_t cmpC2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x0a0d)));
@@ -188,7 +188,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 							vandq_u8(cmpB2, matchNl2)
 						);
 					}
-					if(neon_vect_is_nonzero(cmpB1)) {
+					if(LIKELIHOOD(0.001, neon_vect_is_nonzero(cmpB1))) {
 						// terminator found
 						// there's probably faster ways to do this, but reverting to scalar code should be good enough
 						escFirst = oldEscFirst;
@@ -197,7 +197,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 					}
 				}
 				if(isRaw) {
-					if(hasDots) {
+					if(LIKELIHOOD(0.001, hasDots)) {
 						uint16_t killDots = neon_movemask(matchNlDots);
 						mask |= (killDots << 2) & 0xffff;
 						nextMask = killDots >> (sizeof(uint8x16_t)-2);

@@ -49,7 +49,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 		uint16_t mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
 		
 		__m128i oData;
-		if(escFirst) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
+		if(LIKELIHOOD(0.01 /* guess */, escFirst!=0)) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
 			// first byte needs escaping due to preceeding = in last loop iteration
 			oData = _mm_add_epi8(data, _mm_set_epi8(-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64));
 			mask &= ~1;
@@ -58,7 +58,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 		}
 		if(isRaw) mask |= nextMask;
 		
-		if (mask != 0) {
+		if (LIKELIHOOD(0.25 /* rough guess */, mask != 0)) {
 			
 #define LOAD_HALVES(a, b) _mm_castps_si128(_mm_loadh_pi( \
 	_mm_castsi128_ps(_mm_loadl_epi64((__m128i*)(a))), \
@@ -70,7 +70,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
 			uint16_t maskEq = _mm_movemask_epi8(cmpEq);
 			unsigned char oldEscFirst = escFirst;
-			if(maskEq & ((maskEq << 1) + escFirst)) {
+			if(LIKELIHOOD(0.0001, (maskEq & ((maskEq << 1) + escFirst)) != 0)) {
 				// resolve invalid sequences of = to deal with cases like '===='
 				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
@@ -169,7 +169,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				if(searchEnd) {
 					__m128i cmpB1 = _mm_cmpeq_epi16(tmpData2, _mm_set1_epi16(0x793d)); // "=y"
 					__m128i cmpB2 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x793d));
-					if(isRaw && killDots) {
+					if(isRaw && LIKELIHOOD(0.001, killDots!=0)) {
 						// match instances of \r\n.\r\n and \r\n.=y
 						__m128i cmpC1 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x0a0d)); // "\r\n"
 						__m128i cmpC2 = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x0a0d));
@@ -217,7 +217,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 								_mm_and_si128(cmpB2, matchNl2)
 							);
 					}
-					if(_mm_movemask_epi8(cmpB1)) {
+					if(LIKELIHOOD(0.001, _mm_movemask_epi8(cmpB1))) {
 						// terminator found
 						// there's probably faster ways to do this, but reverting to scalar code should be good enough
 						escFirst = oldEscFirst;
@@ -282,7 +282,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				_mm_store_si128((__m128i*)mmTmp, oData);
 				
 				for(int j=0; j<4; j++) {
-					if(mask & 0xf) {
+					if(LIKELIHOOD(0.3 /*rough estimate*/, (mask & 0xf) != 0)) {
 						unsigned char* pMmTmp = (unsigned char*)(mmTmp + j);
 						unsigned int maskn = ~mask;
 						*p = pMmTmp[0];

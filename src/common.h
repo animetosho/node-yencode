@@ -216,4 +216,11 @@ enum YEncDecIsaLevel {
 # include <v8.h>
 #endif
 
+
+#ifdef __GNUC__
+# define LIKELIHOOD(p, c) (__builtin_expect_with_probability(!!(c), 1, p))
+#else
+# define LIKELIHOOD(p, c) (c)
+#endif
+
 #endif /* __YENC_COMMON */
