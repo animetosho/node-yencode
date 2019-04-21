@@ -2,6 +2,7 @@
 
 #ifdef __ARM_NEON
 #include "encoder.h"
+#include "encoder_common.h"
 
 struct TShufMix {
 	uint8x16_t shuf, mix;
@@ -94,8 +95,8 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 				data = vaddq_u8(data, shufMixMA);
 				data2 = vaddq_u8(data2, shufMixMB);
 				// store out
-				unsigned char shufALen = BitsSetTable256[m1] + 8;
-				unsigned char shufBLen = BitsSetTable256[m2] + 8;
+				unsigned char shufALen = BitsSetTable256plus8[m1];
+				unsigned char shufBLen = BitsSetTable256plus8[m2];
 				vst1q_u8(p, data);
 				p += shufALen;
 				vst1q_u8(p, data2);
