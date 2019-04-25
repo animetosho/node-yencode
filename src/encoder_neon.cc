@@ -33,10 +33,8 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 	while(i < 0) {
 		// main line
 		while (i < -1-(long)sizeof(uint8x16_t) && col < line_size-1) {
-			uint8x16_t data = vaddq_u8(
-				vld1q_u8(es + i),
-				vdupq_n_u8(42)
-			);
+			uint8x16_t oData = vld1q_u8(es + i);
+			uint8x16_t data = vaddq_u8(oData, vdupq_n_u8(42));
 			i += sizeof(uint8x16_t);
 			// search for special chars
 			uint8x16_t cmp = vorrq_u8(
@@ -46,11 +44,11 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 #else
 					vceqq_u8(data, vdupq_n_u8(0)),
 #endif
-					vceqq_u8(data, vdupq_n_u8('\n'))
+					vceqq_u8(oData, vdupq_n_u8('='-42))
 				),
 				vorrq_u8(
-					vceqq_u8(data, vdupq_n_u8('\r')),
-					vceqq_u8(data, vdupq_n_u8('='))
+					vceqq_u8(oData, vdupq_n_u8('\r'-42)),
+					vceqq_u8(oData, vdupq_n_u8('\n'-42))
 				)
 			);
 			

@@ -96,8 +96,8 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						_mm_cmpeq_epi8(oData, _mm_set1_epi8('\n'-42))
 					),
 					_mm_or_si128(
-						_mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
-						_mm_cmpeq_epi8(data, _mm_set1_epi8('\r'))
+						_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
+						_mm_cmpeq_epi8(oData, _mm_set1_epi8('\r'-42))
 					)
 				);
 			}
