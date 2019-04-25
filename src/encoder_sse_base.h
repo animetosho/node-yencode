@@ -70,23 +70,22 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 	while(i < 0) {
 		// main line
 		while (i < -1-XMM_SIZE && col < line_size-1) {
-			__m128i data = _mm_add_epi8(
-				_mm_loadu_si128((__m128i *)(es + i)), // probably not worth the effort to align
-				_mm_set1_epi8(42)
-			);
+			__m128i oData = _mm_loadu_si128((__m128i *)(es + i)); // probably not worth the effort to align
+			__m128i data = _mm_add_epi8(oData, _mm_set1_epi8(42));
 			i += XMM_SIZE;
 			// search for special chars
 			__m128i cmp;
-#ifdef __AVX512VL__
-			if(use_isa >= ISA_LEVEL_AVX3) {
-				cmp = _mm_ternarylogic_epi32(
-					_mm_or_si128(
-						_mm_cmpeq_epi8(data, _mm_setzero_si128()),
-						_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
-					),
-					_mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
-					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r')),
-					0xFE
+#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
+			// use shuffle to replace 3x cmpeq + ors; ideally, avoid on CPUs with slow shuffle
+			if(use_isa >= ISA_LEVEL_SSSE3) {
+				cmp = _mm_or_si128(
+					_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
+					_mm_shuffle_epi8(_mm_set_epi8(
+						//  \r     \n                   \0
+						0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
+					), _mm_adds_epu8(
+						data, _mm_set1_epi8(0x70)
+					))
 				);
 			} else
 #endif
@@ -94,7 +93,7 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 				cmp = _mm_or_si128(
 					_mm_or_si128(
 						_mm_cmpeq_epi8(data, _mm_setzero_si128()),
-						_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'))
+						_mm_cmpeq_epi8(oData, _mm_set1_epi8('\n'-42))
 					),
 					_mm_or_si128(
 						_mm_cmpeq_epi8(data, _mm_set1_epi8('=')),
