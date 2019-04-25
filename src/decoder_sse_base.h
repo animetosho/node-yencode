@@ -258,7 +258,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 					__m128i shuf = LOAD_HALVES(unshufLUT + (mask&0xff), unshufLUT + (mask>>8));
 					
 					// offset upper half by 8
-					shuf = _mm_add_epi8(shuf, _mm_set_epi32(0x08080808, 0x08080808, 0, 0));
+					shuf = _mm_or_si128(shuf, _mm_set_epi32(0x08080808, 0x08080808, 0, 0));
 					// shift down upper half into lower
 					// TODO: consider using `mask & 0xff` in table instead of counting bits
 					shuf = _mm_shuffle_epi8(shuf, _mm_load_si128(pshufb_combine_table + skipped));

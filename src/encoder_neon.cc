@@ -78,7 +78,7 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 				// expand halves
 #ifdef __aarch64__
 				// second mask processes on second half, so add to the offsets
-				shufMB = vaddq_u8(shufMB, vdupq_n_u8(8));
+				shufMB = vorrq_u8(shufMB, vdupq_n_u8(8));
 				
 				uint8x16_t data2 = vqtbl1q_u8(data, shufMB);
 				data = vqtbl1q_u8(data, shufMA);

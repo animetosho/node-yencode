@@ -251,7 +251,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				
 				
 				// offset upper half by 8
-				shuf = _mm256_add_epi8(shuf, _mm256_set_epi32(
+				shuf = _mm256_or_si256(shuf, _mm256_set_epi32(
 					0x08080808, 0x08080808, 0, 0,
 					0x08080808, 0x08080808, 0, 0
 				));

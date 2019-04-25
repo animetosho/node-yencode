@@ -181,11 +181,9 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						shufMB = _mm_load_si128(&(shufMixLUT[m2].shuf));
 						
 						// second mask processes on second half, so add to the offsets
-						// this seems to be faster than right-shifting data by 8 bytes on Intel chips, maybe due to psrldq always running on port5? may be different on AMD
-						shufMB = _mm_add_epi8(shufMB, _mm_set1_epi8(8));
+						shufMB = _mm_or_si128(shufMB, _mm_set1_epi8(8));
 						
 						// expand halves
-						//shuf = _mm_or_si128(_mm_cmpgt_epi8(shuf, _mm_set1_epi8(15)), shuf);
 						data2 = _mm_shuffle_epi8(data, shufMB);
 						data = _mm_shuffle_epi8(data, shufMA);
 						
