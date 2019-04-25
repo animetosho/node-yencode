@@ -1,14 +1,14 @@
 // test config
 var sz = 768000;
-var rounds = 50;
+var rounds = 80;
 var trials = 8;
 
 var maxSize = require('../').maxSize;
 var decimal = (''+1.1).substr(1, 1);
 var fmtSpeed = function(size, time) {
-	var rate = ('' + (Math.round(100000*(size/1048576)/time)/100000)).split(decimal);
+	var rate = ('' + (Math.round(100*(size/1048576)/time)/100)).split(decimal);
 	
-	return ('        ' + rate[0]).substr(-8) + decimal + (rate[1] + '      ').substr(0, 6) + 'MiB/s';
+	return ('        ' + rate[0]).substr(-8) + decimal + ((rate[1]|0) + '00').substr(0, 2) + ' MiB/s';
 };
 module.exports = {
 	size: sz,

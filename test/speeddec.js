@@ -25,7 +25,7 @@ _.bufAvg2x.forEach(function(buf, i) {
 	lenAvg2x[i] = y.encodeTo(buf, mAvg2x[i]);
 });
 
-console.log('    Test                        Output rate            Read rate   ');
+console.log('    Test                     Output rate         Read rate   ');
 
 // warmup
 mAvg.forEach(function(buf) {
@@ -52,14 +52,26 @@ _.run('Incr-raw pass',  y.decodeNntpIncr.bind(null, mBest2, 0, _.bufTarget));
 
 mAvg.forEach(function(buf, i) {
 	_.run('Random ('+i+')',   y.decodeTo.bind(null, buf, _.bufTarget), lenAvg[i]);
+});
+mAvg.forEach(function(buf, i) {
 	_.run('Raw random ('+i+')',   y.decodeNntpTo.bind(null, buf, _.bufTarget), lenAvg[i]);
+});
+mAvg.forEach(function(buf, i) {
 	_.run('Incr random ('+i+')',  y.decodeIncr.bind(null, buf, 0, _.bufTarget), lenAvg[i]);
+});
+mAvg.forEach(function(buf, i) {
 	_.run('Incr-raw random ('+i+')',  y.decodeNntpIncr.bind(null, buf, 0, _.bufTarget), lenAvg[i]);
 });
 
 mAvg2x.forEach(function(buf, i) {
 	_.run('Random 2xEsc ('+i+')',   y.decodeTo.bind(null, buf, _.bufTarget), lenAvg2x[i]);
+});
+mAvg2x.forEach(function(buf, i) {
 	_.run('Raw random 2xEsc ('+i+')',   y.decodeNntpTo.bind(null, buf, _.bufTarget), lenAvg2x[i]);
+});
+mAvg2x.forEach(function(buf, i) {
 	_.run('Incr random 2xEsc ('+i+')',  y.decodeIncr.bind(null, buf, 0, _.bufTarget), lenAvg2x[i]);
+});
+mAvg2x.forEach(function(buf, i) {
 	_.run('Incr-raw random 2xEsc ('+i+')',  y.decodeNntpIncr.bind(null, buf, 0, _.bufTarget), lenAvg2x[i]);
 });

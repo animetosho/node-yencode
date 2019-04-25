@@ -2,7 +2,7 @@ var y = require('../build/Release/yencode');
 var _ = require('./_speedbase');
 
 
-console.log('    Test                          Read rate          Output rate   ');
+console.log('    Test                       Read rate       Output rate   ');
 
 // warmup
 var lenWorst = y.encodeTo(_.bufWorst, _.bufTarget);
