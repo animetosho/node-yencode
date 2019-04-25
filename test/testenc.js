@@ -1,7 +1,7 @@
 // a basic script to test that raw yEnc works as expected
 
 var assert = require('assert');
-var y = require('./build/Release/yencode.node');
+var y = require('../build/Release/yencode.node');
 
 // slow reference yEnc implementation
 var refYEnc = function(src, line_size, col) {
@@ -51,7 +51,7 @@ var doTest = function(msg, test, expected) {
 	if(!expected && expected !== '') expected = refYEnc.apply(null, test).toString('hex');
 	else expected = expected.replace(/ /g, '');
 	assert.equal(y.encode.apply(null, test).toString('hex'), expected, msg);
-	var buf = new Buffer(require('./').maxSize(test[0].length, test[1]));
+	var buf = new Buffer(require('../').maxSize(test[0].length, test[1]));
 	var len = y.encodeTo.apply(null, [test[0], buf].concat(test.slice(1)));
 	assert.equal(buf.slice(0, len).toString('hex'), expected, msg);
 };

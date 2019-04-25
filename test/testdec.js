@@ -1,7 +1,7 @@
 // a basic script to test that raw yEnc works as expected
 
 var assert = require('assert');
-var y = require('./build/Release/yencode.node');
+var y = require('../build/Release/yencode.node');
 
 var ord = function(c) {
 	return c.charCodeAt(0);
