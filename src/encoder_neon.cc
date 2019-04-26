@@ -4,10 +4,7 @@
 #include "encoder.h"
 #include "encoder_common.h"
 
-struct TShufMix {
-	uint8x16_t shuf, mix;
-};
-ALIGN_32(struct TShufMix shufMixLUT[256]);
+ALIGN_32(uint8x16_t shufLUT[256]);
 
 static const unsigned char* escapeLUT;
 static const uint16_t* escapedLUT;
@@ -54,14 +51,14 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 			
 #ifdef __aarch64__
 			if (LIKELIHOOD(0.2227, vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(cmp))), 0)!=0)) {
-				cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-				uint8_t m1 = vaddv_u8(vget_low_u8(cmp));
-				uint8_t m2 = vaddv_u8(vget_high_u8(cmp));
+				uint8x16_t cmpPacked = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+				uint8_t m1 = vaddv_u8(vget_low_u8(cmpPacked));
+				uint8_t m2 = vaddv_u8(vget_high_u8(cmpPacked));
 #else
-			cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-			uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmp), vget_high_u8(cmp));
-			cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
-			uint32_t mask2 = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
+			uint8x16_t cmpPacked = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+			uint8x8_t cmpPackedHalf = vpadd_u8(vget_low_u8(cmpPacked), vget_high_u8(cmpPacked));
+			cmpPackedHalf = vpadd_u8(cmpPackedHalf, cmpPackedHalf);
+			uint32_t mask2 = vget_lane_u32(vreinterpret_u32_u8(cmpPackedHalf), 0);
 			if(LIKELIHOOD(0.2227, mask2 != 0)) {
 				mask2 += (mask2 & 0xff00ff00) >> 8;
 				uint8_t m1 = (mask2 & 0xff);
@@ -69,29 +66,25 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 #endif
 				
 				// perform lookup for shuffle mask
-				uint8x16_t shufMA = vld1q_u8((uint8_t*)(&(shufMixLUT[m1].shuf)));
-				uint8x16_t shufMB = vld1q_u8((uint8_t*)(&(shufMixLUT[m2].shuf)));
+				uint8x16_t shufMA = vld1q_u8((uint8_t*)(shufLUT + m1));
+				uint8x16_t shufMB = vld1q_u8((uint8_t*)(shufLUT + m2));
 				
+				data = vaddq_u8(data, vandq_u8(cmp, vdupq_n_u8(64)));
 				
 				// expand halves
 #ifdef __aarch64__
 				// second mask processes on second half, so add to the offsets
 				shufMB = vorrq_u8(shufMB, vdupq_n_u8(8));
 				
-				uint8x16_t data2 = vqtbl1q_u8(data, shufMB);
-				data = vqtbl1q_u8(data, shufMA);
+				uint8x16_t data2 = vqtbx1q_u8(vdupq_n_u8('='), data, shufMB);
+				data = vqtbx1q_u8(vdupq_n_u8('='), data, shufMA);
 #else
-				uint8x16_t data2 = vcombine_u8(vtbl1_u8(vget_high_u8(data), vget_low_u8(shufMB)),
-				                               vtbl1_u8(vget_high_u8(data), vget_high_u8(shufMB)));
-				data = vcombine_u8(vtbl1_u8(vget_low_u8(data), vget_low_u8(shufMA)),
-				                   vtbl1_u8(vget_low_u8(data), vget_high_u8(shufMA)));
+				uint8x16_t data2 = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_low_u8(shufMB)),
+				                               vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_high_u8(shufMB)));
+				data = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_low_u8(data), vget_low_u8(shufMA)),
+				                   vtbx1_u8(vdup_n_u8('='), vget_low_u8(data), vget_high_u8(shufMA)));
 #endif
 				
-				// add in escaped chars
-				uint8x16_t shufMixMA = vld1q_u8((uint8_t*)(&(shufMixLUT[m1].mix)));
-				uint8x16_t shufMixMB = vld1q_u8((uint8_t*)(&(shufMixLUT[m2].mix)));
-				data = vaddq_u8(data, shufMixMA);
-				data2 = vaddq_u8(data2, shufMixMB);
 				// store out
 				unsigned char shufALen = BitsSetTable256plus8[m1];
 				unsigned char shufBLen = BitsSetTable256plus8[m2];
@@ -113,10 +106,10 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 						uint16_t tst;
 						int midPointOffset = ovrflowAmt - shufBLen +1;
 						if(ovrflowAmt > shufBLen) {
-							tst = *(uint16_t*)((char*)(&(shufMixLUT[m1].shuf)) + shufALen - midPointOffset);
+							tst = *(uint16_t*)((char*)(shufLUT + m1) + shufALen - midPointOffset);
 							i -= 8;
 						} else {
-							tst = *(uint16_t*)((char*)(&(shufMixLUT[m2].shuf)) - midPointOffset);
+							tst = *(uint16_t*)((char*)(shufLUT + m2) - midPointOffset);
 						}
 						isEsc = (0xf0 == (tst&0xF0));
 						p += isEsc;
@@ -216,14 +209,7 @@ void encoder_neon_init(const unsigned char* _escapeLUT, const uint16_t* _escaped
 			res[8+p] = 8+p +0x80; // +0x80 => 0 discarded entries; has no effect other than to ease debugging
 		
 		uint8x16_t shuf = vld1q_u8(res);
-		vst1q_u8((uint8_t*)(&(shufMixLUT[i].shuf)), shuf);
-		
-		// calculate add mask for mixing escape chars in
-		uint8x16_t maskEsc = vceqq_u8(vandq_u8(shuf, vdupq_n_u8(0xf0)), vdupq_n_u8(0xf0));
-		uint8x16_t addMask = vandq_u8(vextq_u8(vdupq_n_u8(0), maskEsc, 15), vdupq_n_u8(64));
-		addMask = vorrq_u8(addMask, vandq_u8(maskEsc, vdupq_n_u8('=')));
-		
-		vst1q_u8((uint8_t*)(&(shufMixLUT[i].mix)), addMask);
+		vst1q_u8((uint8_t*)(shufLUT + i), shuf);
 	}
 }
 #else
