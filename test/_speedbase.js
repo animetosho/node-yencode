@@ -30,7 +30,8 @@ module.exports = {
 			times[trial] = t[0] + t[1]/1000000000;
 		}
 		
-		var time = Math.max.apply(null, times);
+		// pick fastest time to try to avoid issues with clockspeed throttling
+		var time = Math.min.apply(null, times);
 		console.log(
 			(name+'                         ').substr(0, 25) + ':'
 			+ fmtSpeed(sz*rounds, time)
