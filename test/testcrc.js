@@ -1,7 +1,12 @@
 // a basic script to test that raw yEnc works as expected
 
 var assert = require('assert');
-var y = require('../build/Release/yencode.node');
+var y = (function() {
+	try {
+		return require('../build/Debug/yencode.node');
+	} catch(x) {}
+	return require('../build/Release/yencode.node');
+})();
 var crc32 = require('buffer-crc32'); // reference implementation
 
 var ycrc32 = function(s) {

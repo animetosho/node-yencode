@@ -6,11 +6,11 @@
       }]
     ],
     "defines": ["YENC_ENABLE_AVX256=0"],
-    "cflags": ["-march=native", "-O3", "-Wno-unused-function"],
-    "cxxflags": ["-march=native", "-O3", "-Wno-unused-function"],
+    "cflags": ["-march=native", "-Wno-unused-function"],
+    "cxxflags": ["-march=native", "-Wno-unused-function"],
     "xcode_settings": {
-      "OTHER_CFLAGS": ["-march=native", "-O3", "-Wno-unused-function"],
-      "OTHER_CXXFLAGS": ["-march=native", "-O3", "-Wno-unused-function"]
+      "OTHER_CFLAGS": ["-march=native", "-Wno-unused-function"],
+      "OTHER_CXXFLAGS": ["-march=native", "-Wno-unused-function"]
     }
   },
   "targets": [

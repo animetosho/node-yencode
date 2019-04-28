@@ -3,7 +3,7 @@ var sz = 768000;
 var rounds = 80;
 var trials = 8;
 
-var maxSize = require('../').maxSize;
+var maxSize = require('./_maxsize');
 var decimal = (''+1.1).substr(1, 1);
 var fmtSpeed = function(size, time) {
 	var rate = ('' + (Math.round(100*(size/1048576)/time)/100)).split(decimal);
