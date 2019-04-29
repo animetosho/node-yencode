@@ -218,7 +218,11 @@ enum YEncDecIsaLevel {
 
 
 #ifdef __GNUC__
-# define LIKELIHOOD(p, c) (__builtin_expect_with_probability(!!(c), 1, p))
+# if __GNUC__ >= 9
+#  define LIKELIHOOD(p, c) (__builtin_expect_with_probability(!!(c), 1, p))
+# else
+#  define LIKELIHOOD(p, c) (__builtin_expect(!!(c), (p >= 0.5)))
+# endif
 #else
 # define LIKELIHOOD(p, c) (c)
 #endif
