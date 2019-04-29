@@ -35,7 +35,7 @@ module.exports = {
 			  Math.ceil(length*esc_ratio) // all characters escaped
 			+ 2 * Math.floor((length*esc_ratio) / (line_size||128)) // newlines, considering the possibility of all chars escaped
 			+ 2 // allocation for offset and that a newline may occur early
-			+ 32 // extra space just in case things go awry... just kidding, it's just extra padding to make SIMD logic easier
+			+ 64 // extra space just in case things go awry... just kidding, it's just extra padding to make SIMD logic easier
 		;
 	},
 	// TODO: check ordering of CRC32

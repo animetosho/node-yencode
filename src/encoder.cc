@@ -144,15 +144,25 @@ size_t (*_do_encode)(int, int*, const unsigned char*, unsigned char*, size_t) = 
 void encoder_sse2_init(const unsigned char*, const uint16_t*);
 void encoder_ssse3_init(const unsigned char*, const uint16_t*);
 void encoder_avx_init(const unsigned char*, const uint16_t*);
+void encoder_avx2_init(const unsigned char*, const uint16_t*);
 void encoder_neon_init(const unsigned char*, const uint16_t*);
 
 void encoder_init() {
 #ifdef PLATFORM_X86
 	int flags = cpu_flags();
 	if((flags & 0x200) == 0x200) {
-		if(((flags & 0x18800000) == 0x18800000) && ((_GET_XCR() & 6) == 6)) // POPCNT + OSXSAVE + AVX
-			encoder_avx_init(escapeLUT, escapedLUT);
-		else
+		if((flags & 0x18800000) == 0x18800000) { // POPCNT + OSXSAVE + AVX
+			int xcr = _GET_XCR() & 0xff; // ignore unused bits
+			if((xcr & 6) == 6) { // AVX enabled
+				int cpuInfo[4];
+				_cpuidX(cpuInfo, 7, 0);
+				if((cpuInfo[1] & 0x20) == 0x20)
+					encoder_avx2_init(escapeLUT, escapedLUT);
+				else
+					encoder_avx_init(escapeLUT, escapedLUT);
+			} else
+				encoder_ssse3_init(escapeLUT, escapedLUT);
+		} else
 			encoder_ssse3_init(escapeLUT, escapedLUT);
 	} else
 		encoder_sse2_init(escapeLUT, escapedLUT);

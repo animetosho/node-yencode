@@ -83,7 +83,7 @@
       "target_name": "yencode_avx2",
       "type": "static_library",
       "sources": [
-        "src/decoder_avx2.cc"
+        "src/decoder_avx2.cc", "src/encoder_avx2.cc"
       ],
       "conditions": [
         ['target_arch in "ia32 x64" and OS!="win"', {
