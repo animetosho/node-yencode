@@ -148,8 +148,8 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 #   endif
 						}
 #  else
-						__m128i data1 = _mm_unpacklo_epi8(_mm256_set1_epi8('='), data);
-						data2 = _mm_unpackhi_epi8(_mm256_set1_epi8('='), data);
+						__m128i data1 = _mm_unpacklo_epi8(_mm_set1_epi8('='), data);
+						data2 = _mm_unpackhi_epi8(_mm_set1_epi8('='), data);
 #   if (defined(__tune_znver1__) || defined(__tune_btver2__))
 						shufALen = _mm_popcnt_u32(m1) + 8;
 						shufBLen = _mm_popcnt_u32(m2) + 8;
