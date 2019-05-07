@@ -34,13 +34,17 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 			uint8x16_t data = vaddq_u8(oData, vdupq_n_u8(42));
 			i += sizeof(uint8x16_t);
 			// search for special chars
+#ifdef __aarch64__
+			uint8x16_t cmp = vqtbx1q_u8(
+				vceqq_u8(oData, vdupq_n_u8('='-42)),
+				//            \0                    \n      \r
+				(uint8x16_t){255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
+				data
+			);
+#else
 			uint8x16_t cmp = vorrq_u8(
 				vorrq_u8(
-#ifdef __aarch64__
-					vceqzq_u8(data),
-#else
 					vceqq_u8(data, vdupq_n_u8(0)),
-#endif
 					vceqq_u8(oData, vdupq_n_u8('='-42))
 				),
 				vorrq_u8(
@@ -48,6 +52,8 @@ static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char*
 					vceqq_u8(oData, vdupq_n_u8('\n'-42))
 				)
 			);
+#endif
+			
 			
 #ifdef __aarch64__
 			if (LIKELIHOOD(0.2227, vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(cmp))), 0)!=0)) {
