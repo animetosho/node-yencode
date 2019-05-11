@@ -51,6 +51,14 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 		
 		// search for special chars
 		uint8x16_t cmpEq = vceqq_u8(data, vdupq_n_u8('=')),
+#ifdef __aarch64__
+		cmp = vqtbx1q_u8(
+			cmpEq,
+			//                                \n      \r
+			(uint8x16_t){0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
+			data
+		);
+#else
 		cmp = vorrq_u8(
 			vorrq_u8(
 				vceqq_u8(data, vreinterpretq_u8_u16(vdupq_n_u16(0x0a0d))), // \r\n
@@ -58,6 +66,8 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			),
 			cmpEq
 		);
+#endif
+		
 		
 		uint8x16_t oData;
 		if(LIKELIHOOD(0.01 /* guess */, escFirst!=0)) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
