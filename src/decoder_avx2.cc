@@ -1,8 +1,8 @@
 #include "common.h"
 
 #if defined(__AVX2__) && defined(YENC_ENABLE_AVX256) && YENC_ENABLE_AVX256!=0
-#include "decoder_avx2_base.h"
 #include "decoder_common.h"
+#include "decoder_avx2_base.h"
 void decoder_set_avx2_funcs() {
 	decoder_init_lut();
 	_do_decode = &do_decode_simd<false, false, sizeof(__m256i), do_decode_avx2<false, false, ISA_LEVEL_AVX> >;

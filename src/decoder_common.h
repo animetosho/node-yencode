@@ -1,6 +1,20 @@
 #include "decoder.h"
 
 // TODO: need to support max output length somehow
+// TODO: add branch probabilities
+
+// 8 - popcnt(byte) for decoder
+static const unsigned char BitsSetTable256inv[256] = 
+{
+#   define B2(n) 8-(n),     7-(n),     7-(n),     6-(n)
+#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+    B6(0), B6(1), B6(1), B6(2)
+#undef B2
+#undef B4
+#undef B6
+};
+
 
 // state var: refers to the previous state - only used for incremental processing
 template<bool isRaw>
@@ -462,6 +476,14 @@ int do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, 
 	*/
 	return 0;
 }
+
+static uint8_t eqFixLUT[256];
+ALIGN_32(static uint64_t eqAddLUT[256]);
+#ifdef YENC_DEC_USE_THINTABLE
+ALIGN_32(static uint64_t unshufLUT[256]);
+#else
+ALIGN_32(static struct { char bytes[16]; } unshufLUTBig[32768]);
+#endif
 
 static inline void decoder_init_lut() {
 	for(int i=0; i<256; i++) {

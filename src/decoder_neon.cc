@@ -1,5 +1,6 @@
 #include "common.h"
 #ifdef __ARM_NEON
+#include "decoder_common.h"
 
 static uint16_t neon_movemask(uint8x16_t in) {
 	uint8x16_t mask = vandq_u8(in, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
@@ -26,15 +27,6 @@ static bool neon_vect_is_nonzero(uint8x16_t v) {
 # endif
 }
 
-
-static uint8_t eqFixLUT[256];
-ALIGN_32(static uint8x8_t eqAddLUT[256]);
-#ifdef __aarch64__
-ALIGN_32(static uint8x16_t unshufLUTBig[32768]);
-#else
-# define YENC_DEC_USE_THINTABLE
-ALIGN_32(static uint8x8_t unshufLUT[256]);
-#endif
 
 template<bool isRaw, bool searchEnd>
 inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
@@ -214,19 +206,19 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 				oData,
 				vld1q_u8((uint8_t*)(unshufLUTBig + (mask&0x7fff)))
 			));
-			p += sizeof(uint8x16_t) - BitsSetTable256[mask & 0xff] - BitsSetTable256[mask >> 8];
+			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[mask >> 8];
 #else
 			// lookup compress masks and shuffle
 			vst1_u8(p, vtbl1_u8(
 				vget_low_u8(oData),
 				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
 			));
-			p += 8-BitsSetTable256[mask & 0xff];
+			p += BitsSetTable256inv[mask & 0xff];
 			vst1_u8(p, vtbl1_u8(
 				vget_high_u8(oData),
 				vld1_u8((uint8_t*)(unshufLUT + (mask>>8)))
 			));
-			p += 8-BitsSetTable256[mask >> 8];
+			p += BitsSetTable256inv[mask >> 8];
 			
 # endif
 			
@@ -239,7 +231,6 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 	}
 }
 
-#include "decoder_common.h"
 void decoder_set_neon_funcs() {
 	decoder_init_lut();
 	_do_decode = &do_decode_simd<false, false, sizeof(uint8x16_t), do_decode_neon<false, false> >;

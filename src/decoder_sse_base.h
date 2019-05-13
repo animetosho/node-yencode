@@ -1,10 +1,6 @@
 
 #ifdef __SSE2__
 
-static uint8_t eqFixLUT[256];
-ALIGN_32(static __m64 eqAddLUT[256]);
-ALIGN_32(static __m128i unshufLUTBig[32768]); // not needed for SSE2 method, but declared because it's written to for LUT creation
-
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
 	for(long i = -len; i; i += sizeof(__m128i)) {
@@ -49,7 +45,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			
 #define LOAD_HALVES(a, b) _mm_castps_si128(_mm_loadh_pi( \
 	_mm_castsi128_ps(_mm_loadl_epi64((__m128i*)(a))), \
-	(b) \
+	(__m64*)(b) \
 ))
 			
 			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
@@ -234,7 +230,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 # endif
 				{
 					
-					oData = _mm_shuffle_epi8(oData, _mm_load_si128(unshufLUTBig + (mask&0x7fff)));
+					oData = _mm_shuffle_epi8(oData, _mm_load_si128((__m128i*)(unshufLUTBig + (mask&0x7fff))));
 					STOREU_XMM(p, oData);
 					
 					// increment output position
@@ -243,7 +239,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 						p += XMM_SIZE - _mm_popcnt_u32(mask);
 					else
 # endif
-						p += XMM_SIZE - BitsSetTable256[mask & 0xff] - BitsSetTable256[mask >> 8];
+						p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[mask >> 8];
 				}
 			} else
 #endif

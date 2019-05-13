@@ -1,8 +1,8 @@
 #include "common.h"
 
 #ifdef __SSSE3__
-#include "decoder_sse_base.h"
 #include "decoder_common.h"
+#include "decoder_sse_base.h"
 void decoder_set_ssse3_funcs() {
 	decoder_init_lut();
 	_do_decode = &do_decode_simd<false, false, sizeof(__m128i), do_decode_sse<false, false, ISA_LEVEL_SSSE3> >;

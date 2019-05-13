@@ -1,8 +1,8 @@
 #include "common.h"
 
 #ifdef __SSE2__
-#include "decoder_sse_base.h"
 #include "decoder_common.h"
+#include "decoder_sse_base.h"
 
 void decoder_set_sse2_funcs() {
 	decoder_init_lut();

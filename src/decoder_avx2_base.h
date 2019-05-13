@@ -1,9 +1,5 @@
 
 #ifdef __AVX2__
-static uint8_t eqFixLUT[256];
-ALIGN_32(static int64_t eqAddLUT[256]);
-ALIGN_32(static __m128i unshufLUTBig[32768]);
-
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
@@ -229,8 +225,8 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 			{
 				// lookup compress masks and shuffle
 				__m256i shuf = _mm256_inserti128_si256(
-					_mm256_castsi128_si256(_mm_load_si128(unshufLUTBig + (mask & 0x7fff))),
-					unshufLUTBig[(mask >> 16) & 0x7fff],
+					_mm256_castsi128_si256(_mm_load_si128((__m128i*)(unshufLUTBig + (mask & 0x7fff)))),
+					*(__m128i*)(unshufLUTBig + ((mask >> 16) & 0x7fff)),
 					1
 				);
 				oData = _mm256_shuffle_epi8(oData, shuf);

@@ -1,11 +1,5 @@
 #include "common.h"
 
-// ugly dummy declarations (needed for reference in decoder_common.h; perhaps consider fixing this)
-static uint8_t* eqFixLUT;
-static uint8_t* eqAddLUT;
-static uint8_t* unshufLUT;
-static uint8_t* unshufLUTBig;
-
 #include "decoder_common.h"
 
 int (*_do_decode)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_scalar<false, false>;
