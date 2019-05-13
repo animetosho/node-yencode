@@ -489,6 +489,7 @@ static inline void decoder_init_lut() {
 			k >>= 1;
 		}
 		
+		#ifdef YENC_DEC_USE_THINTABLE
 		res = (uint8_t*)(unshufLUT + i);
 		k = i;
 		p = 0;
@@ -500,7 +501,23 @@ static inline void decoder_init_lut() {
 		}
 		for(; p<8; p++)
 			res[p] = 0x80;
+		#endif
 	}
+	#ifndef YENC_DEC_USE_THINTABLE
+	for(int i=0; i<32768; i++) {
+		int k = i;
+		uint8_t* res = (uint8_t*)(unshufLUTBig + i);
+		int p = 0;
+		
+		for(int j=0; j<16; j++) {
+			if(!(k & 1)) {
+				res[p++] = j;
+			}
+			k >>= 1;
+		}
+		for(; p<16; p++)
+			res[p] = 0x80;
+	}
+	#endif
 }
-
 

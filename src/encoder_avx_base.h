@@ -15,25 +15,22 @@
 # define PLATFORM_AMD64 1
 #endif
 
-ALIGN_32(static __m128i shufCompactLUT[256]);
+ALIGN_32(static __m256i shufExpandLUT[65536]); // huge 2MB table
 static void encoder_avx2_lut() {
-	for(int i=0; i<256; i++) {
+	for(int i=0; i<65536; i++) {
 		int k = i;
-		uint8_t res[16];
+		uint8_t* res = (uint8_t*)(shufExpandLUT + i);
 		int p = 0;
-		for(int j=0; j<8; j++) {
+		for(int j=0; j<16; j++) {
 			if(k & 1) {
-				res[j+p] = j<<1;
+				res[j+p] = 0x70+'=';
 				p++;
 			}
-			res[j+p] = (j<<1) +1;
+			res[j+p] = j;
 			k >>= 1;
 		}
-		for(; p<8; p++)
-			res[8+p] = 0x80;
-		
-		__m128i shuf = _mm_loadu_si128((__m128i*)res);
-		_mm_store_si128(&(shufCompactLUT[i]), shuf);
+		for(; p<16; p++)
+			res[16+p] = 0x40; // arbitrary value (top bit cannot be set)
 	}
 }
 
@@ -151,73 +148,24 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 #endif
 				{
 					
-					uint8_t m1 = mask & 0xFF;
-					uint8_t m2 = (mask >> 8) & 0xFF;
-					uint8_t m3 = (mask >> 16) & 0xFF;
-					uint8_t m4 = mask >> 24;
-					
-#if defined(__tune_znver1__) || defined(__tune_btver2__)
-					unsigned char shuf1Len = _mm_popcnt_u32(m1) + 8;
-					unsigned char shuf2Len = _mm_popcnt_u32(m2) + 8;
-					unsigned char shuf3Len = _mm_popcnt_u32(m3) + 8;
-					unsigned char shuf4Len = _mm_popcnt_u32(m4) + 8;
-#else
-					unsigned char shuf1Len = BitsSetTable256plus8[m1];
-					unsigned char shuf2Len = BitsSetTable256plus8[m2];
-					unsigned char shuf3Len = BitsSetTable256plus8[m3];
-					unsigned char shuf4Len = BitsSetTable256plus8[m4];
-#endif
+					uint16_t m1 = mask & 0xffff;
+					uint16_t m2 = mask >> 16;
+					unsigned char shuf1Len = _mm_popcnt_u32(m1) + 16;
+					unsigned char shuf2Len = _mm_popcnt_u32(m2) + 16;
 					
 					data = _mm256_add_epi8(data, _mm256_and_si256(cmp, _mm256_set1_epi8(64)));
 					
+					// duplicate halves
+					__m256i data1 = _mm256_inserti128_si256(data, _mm256_castsi256_si128(data), 1);
+					__m256i data2 = _mm256_permute4x64_epi64(data, 0xee);
 					
-					// mix '=' into every 2nd char
-					__m256i data1 = _mm256_unpacklo_epi8(_mm256_set1_epi8('='), data);
-					__m256i data2 = _mm256_unpackhi_epi8(_mm256_set1_epi8('='), data);
-					
-					// lookup compaction vectors
-					__m256i shufMA = _mm256_inserti128_si256(
-						_mm256_castsi128_si256(shufCompactLUT[m1]),
-						shufCompactLUT[m3],
-						1
-					);
-					__m256i shufMB = _mm256_inserti128_si256(
-						_mm256_castsi128_si256(shufCompactLUT[m2]),
-						shufCompactLUT[m4],
-						1
-					);
-					
-					// compact/remove unneeded '=' chars
+					__m256i shufMA = _mm256_load_si256(shufExpandLUT + m1);
+					__m256i shufMB = _mm256_load_si256(shufExpandLUT + m2);
+					// expand
 					data1 = _mm256_shuffle_epi8(data1, shufMA);
 					data2 = _mm256_shuffle_epi8(data2, shufMB);
 					
-					
-					/*
-					// alternative idea, which is closer to SSE version, but avoids the 'mix' lookup
-					// slower than the compaction idea above (2x unpack vs 3x or + 2x subs), but maybe a reference for something else?
-					
-					// perform lookup for shuffle mask
-					// note that we interlave 1/3, 2/4 to make processing easier
-					__m256i shufMA = _mm256_inserti128_si256(
-						_mm256_castsi128_si256(shufMixLUT[m1].shuf),
-						shufMixLUT[m3].shuf,
-						1
-					);
-					__m256i shufMB = _mm256_inserti128_si256(
-						_mm256_castsi128_si256(shufMixLUT[m2].shuf),
-						shufMixLUT[m4].shuf,
-						1
-					);
-					
-					// offset second mask
-					shufMB = _mm256_or_si256(shufMB, _mm256_set1_epi8(8));
-					
-					// expand halves
-					__m256i data1 = _mm256_shuffle_epi8(data, shufMA);
-					__m256i data2 = _mm256_shuffle_epi8(data, shufMB);
-					
 					// generate = vectors
-					// TODO: this requires LUT generation code to change a bit
 					__m256i shufMixMA = _mm256_subs_epu8(
 						shufMA, _mm256_set1_epi8(0x70)
 					);
@@ -228,30 +176,22 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 					// add in escaped chars
 					data1 = _mm256_or_si256(data1, shufMixMA);
 					data2 = _mm256_or_si256(data2, shufMixMB);
-					*/
 					
-					
-					_mm_storeu_si128((__m128i*)p, _mm256_castsi256_si128(data1));
+					_mm256_storeu_si256((__m256i*)p, data1);
 					p += shuf1Len;
-					_mm_storeu_si128((__m128i*)p, _mm256_castsi256_si128(data2));
+					_mm256_storeu_si256((__m256i*)p, data2);
 					p += shuf2Len;
-					_mm_storeu_si128((__m128i*)p, _mm256_extracti128_si256(data1, 1));
-					p += shuf3Len;
-					_mm_storeu_si128((__m128i*)p, _mm256_extracti128_si256(data2, 1));
-					p += shuf4Len;
-					col += shuf1Len + shuf2Len + shuf3Len + shuf4Len;
-					
+					col += shuf1Len + shuf2Len;
 					
 					int ovrflowAmt = col - (line_size-1);
 					if(LIKELIHOOD(0.3, ovrflowAmt > 0)) {
 						// we overflowed - find correct position to revert back to
 						// this is perhaps sub-optimal on 32-bit, but who still uses that with AVX2?
-						uint64_t eqMask1 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(data1, _mm256_set1_epi8('=')));
-						uint64_t eqMask2 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(data2, _mm256_set1_epi8('=')));
-						uint64_t eqMask = (eqMask1 & 0xffff) | ((eqMask2 & 0xffff) << shuf1Len)
-						                | ((eqMask1 & 0xffff0000) | (eqMask2 & 0xffff0000) << shuf3Len) << (shuf1Len + shuf2Len - 16);
+						uint64_t eqMask1 = _mm256_movemask_epi8(shufMA);
+						uint64_t eqMask2 = _mm256_movemask_epi8(shufMB);
+						uint64_t eqMask = eqMask1 | (eqMask2 << shuf1Len);
 						
-						eqMask >>= shuf1Len + shuf2Len + shuf3Len + shuf4Len - ovrflowAmt -1;
+						eqMask >>= shuf1Len + shuf2Len - ovrflowAmt -1;
 #ifdef PLATFORM_AMD64
 						i -= ovrflowAmt - _mm_popcnt_u64(eqMask);
 #else

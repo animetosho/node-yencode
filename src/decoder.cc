@@ -1,9 +1,10 @@
 #include "common.h"
 
-// ugly dummy declarations
+// ugly dummy declarations (needed for reference in decoder_common.h; perhaps consider fixing this)
 static uint8_t* eqFixLUT;
 static uint8_t* eqAddLUT;
 static uint8_t* unshufLUT;
+static uint8_t* unshufLUTBig;
 
 #include "decoder_common.h"
 
