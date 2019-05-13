@@ -118,7 +118,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				{
 					cmpEq = _mm256_slli_si256(cmpEq, 1);
 					// fix up byte that gets lost due to lane crossing
-					cmpEq = _mm256_insert_epi8(cmpEq, maskEq & 0x100 ? 0xff : 0, 16);
+					cmpEq = _mm256_insert_epi8(cmpEq, maskEq & 0x10000 ? 0xff : 0, 16);
 					
 					//cmpEq = _mm256_alignr_epi8(cmpEq, _mm256_permute2x128_si256(cmpEq, cmpEq, 0x08), 1); // << 1 byte
 					oData = _mm256_add_epi8(
