@@ -91,6 +91,8 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 #endif
 			if(isRaw) mask |= nextMask;
 			
+			bool checkNewlines = (isRaw || searchEnd) && LIKELIHOOD(0.15, mask != maskEq);
+			
 			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
@@ -130,7 +132,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
-			if(isRaw || searchEnd) {
+			if(checkNewlines) {
 				// find instances of \r\n
 				uint8x16_t tmpData1, tmpData2, tmpData3, tmpData4;
 				uint8x16_t nextData = vld1q_u8(src+i + sizeof(uint8x16_t)); // only 32-bits needed, but there doesn't appear a nice way to do this via intrinsics: https://stackoverflow.com/questions/46910799/arm-neon-intrinsics-convert-d-64-bit-register-to-low-half-of-q-128-bit-regis

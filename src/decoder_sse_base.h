@@ -52,6 +52,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
 			uint16_t maskEq = _mm_movemask_epi8(cmpEq);
+			bool checkNewlines = (isRaw || searchEnd) && LIKELIHOOD(0.15, mask != maskEq);
 			unsigned char oldEscFirst = escFirst;
 			if(LIKELIHOOD(0.0001, (maskEq & ((maskEq << 1) + escFirst)) != 0)) {
 				// resolve invalid sequences of = to deal with cases like '===='
@@ -109,7 +110,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
-			if(isRaw || searchEnd) {
+			if(checkNewlines) {
 				// find instances of \r\n
 				__m128i tmpData1, tmpData2, tmpData3, tmpData4;
 #if defined(__SSSE3__) && !defined(__tune_btver1__)

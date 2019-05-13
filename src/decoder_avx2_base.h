@@ -46,6 +46,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 		
 		if (LIKELIHOOD(0.42 /*guess*/, mask != 0)) {
 			uint32_t maskEq = _mm256_movemask_epi8(cmpEq);
+			bool checkNewlines = (isRaw || searchEnd) && LIKELIHOOD(0.3, mask != maskEq);
 			unsigned char oldEscFirst = escFirst;
 			if(LIKELIHOOD(0.0001, (maskEq & ((maskEq << 1) + escFirst)) != 0)) {
 				uint8_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
@@ -117,7 +118,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 			
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
-			if(isRaw || searchEnd) {
+			if(checkNewlines) {
 				// find instances of \r\n
 				__m256i tmpData1, tmpData2, tmpData3, tmpData4;
 				
