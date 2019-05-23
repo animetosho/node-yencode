@@ -30,6 +30,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 		}
 
 		uint16_t mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
+		uint16_t oMask = mask;
 		
 		__m128i oData;
 		if(LIKELIHOOD(0.01 /* guess */, escFirst!=0)) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
@@ -54,7 +55,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			uint16_t maskEq = _mm_movemask_epi8(cmpEq);
 			bool checkNewlines = (isRaw || searchEnd) && LIKELIHOOD(0.15, mask != maskEq);
 			unsigned char oldEscFirst = escFirst;
-			if(LIKELIHOOD(0.0001, (maskEq & ((maskEq << 1) + escFirst)) != 0)) {
+			if(LIKELIHOOD(0.0001, (oMask & ((maskEq << 1) + escFirst)) != 0)) {
 				// resolve invalid sequences of = to deal with cases like '===='
 				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
@@ -89,12 +90,11 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				// no invalid = sequences found - we can cut out some things from above
 				// this code path is a shortened version of above; it's here because it's faster, and what we'll be dealing with most of the time
 				escFirst = (maskEq >> (sizeof(__m128i)-1));
-				maskEq <<= 1;
-				mask &= ~maskEq;
 				
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
-				if(use_isa >= ISA_LEVEL_AVX3) {
-					oData = _mm_mask_add_epi8(oData, maskEq, oData, _mm_set1_epi8(-64));
+				// using mask-add seems to be faster when doing complex checks, slower otherwise, maybe due to higher register pressure?
+				if(use_isa >= ISA_LEVEL_AVX3 && (isRaw || searchEnd)) {
+					oData = _mm_mask_add_epi8(oData, maskEq << 1, oData, _mm_set1_epi8(-64));
 				} else
 #endif
 				{

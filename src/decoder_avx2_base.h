@@ -30,6 +30,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 		}
 
 		uint32_t mask = _mm256_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
+		uint32_t oMask = mask;
 		
 		__m256i oData;
 		if(LIKELIHOOD(0.01, escFirst!=0)) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
@@ -48,7 +49,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 			uint32_t maskEq = _mm256_movemask_epi8(cmpEq);
 			bool checkNewlines = (isRaw || searchEnd) && LIKELIHOOD(0.3, mask != maskEq);
 			unsigned char oldEscFirst = escFirst;
-			if(LIKELIHOOD(0.0001, (maskEq & ((maskEq << 1) + escFirst)) != 0)) {
+			if(LIKELIHOOD(0.0001, (oMask & ((maskEq << 1) + escFirst)) != 0)) {
 				uint8_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 				uint64_t maskEq2 = tmp;
 				for(int j=8; j<32; j+=8) {
@@ -87,14 +88,12 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				}
 			} else {
 				escFirst = (maskEq >> (sizeof(__m256i)-1));
-				maskEq <<= 1;
-				mask &= ~maskEq;
 				
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 				if(use_isa >= ISA_LEVEL_AVX3) {
 					oData = _mm256_mask_add_epi8(
 						oData,
-						maskEq,
+						maskEq << 1,
 						oData,
 						_mm256_set1_epi8(-64)
 					);
@@ -103,7 +102,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				{
 					cmpEq = _mm256_slli_si256(cmpEq, 1);
 					// fix up byte that gets lost due to lane crossing
-					cmpEq = _mm256_insert_epi8(cmpEq, maskEq & 0x10000 ? 0xff : 0, 16);
+					cmpEq = _mm256_insert_epi8(cmpEq, maskEq & 0x8000 ? 0xff : 0, 16);
 					
 					//cmpEq = _mm256_alignr_epi8(cmpEq, _mm256_permute2x128_si256(cmpEq, cmpEq, 0x08), 1); // << 1 byte
 					oData = _mm256_add_epi8(
