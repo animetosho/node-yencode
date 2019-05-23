@@ -112,14 +112,13 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
 			if(checkNewlines) {
 				// find instances of \r\n
-				__m128i tmpData1, tmpData2, tmpData3, tmpData4;
+				__m128i tmpData1, tmpData2, tmpData3, nextData;
 #if defined(__SSSE3__) && !defined(__tune_btver1__)
 				if(use_isa >= ISA_LEVEL_SSSE3) {
-					__m128i nextData = _mm_cvtsi32_si128(*(uint32_t*)(src+i + sizeof(__m128i)));
+					nextData = _mm_cvtsi32_si128(*(uint32_t*)(src+i + sizeof(__m128i)));
 					tmpData1 = _mm_alignr_epi8(nextData, data, 1);
 					tmpData2 = _mm_alignr_epi8(nextData, data, 2);
 					if(searchEnd) tmpData3 = _mm_alignr_epi8(nextData, data, 3);
-					if(searchEnd && isRaw) tmpData4 = _mm_alignr_epi8(nextData, data, 4);
 				} else
 #endif
 				{
@@ -127,8 +126,6 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 					tmpData2 = _mm_insert_epi16(_mm_srli_si128(data, 2), *(uint16_t*)((src+i) + sizeof(__m128i)), 7);
 					if(searchEnd)
 						tmpData3 = _mm_insert_epi16(_mm_srli_si128(tmpData1, 2), *(uint16_t*)((src+i) + sizeof(__m128i)+1), 7);
-					if(searchEnd && isRaw)
-						tmpData4 = _mm_insert_epi16(_mm_srli_si128(tmpData2, 2), *(uint16_t*)((src+i) + sizeof(__m128i)+2), 7);
 				}
 				__m128i matchNl1 = _mm_cmpeq_epi16(data, _mm_set1_epi16(0x0a0d));
 				__m128i matchNl2 = _mm_cmpeq_epi16(tmpData1, _mm_set1_epi16(0x0a0d));
@@ -148,12 +145,24 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 #endif
 						matchNlDots = _mm_and_si128(matchDots, _mm_or_si128(matchNl1, matchNl2));
 					killDots = _mm_movemask_epi8(matchNlDots);
+					if(!searchEnd) {
+						mask |= (killDots << 2) & 0xffff;
+						nextMask = killDots >> (sizeof(__m128i)-2);
+					}
 				}
 				
 				if(searchEnd) {
 					__m128i cmpB1 = _mm_cmpeq_epi16(tmpData2, _mm_set1_epi16(0x793d)); // "=y"
 					__m128i cmpB2 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x793d));
 					if(isRaw && LIKELIHOOD(0.001, killDots!=0)) {
+						__m128i tmpData4;
+#if defined(__SSSE3__) && !defined(__tune_btver1__)
+						if(use_isa >= ISA_LEVEL_SSSE3)
+							tmpData4 = _mm_alignr_epi8(nextData, data, 4);
+						else
+#endif
+							tmpData4 = _mm_insert_epi16(_mm_srli_si128(tmpData2, 2), *(uint16_t*)((src+i) + sizeof(__m128i)+2), 7);
+						
 						// match instances of \r\n.\r\n and \r\n.=y
 						__m128i cmpC1 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x0a0d)); // "\r\n"
 						__m128i cmpC2 = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x0a0d));
@@ -187,6 +196,8 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 							len += i;
 							break;
 						}
+						mask |= (killDots << 2) & 0xffff;
+						nextMask = killDots >> (sizeof(__m128i)-2);
 					} else {
 						if(LIKELIHOOD(0.001, _mm_movemask_epi8(
 							_mm_or_si128(cmpB1, cmpB2)
@@ -206,11 +217,8 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 								break;
 							}
 						}
+						if(isRaw) nextMask = 0;
 					}
-				}
-				if(isRaw) {
-					mask |= (killDots << 2) & 0xffff;
-					nextMask = killDots >> (sizeof(__m128i)-2);
 				}
 			}
 			

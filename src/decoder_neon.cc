@@ -134,14 +134,9 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
 			if(checkNewlines) {
 				// find instances of \r\n
-				uint8x16_t tmpData1, tmpData2, tmpData3, tmpData4;
 				uint8x16_t nextData = vld1q_u8(src+i + sizeof(uint8x16_t)); // only 32-bits needed, but there doesn't appear a nice way to do this via intrinsics: https://stackoverflow.com/questions/46910799/arm-neon-intrinsics-convert-d-64-bit-register-to-low-half-of-q-128-bit-regis
-				tmpData1 = vextq_u8(data, nextData, 1);
-				tmpData2 = vextq_u8(data, nextData, 2);
-				if(searchEnd) {
-					tmpData3 = vextq_u8(data, nextData, 3);
-					if(isRaw) tmpData4 = vextq_u8(data, nextData, 4);
-				}
+				uint8x16_t tmpData1 = vextq_u8(data, nextData, 1);
+				uint8x16_t tmpData2 = vextq_u8(data, nextData, 2);
 				uint8x16_t matchNl1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(data), vdupq_n_u16(0x0a0d)));
 				uint8x16_t matchNl2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData1), vdupq_n_u16(0x0a0d)));
 				
@@ -157,12 +152,22 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 						vorrq_u8(matchNl1, matchNl2)
 					);
 					hasDots = neon_vect_is_nonzero(matchNlDots);
+					if(!searchEnd) {
+						if(LIKELIHOOD(0.001, hasDots)) {
+							uint16_t killDots = neon_movemask(matchNlDots);
+							mask |= (killDots << 2) & 0xffff;
+							nextMask = killDots >> (sizeof(uint8x16_t)-2);
+						} else
+							nextMask = 0;
+					}
 				}
 				
 				if(searchEnd) {
+					uint8x16_t tmpData3 = vextq_u8(data, nextData, 3);
 					uint8x16_t cmpB1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData2), vdupq_n_u16(0x793d))); // "=y"
 					uint8x16_t cmpB2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x793d)));
 					if(isRaw && LIKELIHOOD(0.001, hasDots)) {
+						uint8x16_t tmpData4 = vextq_u8(data, nextData, 4);
 						// match instances of \r\n.\r\n and \r\n.=y
 						uint8x16_t cmpC1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x0a0d)));
 						uint8x16_t cmpC2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x0a0d)));
@@ -188,6 +193,10 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 							len += i;
 							break;
 						}
+						
+						uint16_t killDots = neon_movemask(matchNlDots);
+						mask |= (killDots << 2) & 0xffff;
+						nextMask = killDots >> (sizeof(uint8x16_t)-2);
 					} else {
 						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(
 							vorrq_u8(cmpB1, cmpB2)
@@ -202,15 +211,8 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 								break;
 							}
 						}
+						if(isRaw) nextMask = 0;
 					}
-				}
-				if(isRaw) {
-					if(LIKELIHOOD(0.001, hasDots)) {
-						uint16_t killDots = neon_movemask(matchNlDots);
-						mask |= (killDots << 2) & 0xffff;
-						nextMask = killDots >> (sizeof(uint8x16_t)-2);
-					} else
-						nextMask = 0;
 				}
 			}
 			
