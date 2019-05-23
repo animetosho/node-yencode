@@ -133,10 +133,10 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				__m256i matchNl1 = _mm256_cmpeq_epi16(data, _mm256_set1_epi16(0x0a0d));
 				__m256i matchNl2 = _mm256_cmpeq_epi16(tmpData1, _mm256_set1_epi16(0x0a0d));
 				
-				__m256i matchDots, matchNlDots;
+				__m256i matchNlDots;
 				uint32_t killDots;
 				if(isRaw) {
-					matchDots = _mm256_cmpeq_epi8(tmpData2, _mm256_set1_epi8('.'));
+					__m256i matchDots = _mm256_cmpeq_epi8(tmpData2, _mm256_set1_epi8('.'));
 					// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
 					matchNl1 = _mm256_and_si256(matchNl1, _mm256_set1_epi16(0xff));
 					
@@ -157,34 +157,23 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 						// match instances of \r\n.\r\n and \r\n.=y
 						__m256i cmpC1 = _mm256_cmpeq_epi16(tmpData3, _mm256_set1_epi16(0x0a0d)); // "\r\n"
 						__m256i cmpC2 = _mm256_cmpeq_epi16(tmpData4, _mm256_set1_epi16(0x0a0d));
+						__m256i cmpB3 = _mm256_cmpeq_epi16(tmpData4, _mm256_set1_epi16(0x793d));
 						cmpC1 = _mm256_or_si256(cmpC1, cmpB2);
+						
 #ifdef __AVX512VL__
 						if(use_isa >= ISA_LEVEL_AVX3) {
-							cmpC2 = _mm256_ternarylogic_epi32(
-								cmpC2,
-								_mm256_cmpeq_epi16(tmpData4, _mm256_set1_epi16(0x793d)),
-								_mm256_set1_epi16(0xff),
-								0x54
-							);
+							cmpC2 = _mm256_ternarylogic_epi32(cmpC2, cmpB3, _mm256_set1_epi16(0xff), 0x54); // (cmpC2 | cmpB3) & ~0xff
+							cmpC1 = _mm256_ternarylogic_epi32(cmpC1, cmpC2, matchNlDots, 0xA8); // (cmpC1 | cmpC2) & matchNlDots
+							cmpB2 = _mm256_ternarylogic_epi32(cmpB2, matchNl2, cmpC1, 0xEA); // (cmpB2 & matchNl2) | cmpC1
+							cmpB1 = _mm256_ternarylogic_epi32(cmpB1, matchNl1, cmpB2, 0xEA); // (cmpB1 & matchNl1) | cmpB2
 						} else
 #endif
 						{
-							cmpC2 = _mm256_or_si256(cmpC2, _mm256_cmpeq_epi16(tmpData4, _mm256_set1_epi16(0x793d)));
-							cmpC2 = _mm256_andnot_si256(_mm256_set1_epi16(0xff), cmpC2);
-						}
-						
-						// prepare cmpB
-						cmpB1 = _mm256_and_si256(cmpB1, matchNl1);
-						cmpB2 = _mm256_and_si256(cmpB2, matchNl2);
-						
-						// and w/ dots
-#ifdef __AVX512VL__
-						if(use_isa >= ISA_LEVEL_AVX3) {
-							cmpC1 = _mm256_ternarylogic_epi32(cmpC1, cmpC2, matchNlDots, 0xA8);
-							cmpB1 = _mm256_ternarylogic_epi32(cmpB1, cmpB2, cmpC1, 0xFE);
-						} else
-#endif
-						{
+							cmpC2 = _mm256_andnot_si256(_mm256_set1_epi16(0xff), _mm256_or_si256(cmpC2, cmpB3));
+							// prepare cmpB
+							cmpB1 = _mm256_and_si256(cmpB1, matchNl1);
+							cmpB2 = _mm256_and_si256(cmpB2, matchNl2);
+							// and w/ dots
 							cmpC1 = _mm256_and_si256(_mm256_or_si256(cmpC1, cmpC2), matchNlDots);
 							cmpB1 = _mm256_or_si256(cmpC1, _mm256_or_si256(
 								cmpB1, cmpB2

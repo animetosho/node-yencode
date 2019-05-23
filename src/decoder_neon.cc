@@ -145,15 +145,17 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 				uint8x16_t matchNl1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(data), vdupq_n_u16(0x0a0d)));
 				uint8x16_t matchNl2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData1), vdupq_n_u16(0x0a0d)));
 				
-				uint8x16_t matchDots, matchNlDots;
+				uint8x16_t matchNlDots;
 				bool hasDots;
 				if(isRaw) {
-					matchDots = vceqq_u8(tmpData2, vdupq_n_u8('.'));
 					// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
 					matchNl1 = vbicq_u8(matchNl1, vreinterpretq_u8_u16(vdupq_n_u16(0xff00)));
 					
 					// merge matches of \r\n with those for .
-					matchNlDots = vandq_u8(matchDots, vorrq_u8(matchNl1, matchNl2));
+					matchNlDots = vandq_u8(
+						vceqq_u8(tmpData2, vdupq_n_u8('.')),
+						vorrq_u8(matchNl1, matchNl2)
+					);
 					hasDots = neon_vect_is_nonzero(matchNlDots);
 				}
 				
@@ -164,8 +166,9 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 						// match instances of \r\n.\r\n and \r\n.=y
 						uint8x16_t cmpC1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x0a0d)));
 						uint8x16_t cmpC2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x0a0d)));
+						uint8x16_t cmpB3 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d)));
 						cmpC1 = vorrq_u8(cmpC1, cmpB2);
-						cmpC2 = vorrq_u8(cmpC2, vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d))));
+						cmpC2 = vorrq_u8(cmpC2, cmpB3);
 						cmpC2 = vandq_u8(cmpC2, vreinterpretq_u8_u16(vdupq_n_u16(0xff00)));
 						cmpC1 = vorrq_u8(cmpC1, cmpC2);
 						
