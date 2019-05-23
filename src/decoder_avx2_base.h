@@ -190,23 +190,32 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 								cmpB1, cmpB2
 							));
 						}
+						if(LIKELIHOOD(0.002, _mm256_movemask_epi8(cmpB1))) {
+							// terminator found
+							// there's probably faster ways to do this, but reverting to scalar code should be good enough
+							escFirst = oldEscFirst;
+							len += i;
+							break;
+						}
 					} else {
+						if(LIKELIHOOD(0.002, _mm256_movemask_epi8(
+							_mm256_or_si256(cmpB1, cmpB2)
+						))) {
 #ifdef __AVX512VL__
-						if(use_isa >= ISA_LEVEL_AVX3)
-							cmpB1 = _mm256_ternarylogic_epi32(cmpB1, matchNl1, _mm256_and_si256(cmpB2, matchNl2), 0xEA);
-						else
+							if(use_isa >= ISA_LEVEL_AVX3)
+								cmpB1 = _mm256_ternarylogic_epi32(cmpB1, matchNl1, _mm256_and_si256(cmpB2, matchNl2), 0xEA);
+							else
 #endif
-							cmpB1 = _mm256_or_si256(
-								_mm256_and_si256(cmpB1, matchNl1),
-								_mm256_and_si256(cmpB2, matchNl2)
-							);
-					}
-					if(LIKELIHOOD(0.002, _mm256_movemask_epi8(cmpB1))) {
-						// terminator found
-						// there's probably faster ways to do this, but reverting to scalar code should be good enough
-						escFirst = oldEscFirst;
-						len += i;
-						break;
+								cmpB1 = _mm256_or_si256(
+									_mm256_and_si256(cmpB1, matchNl1),
+									_mm256_and_si256(cmpB2, matchNl2)
+								);
+							if(_mm256_movemask_epi8(cmpB1)) {
+								escFirst = oldEscFirst;
+								len += i;
+								break;
+							}
+						}
 					}
 				}
 				if(isRaw) {

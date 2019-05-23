@@ -190,23 +190,33 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 								cmpB1, cmpB2
 							));
 						}
+						
+						if(LIKELIHOOD(0.001, _mm_movemask_epi8(cmpB1))) {
+							// terminator found
+							// there's probably faster ways to do this, but reverting to scalar code should be good enough
+							escFirst = oldEscFirst;
+							len += i;
+							break;
+						}
 					} else {
+						if(LIKELIHOOD(0.001, _mm_movemask_epi8(
+							_mm_or_si128(cmpB1, cmpB2)
+						))) {
 #ifdef __AVX512VL__
-						if(use_isa >= ISA_LEVEL_AVX3)
-							cmpB1 = _mm_ternarylogic_epi32(cmpB1, matchNl1, _mm_and_si128(cmpB2, matchNl2), 0xEA);
-						else
+							if(use_isa >= ISA_LEVEL_AVX3)
+								cmpB1 = _mm_ternarylogic_epi32(cmpB1, matchNl1, _mm_and_si128(cmpB2, matchNl2), 0xEA);
+							else
 #endif
-							cmpB1 = _mm_or_si128(
-								_mm_and_si128(cmpB1, matchNl1),
-								_mm_and_si128(cmpB2, matchNl2)
-							);
-					}
-					if(LIKELIHOOD(0.001, _mm_movemask_epi8(cmpB1))) {
-						// terminator found
-						// there's probably faster ways to do this, but reverting to scalar code should be good enough
-						escFirst = oldEscFirst;
-						len += i;
-						break;
+								cmpB1 = _mm_or_si128(
+									_mm_and_si128(cmpB1, matchNl1),
+									_mm_and_si128(cmpB2, matchNl2)
+								);
+							if(_mm_movemask_epi8(cmpB1)) {
+								escFirst = oldEscFirst;
+								len += i;
+								break;
+							}
+						}
 					}
 				}
 				if(isRaw) {

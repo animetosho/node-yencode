@@ -178,18 +178,27 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 						cmpB1 = vorrq_u8(cmpC1, vorrq_u8(
 							cmpB1, cmpB2
 						));
+						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(cmpB1))) {
+							// terminator found
+							// there's probably faster ways to do this, but reverting to scalar code should be good enough
+							escFirst = oldEscFirst;
+							len += i;
+							break;
+						}
 					} else {
-						cmpB1 = vorrq_u8(
-							vandq_u8(cmpB1, matchNl1),
-							vandq_u8(cmpB2, matchNl2)
-						);
-					}
-					if(LIKELIHOOD(0.001, neon_vect_is_nonzero(cmpB1))) {
-						// terminator found
-						// there's probably faster ways to do this, but reverting to scalar code should be good enough
-						escFirst = oldEscFirst;
-						len += i;
-						break;
+						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(
+							vorrq_u8(cmpB1, cmpB2)
+						))) {
+							cmpB1 = vorrq_u8(
+								vandq_u8(cmpB1, matchNl1),
+								vandq_u8(cmpB2, matchNl2)
+							);
+							if(LIKELIHOOD(0.001, neon_vect_is_nonzero(cmpB1))) {
+								escFirst = oldEscFirst;
+								len += i;
+								break;
+							}
+						}
 					}
 				}
 				if(isRaw) {
