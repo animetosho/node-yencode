@@ -25,53 +25,81 @@ _.bufAvg2x.forEach(function(buf, i) {
 	lenAvg2x[i] = y.encodeTo(buf, mAvg2x[i]);
 });
 
+
+
+_.parseArgs('Syntax: node test/speeddec [-a|--average-only] [{-s|--sleep}=msecs(0)] [{-m|--methods}=clean,raw,incr,rawincr]');
+
 console.log('    Test                     Output rate         Read rate   ');
 
 // warmup
-mAvg.forEach(function(buf) {
-	var p=process.hrtime();
-	for(var j=0;j<_.rounds;j+=2) y.decodeTo(buf, _.bufTarget);
-	for(var j=0;j<_.rounds;j+=2) y.decodeNntpTo(buf, _.bufTarget);
-	for(var j=0;j<_.rounds;j+=2) y.decodeIncr(buf, 0, _.bufTarget);
-	for(var j=0;j<_.rounds;j+=2) y.decodeNntpIncr(buf, 0, _.bufTarget);
-	var t=process.hrtime(p);
-});
+if(!_.sleep) {
+	mAvg.forEach(function(buf) {
+		var p=process.hrtime();
+		for(var j=0;j<_.rounds;j+=2) y.decodeTo(buf, _.bufTarget);
+		for(var j=0;j<_.rounds;j+=2) y.decodeNntpTo(buf, _.bufTarget);
+		for(var j=0;j<_.rounds;j+=2) y.decodeIncr(buf, 0, _.bufTarget);
+		for(var j=0;j<_.rounds;j+=2) y.decodeNntpIncr(buf, 0, _.bufTarget);
+		var t=process.hrtime(p);
+	});
+}
 
-_.run('Worst (all escaping)', y.decodeTo.bind(null, mWorst, _.bufTarget), lenWorst);
-_.run('Best (min escaping)',  y.decodeTo.bind(null, mBest, _.bufTarget), lenBest);
-_.run('Pass (no escaping)',  y.decodeTo.bind(null, mBest2, _.bufTarget));
-_.run('Raw worst', y.decodeNntpTo.bind(null, mWorst, _.bufTarget), lenWorst);
-_.run('Raw best',  y.decodeNntpTo.bind(null, mBest, _.bufTarget), lenBest);
-_.run('Raw pass',  y.decodeNntpTo.bind(null, mBest2, _.bufTarget));
-_.run('Incr worst', y.decodeIncr.bind(null, mWorst, 0, _.bufTarget), lenWorst);
-_.run('Incr best',  y.decodeIncr.bind(null, mBest, 0, _.bufTarget), lenBest);
-_.run('Incr pass',  y.decodeIncr.bind(null, mBest2, 0, _.bufTarget));
-_.run('Incr-raw worst', y.decodeNntpIncr.bind(null, mWorst, 0, _.bufTarget), lenWorst);
-_.run('Incr-raw best',  y.decodeNntpIncr.bind(null, mBest, 0, _.bufTarget), lenBest);
-_.run('Incr-raw pass',  y.decodeNntpIncr.bind(null, mBest2, 0, _.bufTarget));
-
-mAvg.forEach(function(buf, i) {
-	_.run('Random ('+i+')',   y.decodeTo.bind(null, buf, _.bufTarget), lenAvg[i]);
-});
-mAvg.forEach(function(buf, i) {
-	_.run('Raw random ('+i+')',   y.decodeNntpTo.bind(null, buf, _.bufTarget), lenAvg[i]);
-});
-mAvg.forEach(function(buf, i) {
-	_.run('Incr random ('+i+')',  y.decodeIncr.bind(null, buf, 0, _.bufTarget), lenAvg[i]);
-});
-mAvg.forEach(function(buf, i) {
-	_.run('Incr-raw random ('+i+')',  y.decodeNntpIncr.bind(null, buf, 0, _.bufTarget), lenAvg[i]);
-});
-
-mAvg2x.forEach(function(buf, i) {
-	_.run('Random 2xEsc ('+i+')',   y.decodeTo.bind(null, buf, _.bufTarget), lenAvg2x[i]);
-});
-mAvg2x.forEach(function(buf, i) {
-	_.run('Raw random 2xEsc ('+i+')',   y.decodeNntpTo.bind(null, buf, _.bufTarget), lenAvg2x[i]);
-});
-mAvg2x.forEach(function(buf, i) {
-	_.run('Incr random 2xEsc ('+i+')',  y.decodeIncr.bind(null, buf, 0, _.bufTarget), lenAvg2x[i]);
-});
-mAvg2x.forEach(function(buf, i) {
-	_.run('Incr-raw random 2xEsc ('+i+')',  y.decodeNntpIncr.bind(null, buf, 0, _.bufTarget), lenAvg2x[i]);
-});
+setTimeout(function() {
+	if(!_.avgOnly) {
+		if(_.decMethods.clean) {
+			_.run('Clean worst (all escaping)', y.decodeTo.bind(null, mWorst, _.bufTarget), lenWorst);
+			_.run('Clean best (min escaping)',  y.decodeTo.bind(null, mBest, _.bufTarget), lenBest);
+			_.run('Clean pass (no escaping)',  y.decodeTo.bind(null, mBest2, _.bufTarget));
+		}
+		if(_.decMethods.raw) {
+			_.run('Raw worst', y.decodeNntpTo.bind(null, mWorst, _.bufTarget), lenWorst);
+			_.run('Raw best',  y.decodeNntpTo.bind(null, mBest, _.bufTarget), lenBest);
+			_.run('Raw pass',  y.decodeNntpTo.bind(null, mBest2, _.bufTarget));
+		}
+		if(_.decMethods.incr) {
+			_.run('Incr worst', y.decodeIncr.bind(null, mWorst, 0, _.bufTarget), lenWorst);
+			_.run('Incr best',  y.decodeIncr.bind(null, mBest, 0, _.bufTarget), lenBest);
+			_.run('Incr pass',  y.decodeIncr.bind(null, mBest2, 0, _.bufTarget));
+		}
+		if(_.decMethods.rawincr) {
+			_.run('Raw-incr worst', y.decodeNntpIncr.bind(null, mWorst, 0, _.bufTarget), lenWorst);
+			_.run('Raw-incr best',  y.decodeNntpIncr.bind(null, mBest, 0, _.bufTarget), lenBest);
+			_.run('Raw-incr pass',  y.decodeNntpIncr.bind(null, mBest2, 0, _.bufTarget));
+		}
+	}
+	
+	if(_.decMethods.clean)
+		mAvg.forEach(function(buf, i) {
+			_.run('Clean random ('+i+')',   y.decodeTo.bind(null, buf, _.bufTarget), lenAvg[i]);
+		});
+	if(_.decMethods.raw)
+		mAvg.forEach(function(buf, i) {
+			_.run('Raw random ('+i+')',   y.decodeNntpTo.bind(null, buf, _.bufTarget), lenAvg[i]);
+		});
+	if(_.decMethods.incr)
+		mAvg.forEach(function(buf, i) {
+			_.run('Incr random ('+i+')',  y.decodeIncr.bind(null, buf, 0, _.bufTarget), lenAvg[i]);
+		});
+	if(_.decMethods.rawincr)
+		mAvg.forEach(function(buf, i) {
+			_.run('Raw-incr random ('+i+')',  y.decodeNntpIncr.bind(null, buf, 0, _.bufTarget), lenAvg[i]);
+		});
+	
+	if(!_.avgOnly) {
+		if(_.decMethods.clean)
+			mAvg2x.forEach(function(buf, i) {
+				_.run('Clean random 2xEsc ('+i+')',   y.decodeTo.bind(null, buf, _.bufTarget), lenAvg2x[i]);
+			});
+		if(_.decMethods.raw)
+			mAvg2x.forEach(function(buf, i) {
+				_.run('Raw random 2xEsc ('+i+')',   y.decodeNntpTo.bind(null, buf, _.bufTarget), lenAvg2x[i]);
+			});
+		if(_.decMethods.incr)
+			mAvg2x.forEach(function(buf, i) {
+				_.run('Incr random 2xEsc ('+i+')',  y.decodeIncr.bind(null, buf, 0, _.bufTarget), lenAvg2x[i]);
+			});
+		if(_.decMethods.rawincr)
+			mAvg2x.forEach(function(buf, i) {
+				_.run('Raw-incr random 2xEsc ('+i+')',  y.decodeNntpIncr.bind(null, buf, 0, _.bufTarget), lenAvg2x[i]);
+			});
+	}
+}, _.sleep);
