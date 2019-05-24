@@ -242,7 +242,6 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			vst1q_u8(p, oData);
 			p += sizeof(uint8x16_t);
 			escFirst = 0;
-			if(isRaw) nextMask = 0;
 		}
 	}
 }

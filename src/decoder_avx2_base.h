@@ -164,7 +164,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 						
 #ifdef __AVX512VL__
 						if(use_isa >= ISA_LEVEL_AVX3) {
-							cmpC2 = _mm256_ternarylogic_epi32(cmpC2, cmpB3, _mm256_set1_epi16(0xff), 0x54); // (cmpC2 | cmpB3) & ~0xff
+							cmpC2 = _mm256_ternarylogic_epi32(cmpC2, cmpB3, _mm256_set1_epi16(0xff), 0x54); // (cmpC2 | cmpB3) & ~0x00ff
 							cmpC1 = _mm256_ternarylogic_epi32(cmpC1, cmpC2, matchNlDots, 0xA8); // (cmpC1 | cmpC2) & matchNlDots
 							cmpB2 = _mm256_ternarylogic_epi32(cmpB2, matchNl2, cmpC1, 0xEA); // (cmpB2 & matchNl2) | cmpC1
 							cmpB1 = _mm256_ternarylogic_epi32(cmpB1, matchNl1, cmpB2, 0xEA); // (cmpB1 & matchNl1) | cmpB2
@@ -242,7 +242,6 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 			_mm256_storeu_si256((__m256i*)p, oData);
 			p += sizeof(__m256i);
 			escFirst = 0;
-			if(isRaw) nextMask = 0;
 		}
 	}
 	_mm256_zeroupper();
