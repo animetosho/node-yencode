@@ -54,9 +54,12 @@ var cipher = require('crypto').createCipher;
 	var data = Buffer.concat([rand.update(module.exports.bufBest), rand.final()]).slice(0, sz);
 	module.exports.bufAvg.push(new Buffer(data));
 	
-	// as all the yEnc escape characters exist in the upper 128 chars of the ASCII range, always setting the top bit increases the likelihood of escaping by 2x
-	for(var i=0; i<data.length; i++)
-		data[i] |= 0x80;
+	// all yEnc special characters exist in range 0-61 (post shift) or 214-19 (pre-shift)
+	// to generate biased data, we'll pack the range down (64-191 will get packed to 192-63)
+	for(var i=0; i<data.length; i++) {
+		if(data[i] >= 64 && data[i] < 192)
+			data[i] = (data[i] + 128) & 0xff;
+	}
 	module.exports.bufAvg2x.push(data);
 });
 
