@@ -148,8 +148,8 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 #endif
 				{
 					
-					uint16_t m1 = mask & 0xffff;
-					uint16_t m2 = mask >> 16;
+					int m1 = mask & 0xffff;
+					int m2 = (mask >> 11) & 0x1fffe0;
 					unsigned char shuf1Len = _mm_popcnt_u32(m1) + 16;
 					unsigned char shuf2Len = _mm_popcnt_u32(m2) + 16;
 					
@@ -160,7 +160,7 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 					__m256i data2 = _mm256_permute4x64_epi64(data, 0xee);
 					
 					__m256i shufMA = _mm256_load_si256(shufExpandLUT + m1);
-					__m256i shufMB = _mm256_load_si256(shufExpandLUT + m2);
+					__m256i shufMB = _mm256_load_si256((__m256i*)((char*)shufExpandLUT + m2));
 					// expand
 					data1 = _mm256_shuffle_epi8(data1, shufMA);
 					data2 = _mm256_shuffle_epi8(data2, shufMB);

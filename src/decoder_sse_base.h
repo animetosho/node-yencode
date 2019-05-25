@@ -2,8 +2,9 @@
 #ifdef __SSE2__
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
-inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& nextMask) {
+inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	int escFirst = _escFirst;
+	int nextMask = _nextMask;
 	for(long i = -len; i; i += sizeof(__m128i)) {
 		__m128i data = _mm_load_si128((__m128i *)(src+i));
 		
@@ -30,14 +31,14 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			);
 		}
 
-		uint16_t mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
-		uint16_t oMask = mask;
+		int mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
+		int oMask = mask;
 		
 		__m128i oData;
 		if(LIKELIHOOD(0.01 /* guess */, escFirst!=0)) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
 			// first byte needs escaping due to preceeding = in last loop iteration
 			oData = _mm_add_epi8(data, _mm_set_epi8(-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64));
-			mask &= ~1;
+			mask &= 0xfffe;
 		} else {
 			oData = _mm_add_epi8(data, _mm_set1_epi8(-42));
 		}
@@ -53,12 +54,12 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
-			uint16_t maskEq = _mm_movemask_epi8(cmpEq);
+			int maskEq = _mm_movemask_epi8(cmpEq);
 			bool checkNewlines = (isRaw || searchEnd) && LIKELIHOOD(0.15, mask != maskEq);
 			int oldEscFirst = escFirst;
 			if(LIKELIHOOD(0.0001, (oMask & ((maskEq << 1) + escFirst)) != 0)) {
 				// resolve invalid sequences of = to deal with cases like '===='
-				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				int tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
 				
 				escFirst = (maskEq >> (sizeof(__m128i)-1));
@@ -132,7 +133,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				__m128i matchNl2 = _mm_cmpeq_epi16(tmpData1, _mm_set1_epi16(0x0a0d));
 				
 				__m128i matchNlDots;
-				uint16_t killDots;
+				int killDots;
 				if(isRaw) {
 					__m128i matchDots = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
 					// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
@@ -249,7 +250,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 						p += XMM_SIZE - _mm_popcnt_u32(mask);
 					else
 # endif
-						p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[mask >> 8];
+						p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
 				}
 			} else
 #endif
@@ -284,5 +285,6 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 		}
 	}
 	_escFirst = escFirst;
+	_nextMask = nextMask;
 }
 #endif
