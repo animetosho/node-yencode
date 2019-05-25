@@ -122,10 +122,17 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				// load w/ 16 byte overlap (this loads 32 bytes, though we only need 20; it's probably faster to do this than to shuffle stuff around)
 				// TODO: do test the idea of load 128 + load 32
 				//__m256i nextData = _mm256_permute2x128_si256(data, _mm256_castsi128_si256(_mm_loadu_si32(src+i+32)), 0x21);
-				__m256i nextData = _mm256_loadu_si256((__m256i *)(src+i+16));
-				
-				__m256i tmpData1 = _mm256_alignr_epi8(nextData, data, 1);
-				__m256i tmpData2 = _mm256_alignr_epi8(nextData, data, 2);
+				__m256i nextData, tmpData1, tmpData2;
+				if(searchEnd) {
+					nextData = _mm256_loadu_si256((__m256i *)(src+i+16));
+					
+					tmpData1 = _mm256_alignr_epi8(nextData, data, 1);
+					tmpData2 = _mm256_alignr_epi8(nextData, data, 2);
+				} else {
+					// these are only referenced once, so the loads can get inlined into the vpcmpeq* instructions
+					tmpData1 = _mm256_loadu_si256((__m256i *)(src+i+1));
+					tmpData2 = _mm256_loadu_si256((__m256i *)(src+i+2));
+				}
 				__m256i matchNl1 = _mm256_cmpeq_epi16(data, _mm256_set1_epi16(0x0a0d));
 				__m256i matchNl2 = _mm256_cmpeq_epi16(tmpData1, _mm256_set1_epi16(0x0a0d));
 				
