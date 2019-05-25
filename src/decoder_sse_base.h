@@ -2,7 +2,8 @@
 #ifdef __SSE2__
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
-inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
+inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& nextMask) {
+	int escFirst = _escFirst;
 	for(long i = -len; i; i += sizeof(__m128i)) {
 		__m128i data = _mm_load_si128((__m128i *)(src+i));
 		
@@ -54,7 +55,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
 			uint16_t maskEq = _mm_movemask_epi8(cmpEq);
 			bool checkNewlines = (isRaw || searchEnd) && LIKELIHOOD(0.15, mask != maskEq);
-			unsigned char oldEscFirst = escFirst;
+			int oldEscFirst = escFirst;
 			if(LIKELIHOOD(0.0001, (oMask & ((maskEq << 1) + escFirst)) != 0)) {
 				// resolve invalid sequences of = to deal with cases like '===='
 				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
@@ -144,7 +145,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 					else
 #endif
 						matchNlDots = _mm_and_si128(matchDots, _mm_or_si128(matchNl1, matchNl2));
-					killDots = _mm_movemask_epi8(matchNlDots);
+					killDots = _mm_movemask_epi8(matchNlDots); // using PTEST to substitute this and above AND doesn't seem to be worth it
 					if(!searchEnd) {
 						mask |= (killDots << 2) & 0xffff;
 						nextMask = killDots >> (sizeof(__m128i)-2);
@@ -282,5 +283,6 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			escFirst = 0;
 		}
 	}
+	_escFirst = escFirst;
 }
 #endif

@@ -2,7 +2,9 @@
 #ifdef __AVX2__
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
-inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
+inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& _nextMask) {
+	int escFirst = _escFirst;
+	uint32_t nextMask = _nextMask;
 	for(long i = -len; i; i += sizeof(__m256i)) {
 		__m256i data = _mm256_load_si256((__m256i *)(src+i));
 		
@@ -48,10 +50,10 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 		if (LIKELIHOOD(0.42 /*guess*/, mask != 0)) {
 			uint32_t maskEq = _mm256_movemask_epi8(cmpEq);
 			bool checkNewlines = (isRaw || searchEnd) && LIKELIHOOD(0.3, mask != maskEq);
-			unsigned char oldEscFirst = escFirst;
+			int oldEscFirst = escFirst;
 			if(LIKELIHOOD(0.0001, (oMask & ((maskEq << 1) + escFirst)) != 0)) {
 				uint8_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
-				uint64_t maskEq2 = tmp;
+				uint32_t maskEq2 = tmp;
 				for(int j=8; j<32; j+=8) {
 					tmp = eqFixLUT[((maskEq>>j)&0xff) & ~(tmp>>7)];
 					maskEq2 |= tmp<<j;
@@ -100,11 +102,14 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				} else
 #endif
 				{
-					cmpEq = _mm256_slli_si256(cmpEq, 1);
-					// fix up byte that gets lost due to lane crossing
-					cmpEq = _mm256_insert_epi8(cmpEq, maskEq & 0x8000 ? 0xff : 0, 16);
-					
-					//cmpEq = _mm256_alignr_epi8(cmpEq, _mm256_permute2x128_si256(cmpEq, cmpEq, 0x08), 1); // << 1 byte
+					// << 1 byte
+#if defined(__tune_znver1__) || defined(__tune_bdver4__)
+					cmpEq = _mm256_alignr_epi8(cmpEq, _mm256_inserti128_si256(
+						_mm256_setzero_si256(), _mm256_castsi256_si128(cmpEq), 1
+					), 15);
+#else
+					cmpEq = _mm256_alignr_epi8(cmpEq, _mm256_permute2x128_si256(cmpEq, cmpEq, 0x08), 15);
+#endif
 					oData = _mm256_add_epi8(
 						oData,
 						_mm256_and_si256(
@@ -232,17 +237,17 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				// lookup compress masks and shuffle
 				__m256i shuf = _mm256_inserti128_si256(
 					_mm256_castsi128_si256(_mm_load_si128((__m128i*)(unshufLUTBig + (mask & 0x7fff)))),
-					*(__m128i*)(unshufLUTBig + ((mask >> 16) & 0x7fff)),
+					*(__m128i*)((char*)unshufLUTBig + ((mask >> 12) & 0x7fff0)),
 					1
 				);
 				oData = _mm256_shuffle_epi8(oData, shuf);
 				
 				_mm_storeu_si128((__m128i*)p, _mm256_castsi256_si128(oData));
 				// increment output position
-				p += XMM_SIZE - _mm_popcnt_u32(mask & 0xffff);
+				p -= _mm_popcnt_u32(mask & 0xffff);
 				
-				_mm_storeu_si128((__m128i*)p, _mm256_extracti128_si256(oData, 1));
-				p += XMM_SIZE - _mm_popcnt_u32(mask & 0xffff0000);
+				_mm_storeu_si128((__m128i*)(p + XMM_SIZE), _mm256_extracti128_si256(oData, 1));
+				p += XMM_SIZE*2 - _mm_popcnt_u32(mask & 0xffff0000);
 				
 			}
 		} else {
@@ -252,5 +257,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 		}
 	}
 	_mm256_zeroupper();
+	_escFirst = escFirst;
+	_nextMask = nextMask;
 }
 #endif
