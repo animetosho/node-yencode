@@ -11,6 +11,7 @@ struct TShufMix {
 };
 ALIGN_32(static struct TShufMix shufMixLUT[256]);
 
+
 static uint16_t expandLUT[256];
 
 static void encoder_ssse3_lut() {
@@ -44,6 +45,50 @@ static void encoder_ssse3_lut() {
 	}
 }
 #endif
+
+// for SSE2 expanding
+ALIGN_32(static const uint8_t _expand_mix_table[256]) = {
+	'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
+	 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
+	 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
+	 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
+	 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
+	 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
+	 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
+	 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
+	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 ,
+	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 ,
+	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 ,
+	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 ,
+	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 ,
+	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 ,
+	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64,
+	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'='
+};
+static const __m128i* expand_mix_table = (const __m128i*)_expand_mix_table;
+
+ALIGN_32(static const int8_t _expand_mask_table[256]) = {
+	 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0
+};
+static const __m128i* expand_mask_table = (const __m128i*)_expand_mask_table;
+
+#include <x86intrin.h> // for LZCNT/BSF
+
 
 static const unsigned char* escapeLUT;
 static const uint16_t* escapedLUT;
@@ -259,43 +304,85 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 				} else
 #endif
 				{
-					unsigned char* sp = p;
-					ALIGN_32(uint32_t mmTmp[4]);
-					// special characters exist
-					_mm_store_si128((__m128i*)mmTmp, data);
-					#define DO_THING(n) \
-						c = es[i-XMM_SIZE+n], escaped = escapeLUT[c]; \
-						if (LIKELIHOOD(0.9844, escaped != 0)) \
-							*(p+n) = escaped; \
-						else { \
-							memcpy(p+n, &escapedLUT[c], sizeof(uint16_t)); \
-							p++; \
+					if(mask & (mask-1)) {
+						unsigned char* sp = p;
+						ALIGN_32(uint32_t mmTmp[4]);
+						// special characters exist
+						_mm_store_si128((__m128i*)mmTmp, data);
+						#define DO_THING(n) \
+							c = es[i-XMM_SIZE+n], escaped = escapeLUT[c]; \
+							if (LIKELIHOOD(0.9844, escaped != 0)) \
+								*(p+n) = escaped; \
+							else { \
+								memcpy(p+n, &escapedLUT[c], sizeof(uint16_t)); \
+								p++; \
+							}
+						#define DO_THING_4(n) \
+							if(mask & (0xF << n)) { \
+								DO_THING(n); \
+								DO_THING(n+1); \
+								DO_THING(n+2); \
+								DO_THING(n+3); \
+							} else { \
+								memcpy(p+n, &mmTmp[n>>2], sizeof(uint32_t)); \
+							}
+						DO_THING_4(0);
+						DO_THING_4(4);
+						DO_THING_4(8);
+						DO_THING_4(12);
+						p += XMM_SIZE;
+						col += (int)(p - sp);
+						
+						if(col > line_size-1) {
+							// TODO: consider revert optimisation from SSSE3 route
+							// we overflowed - need to revert and use slower method :(
+							col -= (int)(p - sp);
+							p = sp;
+							i -= XMM_SIZE;
+							break;
 						}
-					#define DO_THING_4(n) \
-						if(mask & (0xF << n)) { \
-							DO_THING(n); \
-							DO_THING(n+1); \
-							DO_THING(n+2); \
-							DO_THING(n+3); \
-						} else { \
-							memcpy(p+n, &mmTmp[n>>2], sizeof(uint32_t)); \
+						#undef DO_THING_4
+						#undef DO_THING
+					} else {
+						// shortcut for common case of only 1 bit set
+#if defined(__LZCNT__)
+						// lzcnt is faster than bsf on AMD
+						intptr_t bitIndex = 31 - _lzcnt_u32(mask);
+#else
+						intptr_t bitIndex = _bit_scan_forward(mask);
+#endif
+						__m128i mergeMask = _mm_load_si128(expand_mask_table + bitIndex);
+						data = _mm_or_si128(
+							_mm_and_si128(mergeMask, data),
+							_mm_slli_si128(_mm_andnot_si128(mergeMask, data), 1)
+						);
+						// add escape chars
+						data = _mm_add_epi8(data, _mm_load_si128(expand_mix_table + bitIndex));
+						
+						// store main part
+						STOREU_XMM(p, data);
+						// store final char
+						p[XMM_SIZE] = es[i-1] + 42 + (64 & (mask>>(XMM_SIZE-1-6)));
+						
+						p += XMM_SIZE + 1;
+						col += XMM_SIZE + 1;
+						
+						int ovrflowAmt = col - (line_size-1);
+						if(LIKELIHOOD(0.15, ovrflowAmt > 0)) {
+							bitIndex = 15-bitIndex;
+							if(ovrflowAmt-1 == bitIndex) {
+								// this is an escape character, so line will need to overflow
+								p -= ovrflowAmt - 1;
+								i -= ovrflowAmt - 1;
+								goto after_last_char_fast;
+							} else {
+								int overflowedPastEsc = (unsigned int)(ovrflowAmt-1) > (unsigned int)bitIndex;
+								p -= ovrflowAmt;
+								i -= ovrflowAmt - overflowedPastEsc;
+								goto last_char_fast;
+							}
 						}
-					DO_THING_4(0);
-					DO_THING_4(4);
-					DO_THING_4(8);
-					DO_THING_4(12);
-					p += XMM_SIZE;
-					col += (int)(p - sp);
-					
-					if(col > line_size-1) {
-						// TODO: consider revert optimisation from SSSE3 route
-						// we overflowed - need to revert and use slower method :(
-						col -= (int)(p - sp);
-						p = sp;
-						break;
 					}
-					#undef DO_THING_4
-					#undef DO_THING
 				}
 			} else {
 				STOREU_XMM(p, data);
