@@ -43,10 +43,11 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			data
 		);
 #else
+		cmpCr = vceqq_u8(data, vdupq_n_u8('\r')),
 		cmp = vorrq_u8(
 			vorrq_u8(
-				vceqq_u8(data, vreinterpretq_u8_u16(vdupq_n_u16(0x0a0d))), // \r\n
-				vceqq_u8(data, vreinterpretq_u8_u16(vdupq_n_u16(0x0d0a)))  // \n\r
+				cmpCr,
+				vceqq_u8(data, vdupq_n_u8('\n'))
 			),
 			cmpEq
 		);
@@ -137,21 +138,21 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 				uint8x16_t nextData = vld1q_u8(src+i + sizeof(uint8x16_t)); // only 32-bits needed, but there doesn't appear a nice way to do this via intrinsics: https://stackoverflow.com/questions/46910799/arm-neon-intrinsics-convert-d-64-bit-register-to-low-half-of-q-128-bit-regis
 				uint8x16_t tmpData1 = vextq_u8(data, nextData, 1);
 				uint8x16_t tmpData2 = vextq_u8(data, nextData, 2);
-				uint8x16_t matchNl1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(data), vdupq_n_u16(0x0a0d)));
-				uint8x16_t matchNl2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData1), vdupq_n_u16(0x0a0d)));
+#ifdef __aarch64__
+				uint8x16_t cmpCr = vceqq_u8(data, vdupq_n_u8('\r'));
+#endif
+				uint8x16_t match1Lf = vceqq_u8(tmpData1, vdupq_n_u8('\n'));
 				
-				uint8x16_t matchNlDots;
+				uint8x16_t match2NlDot, match1Nl;
 				bool hasDots;
 				if(isRaw) {
-					// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
-					matchNl1 = vbicq_u8(matchNl1, vreinterpretq_u8_u16(vdupq_n_u16(0xff00)));
-					
+					match1Nl = vandq_u8(match1Lf, cmpCr);
 					// merge matches of \r\n with those for .
-					matchNlDots = vandq_u8(
+					match2NlDot = vandq_u8(
 						vceqq_u8(tmpData2, vdupq_n_u8('.')),
-						vorrq_u8(matchNl1, matchNl2)
+						match1Nl
 					);
-					hasDots = neon_vect_is_nonzero(matchNlDots);
+					hasDots = neon_vect_is_nonzero(match2NlDot);
 					if(!searchEnd) {
 						if(LIKELIHOOD(0.001, hasDots)) {
 							uint16_t killDots = neon_movemask(matchNlDots);
@@ -164,29 +165,29 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 				
 				if(searchEnd) {
 					uint8x16_t tmpData3 = vextq_u8(data, nextData, 3);
-					uint8x16_t cmpB1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData2), vdupq_n_u16(0x793d))); // "=y"
-					uint8x16_t cmpB2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x793d)));
+					uint8x16_t match2Eq = vceqq_u8(tmpData2, vdupq_n_u8('='));
+					uint8x16_t match3Y  = vceqq_u8(tmpData3, vdupq_n_u8('y'));
 					if(isRaw && LIKELIHOOD(0.001, hasDots)) {
 						uint8x16_t tmpData4 = vextq_u8(data, nextData, 4);
 						// match instances of \r\n.\r\n and \r\n.=y
-						uint8x16_t cmpC1 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData3), vdupq_n_u16(0x0a0d)));
-						uint8x16_t cmpC2 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x0a0d)));
-						uint8x16_t cmpB3 = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d)));
-						cmpC1 = vorrq_u8(cmpC1, cmpB2);
-						cmpC2 = vorrq_u8(cmpC2, cmpB3);
-						cmpC2 = vandq_u8(cmpC2, vreinterpretq_u8_u16(vdupq_n_u16(0xff00)));
-						cmpC1 = vorrq_u8(cmpC1, cmpC2);
+						uint8x16_t match3Cr = vceqq_u8(tmpData3, vdupq_n_u8('\r'));
+						uint8x16_t match4Lf = vceqq_u8(tmpData4, vdupq_n_u8('\n'));
+						uint8x16_t match4EqY = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d))); // =y
 						
-						// and w/ dots
-						cmpC1 = vandq_u8(cmpC1, matchNlDots);
-						// then merge w/ cmpB
-						cmpB1 = vandq_u8(cmpB1, matchNl1);
-						cmpB2 = vandq_u8(cmpB2, matchNl2);
-						
-						cmpB1 = vorrq_u8(cmpC1, vorrq_u8(
-							cmpB1, cmpB2
-						));
-						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(cmpB1))) {
+						uint8x16_t match3EqY = vandq_u8(match2Eq, match3Y);
+						match4EqY = vreinterpretq_u8_u16(vshlq_n_u16(vreinterpretq_u16_u8(match4EqY), 8));
+						// merge \r\n and =y matches for tmpData4
+						uint8x16_t match4End = vorrq_u8(
+							vandq_u8(match3Cr, match4Lf),
+							vorrq_u8(match4EqY, vreinterpretq_u8_u16(vshrq_n_u16(vreinterpretq_u16_u8(match3EqY), 8)))
+						);
+						// merge with \r\n.
+						match4End = vandq_u8(match4End, match2NlDot);
+						// match \r\n=y
+						uint8x16_t match3End = vandq_u8(match3EqY, match1Nl);
+						// combine match sequences
+						uint8x16_t matchEnd = vorrq_u8(match4End, match3End);
+						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(matchEnd))) {
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
 							escFirst = oldEscFirst;
@@ -199,13 +200,15 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 						nextMask = killDots >> (sizeof(uint8x16_t)-2);
 					} else {
 						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(
-							vorrq_u8(cmpB1, cmpB2)
+							vandq_u8(match2Eq, match3Y)
 						))) {
-							cmpB1 = vorrq_u8(
-								vandq_u8(cmpB1, matchNl1),
-								vandq_u8(cmpB2, matchNl2)
+							if(!isRaw)
+								match1Nl = vandq_u8(match1Lf, cmpCr);
+							uint8x16_t matchEnd = vandq_u8(
+								vandq_u8(match2Eq, match3Y),
+								match1Nl
 							);
-							if(LIKELIHOOD(0.001, neon_vect_is_nonzero(cmpB1))) {
+							if(LIKELIHOOD(0.001, neon_vect_is_nonzero(matchEnd))) {
 								escFirst = oldEscFirst;
 								len += i;
 								break;

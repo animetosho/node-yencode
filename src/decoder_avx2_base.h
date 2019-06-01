@@ -10,12 +10,13 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 		
 		// search for special chars
 		__m256i cmpEq = _mm256_cmpeq_epi8(data, _mm256_set1_epi8('='));
+		__m256i cmpCr = _mm256_cmpeq_epi8(data, _mm256_set1_epi8('\r'));
 		__m256i cmp;
 #ifdef __AVX512VL__
 		if(use_isa >= ISA_LEVEL_AVX3) {
 			cmp = _mm256_ternarylogic_epi32(
-				_mm256_cmpeq_epi8(data, _mm256_set1_epi16(0x0a0d)),
-				_mm256_cmpeq_epi8(data, _mm256_set1_epi16(0x0d0a)),
+				_mm256_cmpeq_epi8(data, _mm256_set1_epi8('\n')),
+				cmpCr,
 				cmpEq,
 				0xFE
 			);
@@ -24,8 +25,8 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 		{
 			cmp = _mm256_or_si256(
 				_mm256_or_si256(
-					_mm256_cmpeq_epi8(data, _mm256_set1_epi16(0x0a0d)), // \r\n
-					_mm256_cmpeq_epi8(data, _mm256_set1_epi16(0x0d0a))  // \n\r
+					_mm256_cmpeq_epi8(data, _mm256_set1_epi8('\n')),
+					cmpCr
 				),
 				cmpEq
 			);
@@ -138,24 +139,24 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 					tmpData1 = _mm256_loadu_si256((__m256i *)(src+i+1));
 					tmpData2 = _mm256_loadu_si256((__m256i *)(src+i+2));
 				}
-				__m256i matchNl1 = _mm256_cmpeq_epi16(data, _mm256_set1_epi16(0x0a0d));
-				__m256i matchNl2 = _mm256_cmpeq_epi16(tmpData1, _mm256_set1_epi16(0x0a0d));
+				__m256i match1Lf = _mm256_cmpeq_epi8(tmpData1, _mm256_set1_epi8('\n'));
 				
-				__m256i matchNlDots;
+				__m256i match2NlDot, match1Nl;
 				uint32_t killDots;
 				if(isRaw) {
-					__m256i matchDots = _mm256_cmpeq_epi8(tmpData2, _mm256_set1_epi8('.'));
-					// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
-					matchNl1 = _mm256_and_si256(matchNl1, _mm256_set1_epi16(0xff));
+					__m256i match2Dot = _mm256_cmpeq_epi8(tmpData2, _mm256_set1_epi8('.'));
 					
-					// merge matches of \r\n with those for .
+					// merge matches for \r\n.
 #ifdef __AVX512VL__
 					if(use_isa >= ISA_LEVEL_AVX3)
-						matchNlDots = _mm256_ternarylogic_epi32(matchDots, matchNl1, matchNl2, 0xE0);
+						match2NlDot = _mm256_ternarylogic_epi32(match2Dot, match1Lf, cmpCr, 0x80);
 					else
 #endif
-						matchNlDots = _mm256_and_si256(matchDots, _mm256_or_si256(matchNl1, matchNl2));
-					killDots = _mm256_movemask_epi8(matchNlDots);
+					{
+						match1Nl = _mm256_and_si256(match1Lf, cmpCr);
+						match2NlDot = _mm256_and_si256(match2Dot, match1Nl);
+					}
+					killDots = _mm256_movemask_epi8(match2NlDot);
 					if(!searchEnd) {
 						mask |= (killDots << 2) & 0xffffffff;
 						nextMask = killDots >> (sizeof(__m256i)-2);
@@ -164,36 +165,43 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				
 				if(searchEnd) {
 					__m256i tmpData3 = _mm256_alignr_epi8(nextData, data, 3);
-					__m256i cmpB1 = _mm256_cmpeq_epi16(tmpData2, _mm256_set1_epi16(0x793d)); // "=y"
-					__m256i cmpB2 = _mm256_cmpeq_epi16(tmpData3, _mm256_set1_epi16(0x793d));
+					__m256i match2Eq = _mm256_cmpeq_epi8(tmpData2, _mm256_set1_epi8('='));
+					__m256i match3Y  = _mm256_cmpeq_epi8(tmpData3, _mm256_set1_epi8('y'));
 					if(isRaw && LIKELIHOOD(0.002, killDots)) {
 						__m256i tmpData4 = _mm256_alignr_epi8(nextData, data, 4);
 						// match instances of \r\n.\r\n and \r\n.=y
-						__m256i cmpC1 = _mm256_cmpeq_epi16(tmpData3, _mm256_set1_epi16(0x0a0d)); // "\r\n"
-						__m256i cmpC2 = _mm256_cmpeq_epi16(tmpData4, _mm256_set1_epi16(0x0a0d));
-						__m256i cmpB3 = _mm256_cmpeq_epi16(tmpData4, _mm256_set1_epi16(0x793d));
-						cmpC1 = _mm256_or_si256(cmpC1, cmpB2);
+						__m256i match3Cr = _mm256_cmpeq_epi8(tmpData3, _mm256_set1_epi8('\r')); // "\r\n"
+						__m256i match4Lf = _mm256_cmpeq_epi8(tmpData4, _mm256_set1_epi8('\n'));
+						__m256i match4EqY = _mm256_cmpeq_epi16(tmpData4, _mm256_set1_epi16(0x793d)); // =y
 						
+						__m256i matchEnd;
+						__m256i match3EqY = _mm256_and_si256(match2Eq, match3Y);
 #ifdef __AVX512VL__
 						if(use_isa >= ISA_LEVEL_AVX3) {
-							cmpC2 = _mm256_ternarylogic_epi32(cmpC2, cmpB3, _mm256_set1_epi16(0xff), 0x54); // (cmpC2 | cmpB3) & ~0x00ff
-							cmpC1 = _mm256_ternarylogic_epi32(cmpC1, cmpC2, matchNlDots, 0xA8); // (cmpC1 | cmpC2) & matchNlDots
-							cmpB2 = _mm256_ternarylogic_epi32(cmpB2, matchNl2, cmpC1, 0xEA); // (cmpB2 & matchNl2) | cmpC1
-							cmpB1 = _mm256_ternarylogic_epi32(cmpB1, matchNl1, cmpB2, 0xEA); // (cmpB1 & matchNl1) | cmpB2
+							// match \r\n=y
+							__m256i match3End = _mm256_ternarylogic_epi32(match1Lf, cmpCr, match3EqY, 0x80); // match3EqY & match1Nl
+							__m256i match34EqY = _mm256_ternarylogic_epi32(match4EqY, _mm256_srli_epi16(match3EqY, 8), _mm256_set1_epi16(0xff00), 0xEC); // (match4EqY & 0xff00) | (match3EqY >> 8)
+							// merge \r\n and =y matches for tmpData4
+							__m256i match4End = _mm256_ternarylogic_epi32(match34EqY, match3Cr, match4Lf, 0xF8); // (match3Cr & match4Lf) | match34EqY
+							// merge with \r\n. and combine
+							matchEnd = _mm256_ternarylogic_epi32(match4End, match2NlDot, match3End, 0xEA); // (match4End & match2NlDot) | match3End
 						} else
 #endif
 						{
-							cmpC2 = _mm256_andnot_si256(_mm256_set1_epi16(0xff), _mm256_or_si256(cmpC2, cmpB3));
-							// prepare cmpB
-							cmpB1 = _mm256_and_si256(cmpB1, matchNl1);
-							cmpB2 = _mm256_and_si256(cmpB2, matchNl2);
-							// and w/ dots
-							cmpC1 = _mm256_and_si256(_mm256_or_si256(cmpC1, cmpC2), matchNlDots);
-							cmpB1 = _mm256_or_si256(cmpC1, _mm256_or_si256(
-								cmpB1, cmpB2
-							));
+							match4EqY = _mm256_slli_epi16(match4EqY, 8); // TODO: also consider using PBLENDVB here with shifted match3EqY instead
+							// merge \r\n and =y matches for tmpData4
+							__m256i match4End = _mm256_or_si256(
+								_mm256_and_si256(match3Cr, match4Lf),
+								_mm256_or_si256(match4EqY, _mm256_srli_epi16(match3EqY, 8)) // _mm256_srli_si256 by 1 also works
+							);
+							// merge with \r\n.
+							match4End = _mm256_and_si256(match4End, match2NlDot);
+							// match \r\n=y
+							__m256i match3End = _mm256_and_si256(match3EqY, match1Nl);
+							// combine match sequences
+							matchEnd = _mm256_or_si256(match4End, match3End);
 						}
-						if(LIKELIHOOD(0.002, _mm256_movemask_epi8(cmpB1))) {
+						if(LIKELIHOOD(0.002, _mm256_movemask_epi8(matchEnd))) {
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
 							escFirst = oldEscFirst;
@@ -203,19 +211,25 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 						mask |= (killDots << 2) & 0xffffffff;
 						nextMask = killDots >> (sizeof(__m256i)-2);
 					} else {
-						if(LIKELIHOOD(0.002, _mm256_movemask_epi8(
-							_mm256_or_si256(cmpB1, cmpB2)
-						))) {
+						if(LIKELIHOOD(0.002, !_mm256_testz_si256(match2Eq, match3Y))) {
+							bool endNotFound;
 #ifdef __AVX512VL__
 							if(use_isa >= ISA_LEVEL_AVX3)
-								cmpB1 = _mm256_ternarylogic_epi32(cmpB1, matchNl1, _mm256_and_si256(cmpB2, matchNl2), 0xEA);
+								endNotFound = _mm256_testz_si256(
+									_mm256_ternarylogic_epi32(match3Y, match2Eq, match1Lf, 0x80),
+									cmpCr
+								);
 							else
 #endif
-								cmpB1 = _mm256_or_si256(
-									_mm256_and_si256(cmpB1, matchNl1),
-									_mm256_and_si256(cmpB2, matchNl2)
+							{
+								if(!isRaw)
+									match1Nl = _mm256_and_si256(match1Lf, cmpCr);
+								endNotFound = _mm256_testz_si256(
+									_mm256_and_si256(match2Eq, match3Y),
+									match1Nl
 								);
-							if(_mm256_movemask_epi8(cmpB1)) {
+							}
+							if(!endNotFound) {
 								escFirst = oldEscFirst;
 								len += i;
 								break;

@@ -32,12 +32,13 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 		
 		// search for special chars
 		__m128i cmpEq = _mm_cmpeq_epi8(data, _mm_set1_epi8('='));
+		__m128i cmpCr = _mm_cmpeq_epi8(data, _mm_set1_epi8('\r'));
 		__m128i cmp;
 #ifdef __AVX512VL__
 		if(use_isa >= ISA_LEVEL_AVX3) {
 			cmp = _mm_ternarylogic_epi32(
-				_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0a0d)),
-				_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0d0a)),
+				_mm_cmpeq_epi8(data, _mm_set1_epi8('\n')),
+				cmpCr,
 				cmpEq,
 				0xFE
 			);
@@ -46,8 +47,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 		{
 			cmp = _mm_or_si128(
 				_mm_or_si128(
-					_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0a0d)), // \r\n
-					_mm_cmpeq_epi8(data, _mm_set1_epi16(0x0d0a))  // \n\r
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('\n')), cmpCr
 				),
 				cmpEq
 			);
@@ -152,24 +152,24 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 					if(searchEnd)
 						tmpData3 = _mm_insert_epi16(_mm_srli_si128(tmpData1, 2), *(uint16_t*)((src+i) + sizeof(__m128i)+1), 7);
 				}
-				__m128i matchNl1 = _mm_cmpeq_epi16(data, _mm_set1_epi16(0x0a0d));
-				__m128i matchNl2 = _mm_cmpeq_epi16(tmpData1, _mm_set1_epi16(0x0a0d));
+				__m128i match1Lf = _mm_cmpeq_epi8(tmpData1, _mm_set1_epi8('\n'));
 				
-				__m128i matchNlDots;
+				__m128i match2NlDot, match1Nl;
 				int killDots;
 				if(isRaw) {
-					__m128i matchDots = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
-					// merge preparation (for non-raw, it doesn't matter if this is shifted or not)
-					matchNl1 = _mm_and_si128(matchNl1, _mm_set1_epi16(0xff));
+					__m128i match2Dot = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
 					
-					// merge matches of \r\n with those for .
+					// merge matches for \r\n.
 #ifdef __AVX512VL__
 					if(use_isa >= ISA_LEVEL_AVX3)
-						matchNlDots = _mm_ternarylogic_epi32(matchDots, matchNl1, matchNl2, 0xE0);
+						match2NlDot = _mm_ternarylogic_epi32(match2Dot, match1Lf, cmpCr, 0x80);
 					else
 #endif
-						matchNlDots = _mm_and_si128(matchDots, _mm_or_si128(matchNl1, matchNl2));
-					killDots = _mm_movemask_epi8(matchNlDots); // using PTEST to substitute this and above AND doesn't seem to be worth it
+					{
+						match1Nl = _mm_and_si128(match1Lf, cmpCr);
+						match2NlDot = _mm_and_si128(match2Dot, match1Nl);
+					}
+					killDots = _mm_movemask_epi8(match2NlDot); // using PTEST to substitute this and above AND doesn't seem to be worth it
 					if(!searchEnd) {
 						mask |= (killDots << 2) & 0xffff;
 						nextMask = killDots >> (sizeof(__m128i)-2);
@@ -177,8 +177,8 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				}
 				
 				if(searchEnd) {
-					__m128i cmpB1 = _mm_cmpeq_epi16(tmpData2, _mm_set1_epi16(0x793d)); // "=y"
-					__m128i cmpB2 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x793d));
+					__m128i match2Eq = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('='));
+					__m128i match3Y  = _mm_cmpeq_epi8(tmpData3, _mm_set1_epi8('y'));
 					if(isRaw && LIKELIHOOD(0.001, killDots!=0)) {
 						__m128i tmpData4;
 #if defined(__SSSE3__) && !defined(__tune_btver1__)
@@ -189,32 +189,39 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 							tmpData4 = _mm_insert_epi16(_mm_srli_si128(tmpData2, 2), *(uint16_t*)((src+i) + sizeof(__m128i)+2), 7);
 						
 						// match instances of \r\n.\r\n and \r\n.=y
-						__m128i cmpC1 = _mm_cmpeq_epi16(tmpData3, _mm_set1_epi16(0x0a0d)); // "\r\n"
-						__m128i cmpC2 = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x0a0d));
-						__m128i cmpB3 = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d));
-						cmpC1 = _mm_or_si128(cmpC1, cmpB2);
+						__m128i match3Cr = _mm_cmpeq_epi8(tmpData3, _mm_set1_epi8('\r'));
+						__m128i match4Lf = _mm_cmpeq_epi8(tmpData4, _mm_set1_epi8('\n'));
+						__m128i match4EqY = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d)); // =y
 						
+						__m128i matchEnd;
+						__m128i match3EqY = _mm_and_si128(match2Eq, match3Y);
 #ifdef __AVX512VL__
 						if(use_isa >= ISA_LEVEL_AVX3) {
-							cmpC2 = _mm_ternarylogic_epi32(cmpC2, cmpB3, _mm_set1_epi16(0xff), 0x54); // (cmpC2 | cmpB3) & ~0x00ff
-							cmpC1 = _mm_ternarylogic_epi32(cmpC1, cmpC2, matchNlDots, 0xA8); // (cmpC1 | cmpC2) & matchNlDots
-							cmpB2 = _mm_ternarylogic_epi32(cmpB2, matchNl2, cmpC1, 0xEA); // (cmpB2 & matchNl2) | cmpC1
-							cmpB1 = _mm_ternarylogic_epi32(cmpB1, matchNl1, cmpB2, 0xEA); // (cmpB1 & matchNl1) | cmpB2
+							// match \r\n=y
+							__m128i match3End = _mm_ternarylogic_epi32(match1Lf, cmpCr, match3EqY, 0x80); // match3EqY & match1Nl
+							__m128i match34EqY = _mm_ternarylogic_epi32(match4EqY, _mm_srli_epi16(match3EqY, 8), _mm_set1_epi16(0xff00), 0xEC); // (match4EqY & 0xff00) | (match3EqY >> 8)
+							// merge \r\n and =y matches for tmpData4
+							__m128i match4End = _mm_ternarylogic_epi32(match34EqY, match3Cr, match4Lf, 0xF8); // (match3Cr & match4Lf) | match34EqY
+							// merge with \r\n. and combine
+							matchEnd = _mm_ternarylogic_epi32(match4End, match2NlDot, match3End, 0xEA); // (match4End & match2NlDot) | match3End
 						} else
 #endif
 						{
-							cmpC2 = _mm_andnot_si128(_mm_set1_epi16(0xff), _mm_or_si128(cmpC2, cmpB3));
-							// prepare cmpB
-							cmpB1 = _mm_and_si128(cmpB1, matchNl1);
-							cmpB2 = _mm_and_si128(cmpB2, matchNl2);
-							// and w/ dots
-							cmpC1 = _mm_and_si128(_mm_or_si128(cmpC1, cmpC2), matchNlDots);
-							cmpB1 = _mm_or_si128(cmpC1, _mm_or_si128(
-								cmpB1, cmpB2
-							));
+							match4EqY = _mm_slli_epi16(match4EqY, 8); // TODO: also consider using PBLENDVB here with shifted match3EqY instead
+							// merge \r\n and =y matches for tmpData4
+							__m128i match4End = _mm_or_si128(
+								_mm_and_si128(match3Cr, match4Lf),
+								_mm_or_si128(match4EqY, _mm_srli_epi16(match3EqY, 8)) // _mm_srli_si128 by 1 also works
+							);
+							// merge with \r\n.
+							match4End = _mm_and_si128(match4End, match2NlDot);
+							// match \r\n=y
+							__m128i match3End = _mm_and_si128(match3EqY, match1Nl);
+							// combine match sequences
+							matchEnd = _mm_or_si128(match4End, match3End);
 						}
 						
-						if(LIKELIHOOD(0.001, _mm_movemask_epi8(cmpB1))) {
+						if(LIKELIHOOD(0.001, _mm_movemask_epi8(matchEnd))) {
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
 							escFirst = oldEscFirst;
@@ -224,20 +231,42 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 						mask |= (killDots << 2) & 0xffff;
 						nextMask = killDots >> (sizeof(__m128i)-2);
 					} else {
-						if(LIKELIHOOD(0.001, _mm_movemask_epi8(
-							_mm_or_si128(cmpB1, cmpB2)
-						))) {
+						int hasEqY;
+#if defined(__AVX__) // or more accurately, __SSE4_1__
+						if(use_isa >= ISA_LEVEL_AVX)
+							hasEqY = !_mm_testz_si128(match2Eq, match3Y);
+						else
+#endif
+							hasEqY = _mm_movemask_epi8(_mm_and_si128(match2Eq, match3Y));
+						if(LIKELIHOOD(0.001, hasEqY)) {
 							// if the rare case of '=y' is found, do a more precise check
+							int endFound;
 #ifdef __AVX512VL__
 							if(use_isa >= ISA_LEVEL_AVX3)
-								cmpB1 = _mm_ternarylogic_epi32(cmpB1, matchNl1, _mm_and_si128(cmpB2, matchNl2), 0xEA);
+								endFound = !_mm_testz_si128(
+									_mm_ternarylogic_epi32(match3Y, match2Eq, match1Lf, 0x80),
+									cmpCr
+								);
 							else
 #endif
-								cmpB1 = _mm_or_si128(
-									_mm_and_si128(cmpB1, matchNl1),
-									_mm_and_si128(cmpB2, matchNl2)
-								);
-							if(_mm_movemask_epi8(cmpB1)) {
+							{
+								if(!isRaw)
+									match1Nl = _mm_and_si128(match1Lf, cmpCr);
+#if defined(__AVX__)
+								if(use_isa >= ISA_LEVEL_AVX)
+									endFound = !_mm_testz_si128(
+										_mm_and_si128(match2Eq, match3Y),
+										match1Nl
+									);
+								else
+#endif
+									endFound = _mm_movemask_epi8(_mm_and_si128(
+										_mm_and_si128(match2Eq, match3Y),
+										match1Nl
+									));
+							}
+							
+							if(endFound) {
 								escFirst = oldEscFirst;
 								len += i;
 								break;
