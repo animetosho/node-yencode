@@ -1,27 +1,25 @@
 
 #ifdef __SSE2__
 
-ALIGN_32(static const int8_t _unshuf_mask_table[256]) = {
-	 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0
-};
-static const __m128i* unshuf_mask_table = (const __m128i*)_unshuf_mask_table;
+#define _X(n) -(n>0),-(n>1),-(n>2),-(n>3),-(n>4),-(n>5),-(n>6),-(n>7),-(n>8),-(n>9),-(n>10),-(n>11),-(n>12),-(n>13),-(n>14),-(n>15)
 
-#include <x86intrin.h> // for LZCNT/BSF
+#ifdef __LZCNT__
+ALIGN_32(static const int8_t _unshuf_mask_lzc_table[256]) = {
+	_X(15), _X(14), _X(13), _X(12), _X(11), _X(10), _X(9), _X(8),
+	_X(7), _X(6), _X(5), _X(4), _X(3), _X(2), _X(1), _X(0)
+};
+static const __m128i* unshuf_mask_lzc_table = (const __m128i*)_unshuf_mask_lzc_table - 16;
+#else
+ALIGN_32(static const int8_t _unshuf_mask_bsr_table[256]) = {
+	_X(0), _X(1), _X(2), _X(3), _X(4), _X(5), _X(6), _X(7),
+	_X(8), _X(9), _X(10), _X(11), _X(12), _X(13), _X(14), _X(15)
+};
+static const __m128i* unshuf_mask_bsr_table = (const __m128i*)_unshuf_mask_bsr_table;
+#endif
+
+#undef _X
+
+#include <x86intrin.h> // for LZCNT/BSR
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& _nextMask) {
@@ -307,45 +305,26 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			} else
 #endif
 			{
-				if(mask & (mask -1)) {
-					ALIGN_32(uint32_t mmTmp[4]);
-					_mm_store_si128((__m128i*)mmTmp, oData);
-					
-					for(int j=0; j<4; j++) {
-						if(LIKELIHOOD(0.3 /*rough estimate*/, (mask & 0xf) != 0)) {
-							unsigned char* pMmTmp = (unsigned char*)(mmTmp + j);
-							unsigned int maskn = ~mask;
-							*p = pMmTmp[0];
-							p += (maskn & 1);
-							*p = pMmTmp[1];
-							p += (maskn & 2) >> 1;
-							*p = pMmTmp[2];
-							p += (maskn & 4) >> 2;
-							*p = pMmTmp[3];
-							p += (maskn & 8) >> 3;
-						} else {
-							*(uint32_t*)p = mmTmp[j];
-							p += 4;
-						}
-						mask >>= 4;
-					}
-				} else {
-					// shortcut for common case of only 1 bit set
+				
+				intptr_t pAdvance = BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
+				do {
 #ifdef __LZCNT__
-					// lzcnt is always at least as fast as bsf, so prefer it if it's available
-					intptr_t bitIndex = 31 - _lzcnt_u32((int)mask);
+					// lzcnt is always at least as fast as bsr, so prefer it if it's available
+					intptr_t bitIndex = _lzcnt_u32(mask);
+					__m128i mergeMask = _mm_load_si128(unshuf_mask_lzc_table + bitIndex);
+					mask ^= 0x80000000U>>bitIndex;
 #else
-					intptr_t bitIndex = _bit_scan_forward(mask);
+					intptr_t bitIndex = _bit_scan_reverse(mask);
+					__m128i mergeMask = _mm_load_si128(unshuf_mask_bsr_table + bitIndex);
+					mask ^= 1<<bitIndex;
 #endif
-					
-					__m128i mergeMask = _mm_load_si128(unshuf_mask_table + bitIndex);
 					oData = _mm_or_si128(
 						_mm_and_si128(mergeMask, oData),
 						_mm_andnot_si128(mergeMask, _mm_srli_si128(oData, 1))
 					);
-					STOREU_XMM(p, oData);
-					p += XMM_SIZE - 1;
-				}
+				} while(mask);
+				STOREU_XMM(p, oData);
+				p += pAdvance;
 			}
 #undef LOAD_HALVES
 		} else {
