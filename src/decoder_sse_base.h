@@ -133,30 +133,34 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
 			if(checkNewlines) {
-				// find instances of \r\n
-				__m128i tmpData1, tmpData2, tmpData3;
-#if defined(__SSSE3__) && !defined(__tune_btver1__)
-				__m128i nextData;
-				if(use_isa >= ISA_LEVEL_SSSE3) {
-					nextData = _mm_cvtsi32_si128(*(uint32_t*)(src+i + sizeof(__m128i)));
-					tmpData1 = _mm_alignr_epi8(nextData, data, 1);
-					tmpData2 = _mm_alignr_epi8(nextData, data, 2);
-					if(searchEnd) tmpData3 = _mm_alignr_epi8(nextData, data, 3);
-				} else
-#endif
-				{
-					tmpData1 = _mm_insert_epi16(_mm_srli_si128(data, 1), *(uint16_t*)((src+i) + sizeof(__m128i)-1), 7);
-					tmpData2 = _mm_insert_epi16(_mm_srli_si128(data, 2), *(uint16_t*)((src+i) + sizeof(__m128i)), 7);
-					if(searchEnd)
-						tmpData3 = _mm_insert_epi16(_mm_srli_si128(tmpData1, 2), *(uint16_t*)((src+i) + sizeof(__m128i)+1), 7);
-				}
-				__m128i match1Lf = _mm_cmpeq_epi8(tmpData1, _mm_set1_epi8('\n'));
+				__m128i tmpData2 = _mm_loadu_si128((__m128i*)(src+i+2));
+				__m128i match2Eq, match3Y, match2Dot;
 				
-				__m128i match2NlDot, match1Nl;
-				int killDots;
-				if(isRaw) {
-					__m128i match2Dot = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
+				// TODO: consider alignr loading
+				if(searchEnd) {
+					match2Eq = _mm_cmpeq_epi8(_mm_set1_epi8('='), tmpData2);
+					match3Y  = _mm_cmpeq_epi8(
+						_mm_set1_epi8('y'),
+						_mm_loadu_si128((__m128i*)(src+i+3))
+					);
+				}
+				if(isRaw)
+					match2Dot = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
+				
+#if defined(__AVX__) // or more accurately, __SSE4_1__
+# define TEST_VECT_NON_ZERO(a, b) (use_isa >= ISA_LEVEL_AVX ? !_mm_testz_si128(a, b) : _mm_movemask_epi8(_mm_and_si128(a, b)))
+#else
+# define TEST_VECT_NON_ZERO(a, b) _mm_movemask_epi8(_mm_and_si128(a, b))
+#endif
+				
+				// find patterns of \r_.
+				if(isRaw && LIKELIHOOD(0.001, TEST_VECT_NON_ZERO(cmpCr, match2Dot))) {
+					__m128i match1Lf = _mm_cmpeq_epi8(
+						_mm_set1_epi8('\n'),
+						_mm_loadu_si128((__m128i*)(src+i+1))
+					);
 					
+					__m128i match2NlDot, match1Nl;
 					// merge matches for \r\n.
 #ifdef __AVX512VL__
 					if(use_isa >= ISA_LEVEL_AVX3)
@@ -167,27 +171,14 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 						match1Nl = _mm_and_si128(match1Lf, cmpCr);
 						match2NlDot = _mm_and_si128(match2Dot, match1Nl);
 					}
-					killDots = _mm_movemask_epi8(match2NlDot); // using PTEST to substitute this and above AND doesn't seem to be worth it
-					if(!searchEnd) {
-						mask |= (killDots << 2) & 0xffff;
-						nextMask = killDots >> (sizeof(__m128i)-2);
-					}
-				}
-				
-				if(searchEnd) {
-					__m128i match2Eq = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('='));
-					__m128i match3Y  = _mm_cmpeq_epi8(tmpData3, _mm_set1_epi8('y'));
-					if(isRaw && LIKELIHOOD(0.001, killDots!=0)) {
-						__m128i tmpData4;
-#if defined(__SSSE3__) && !defined(__tune_btver1__)
-						if(use_isa >= ISA_LEVEL_SSSE3)
-							tmpData4 = _mm_alignr_epi8(nextData, data, 4);
-						else
-#endif
-							tmpData4 = _mm_insert_epi16(_mm_srli_si128(tmpData2, 2), *(uint16_t*)((src+i) + sizeof(__m128i)+2), 7);
+					if(searchEnd) {
+						__m128i tmpData4 = _mm_loadu_si128((__m128i*)(src+i+4));
 						
 						// match instances of \r\n.\r\n and \r\n.=y
-						__m128i match3Cr = _mm_cmpeq_epi8(tmpData3, _mm_set1_epi8('\r'));
+						__m128i match3Cr = _mm_cmpeq_epi8(
+							_mm_set1_epi8('\r'),
+							_mm_loadu_si128((__m128i*)(src+i+3))
+						);
 						__m128i match4Lf = _mm_cmpeq_epi8(tmpData4, _mm_set1_epi8('\n'));
 						__m128i match4EqY = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d)); // =y
 						
@@ -226,53 +217,44 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 							len += i;
 							break;
 						}
-						mask |= (killDots << 2) & 0xffff;
-						nextMask = killDots >> (sizeof(__m128i)-2);
-					} else {
-						int hasEqY;
-#if defined(__AVX__) // or more accurately, __SSE4_1__
-						if(use_isa >= ISA_LEVEL_AVX)
-							hasEqY = !_mm_testz_si128(match2Eq, match3Y);
+					}
+					int killDots = _mm_movemask_epi8(match2NlDot);
+					mask |= (killDots << 2) & 0xffff;
+					nextMask = killDots >> (sizeof(__m128i)-2);
+				}
+				else if(searchEnd) {
+					if(LIKELIHOOD(0.001, TEST_VECT_NON_ZERO(match2Eq, match3Y))) {
+						// if the rare case of '=y' is found, do a more precise check
+						int endFound;
+						__m128i match1Lf = _mm_cmpeq_epi8(
+							_mm_set1_epi8('\n'),
+							_mm_loadu_si128((__m128i*)(src+i+1))
+						);
+						
+#ifdef __AVX512VL__
+						if(use_isa >= ISA_LEVEL_AVX3)
+							endFound = !_mm_testz_si128(
+								_mm_ternarylogic_epi32(match3Y, match2Eq, match1Lf, 0x80),
+								cmpCr
+							);
 						else
 #endif
-							hasEqY = _mm_movemask_epi8(_mm_and_si128(match2Eq, match3Y));
-						if(LIKELIHOOD(0.001, hasEqY)) {
-							// if the rare case of '=y' is found, do a more precise check
-							int endFound;
-#ifdef __AVX512VL__
-							if(use_isa >= ISA_LEVEL_AVX3)
-								endFound = !_mm_testz_si128(
-									_mm_ternarylogic_epi32(match3Y, match2Eq, match1Lf, 0x80),
-									cmpCr
-								);
-							else
-#endif
-							{
-								if(!isRaw)
-									match1Nl = _mm_and_si128(match1Lf, cmpCr);
-#if defined(__AVX__)
-								if(use_isa >= ISA_LEVEL_AVX)
-									endFound = !_mm_testz_si128(
-										_mm_and_si128(match2Eq, match3Y),
-										match1Nl
-									);
-								else
-#endif
-									endFound = _mm_movemask_epi8(_mm_and_si128(
-										_mm_and_si128(match2Eq, match3Y),
-										match1Nl
-									));
-							}
-							
-							if(endFound) {
-								escFirst = oldEscFirst;
-								len += i;
-								break;
-							}
+							endFound = TEST_VECT_NON_ZERO(
+								_mm_and_si128(match2Eq, match3Y),
+								_mm_and_si128(match1Lf, cmpCr)
+							);
+						
+						if(endFound) {
+							escFirst = oldEscFirst;
+							len += i;
+							break;
 						}
-						if(isRaw) nextMask = 0;
 					}
+					if(isRaw) nextMask = 0;
 				}
+				else if(isRaw) // no \r_. found
+					nextMask = 0;
+#undef TEST_VECT_NON_ZERO
 			}
 			
 			// all that's left is to 'compress' the data (skip over masked chars)

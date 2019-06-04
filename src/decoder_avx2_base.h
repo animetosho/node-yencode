@@ -124,29 +124,26 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
 			if(checkNewlines) {
-				// find instances of \r\n
-				// load w/ 16 byte overlap (this loads 32 bytes, though we only need 20; it's probably faster to do this than to shuffle stuff around)
-				// TODO: do test the idea of load 128 + load 32
-				//__m256i nextData = _mm256_permute2x128_si256(data, _mm256_castsi128_si256(_mm_loadu_si32(src+i+32)), 0x21);
-				__m256i nextData, tmpData1, tmpData2;
+				__m256i tmpData2 = _mm256_loadu_si256((__m256i *)(src+i+2));
+				__m256i match2Eq, match3Y, match2Dot;
 				if(searchEnd) {
-					nextData = _mm256_loadu_si256((__m256i *)(src+i+16));
-					
-					tmpData1 = _mm256_alignr_epi8(nextData, data, 1);
-					tmpData2 = _mm256_alignr_epi8(nextData, data, 2);
-				} else {
-					// these are only referenced once, so the loads can get inlined into the vpcmpeq* instructions
-					tmpData1 = _mm256_loadu_si256((__m256i *)(src+i+1));
-					tmpData2 = _mm256_loadu_si256((__m256i *)(src+i+2));
+					match2Eq = _mm256_cmpeq_epi8(_mm256_set1_epi8('='), tmpData2);
+					match3Y  = _mm256_cmpeq_epi8(
+						_mm256_set1_epi8('y'),
+						_mm256_loadu_si256((__m256i *)(src+i+3))
+					);
 				}
-				__m256i match1Lf = _mm256_cmpeq_epi8(tmpData1, _mm256_set1_epi8('\n'));
+				if(isRaw)
+					match2Dot = _mm256_cmpeq_epi8(tmpData2, _mm256_set1_epi8('.'));
 				
-				__m256i match2NlDot, match1Nl;
-				uint32_t killDots;
-				if(isRaw) {
-					__m256i match2Dot = _mm256_cmpeq_epi8(tmpData2, _mm256_set1_epi8('.'));
-					
+				// find patterns of \r_.
+				if(isRaw && LIKELIHOOD(0.002, !_mm256_testz_si256(cmpCr, match2Dot))) {
 					// merge matches for \r\n.
+					__m256i match1Lf = _mm256_cmpeq_epi8(
+						_mm256_set1_epi8('\n'),
+						_mm256_loadu_si256((__m256i *)(src+i+1))
+					);
+					__m256i match2NlDot, match1Nl;
 #ifdef __AVX512VL__
 					if(use_isa >= ISA_LEVEL_AVX3)
 						match2NlDot = _mm256_ternarylogic_epi32(match2Dot, match1Lf, cmpCr, 0x80);
@@ -156,21 +153,13 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 						match1Nl = _mm256_and_si256(match1Lf, cmpCr);
 						match2NlDot = _mm256_and_si256(match2Dot, match1Nl);
 					}
-					killDots = _mm256_movemask_epi8(match2NlDot);
-					if(!searchEnd) {
-						mask |= (killDots << 2) & 0xffffffff;
-						nextMask = killDots >> (sizeof(__m256i)-2);
-					}
-				}
-				
-				if(searchEnd) {
-					__m256i tmpData3 = _mm256_alignr_epi8(nextData, data, 3);
-					__m256i match2Eq = _mm256_cmpeq_epi8(tmpData2, _mm256_set1_epi8('='));
-					__m256i match3Y  = _mm256_cmpeq_epi8(tmpData3, _mm256_set1_epi8('y'));
-					if(isRaw && LIKELIHOOD(0.002, killDots)) {
-						__m256i tmpData4 = _mm256_alignr_epi8(nextData, data, 4);
+					if(searchEnd) {
+						__m256i tmpData4 = _mm256_loadu_si256((__m256i *)(src+i+4));
 						// match instances of \r\n.\r\n and \r\n.=y
-						__m256i match3Cr = _mm256_cmpeq_epi8(tmpData3, _mm256_set1_epi8('\r')); // "\r\n"
+						__m256i match3Cr = _mm256_cmpeq_epi8(
+							_mm256_set1_epi8('\r'),
+							_mm256_loadu_si256((__m256i *)(src+i+3))
+						);
 						__m256i match4Lf = _mm256_cmpeq_epi8(tmpData4, _mm256_set1_epi8('\n'));
 						__m256i match4EqY = _mm256_cmpeq_epi16(tmpData4, _mm256_set1_epi16(0x793d)); // =y
 						
@@ -208,36 +197,40 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 							len += i;
 							break;
 						}
-						mask |= (killDots << 2) & 0xffffffff;
-						nextMask = killDots >> (sizeof(__m256i)-2);
-					} else {
-						if(LIKELIHOOD(0.002, !_mm256_testz_si256(match2Eq, match3Y))) {
-							bool endNotFound;
-#ifdef __AVX512VL__
-							if(use_isa >= ISA_LEVEL_AVX3)
-								endNotFound = _mm256_testz_si256(
-									_mm256_ternarylogic_epi32(match3Y, match2Eq, match1Lf, 0x80),
-									cmpCr
-								);
-							else
-#endif
-							{
-								if(!isRaw)
-									match1Nl = _mm256_and_si256(match1Lf, cmpCr);
-								endNotFound = _mm256_testz_si256(
-									_mm256_and_si256(match2Eq, match3Y),
-									match1Nl
-								);
-							}
-							if(!endNotFound) {
-								escFirst = oldEscFirst;
-								len += i;
-								break;
-							}
-						}
-						if(isRaw) nextMask = 0;
 					}
+					uint32_t killDots = _mm256_movemask_epi8(match2NlDot);
+					mask |= (killDots << 2) & 0xffffffff;
+					nextMask = killDots >> (sizeof(__m256i)-2);
 				}
+				else if(searchEnd) {
+					if(LIKELIHOOD(0.002, !_mm256_testz_si256(match2Eq, match3Y))) {
+						bool endNotFound;
+						__m256i match1Lf = _mm256_cmpeq_epi8(
+							_mm256_set1_epi8('\n'),
+							_mm256_loadu_si256((__m256i *)(src+i+1))
+						);
+#ifdef __AVX512VL__
+						if(use_isa >= ISA_LEVEL_AVX3)
+							endNotFound = _mm256_testz_si256(
+								_mm256_ternarylogic_epi32(match3Y, match2Eq, match1Lf, 0x80),
+								cmpCr
+							);
+						else
+#endif
+							endNotFound = _mm256_testz_si256(
+								_mm256_and_si256(match2Eq, match3Y),
+								_mm256_and_si256(match1Lf, cmpCr)
+							);
+						if(!endNotFound) {
+							escFirst = oldEscFirst;
+							len += i;
+							break;
+						}
+					}
+					if(isRaw) nextMask = 0;
+				}
+				else if(isRaw) // no \r_. found
+					nextMask = 0;
 			}
 			
 			// all that's left is to 'compress' the data (skip over masked chars)

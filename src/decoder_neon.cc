@@ -134,43 +134,39 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
 			if(checkNewlines) {
-				// find instances of \r\n
-				uint8x16_t nextData = vld1q_u8(src+i + sizeof(uint8x16_t)); // only 32-bits needed, but there doesn't appear a nice way to do this via intrinsics: https://stackoverflow.com/questions/46910799/arm-neon-intrinsics-convert-d-64-bit-register-to-low-half-of-q-128-bit-regis
-				uint8x16_t tmpData1 = vextq_u8(data, nextData, 1);
-				uint8x16_t tmpData2 = vextq_u8(data, nextData, 2);
+				// vext seems to be a cheap operation on ARM, relative to loads, so only avoid it if there's only one load (isRaw only)
+				uint8x16_t tmpData2, nextData;
+				if(isRaw && !searchEnd) {
+					tmpData2 = vld1q_u8(src+i + 2);
+				} else {
+					nextData = vld1q_u8(src+i + sizeof(uint8x16_t)); // only 32-bits needed, but there doesn't appear a nice way to do this via intrinsics: https://stackoverflow.com/questions/46910799/arm-neon-intrinsics-convert-d-64-bit-register-to-low-half-of-q-128-bit-regis
+					tmpData2 = vextq_u8(data, nextData, 2);
+				}
 #ifdef __aarch64__
 				uint8x16_t cmpCr = vceqq_u8(data, vdupq_n_u8('\r'));
 #endif
-				uint8x16_t match1Lf = vceqq_u8(tmpData1, vdupq_n_u8('\n'));
-				
-				uint8x16_t match2NlDot, match1Nl;
-				bool hasDots;
-				if(isRaw) {
-					match1Nl = vandq_u8(match1Lf, cmpCr);
-					// merge matches of \r\n with those for .
-					match2NlDot = vandq_u8(
-						vceqq_u8(tmpData2, vdupq_n_u8('.')),
-						match1Nl
-					);
-					hasDots = neon_vect_is_nonzero(match2NlDot);
-					if(!searchEnd) {
-						if(LIKELIHOOD(0.001, hasDots)) {
-							uint16_t killDots = neon_movemask(matchNlDots);
-							mask |= (killDots << 2) & 0xffff;
-							nextMask = killDots >> (sizeof(uint8x16_t)-2);
-						} else
-							nextMask = 0;
-					}
-				}
-				
+				uint8x16_t match2Eq, match3Y, match2Dot;
 				if(searchEnd) {
-					uint8x16_t tmpData3 = vextq_u8(data, nextData, 3);
-					uint8x16_t match2Eq = vceqq_u8(tmpData2, vdupq_n_u8('='));
-					uint8x16_t match3Y  = vceqq_u8(tmpData3, vdupq_n_u8('y'));
-					if(isRaw && LIKELIHOOD(0.001, hasDots)) {
+					match2Eq = vceqq_u8(tmpData2, vdupq_n_u8('='));
+					match3Y  = vceqq_u8(vextq_u8(data, nextData, 3), vdupq_n_u8('y'));
+				}
+				if(isRaw)
+					match2Dot = vceqq_u8(tmpData2, vdupq_n_u8('.'));
+				
+				// find patterns of \r_.
+				if(isRaw && LIKELIHOOD(0.001, neon_vect_is_nonzero(vandq_u8(cmpCr, match2Dot)))) {
+					uint8x16_t match1Lf;
+					if(searchEnd)
+						match1Lf = vceqq_u8(vextq_u8(data, nextData, 1), vdupq_n_u8('\n'));
+					else
+						match1Lf = vceqq_u8(vld1q_u8(src+i + 1), vdupq_n_u8('\n'));
+					uint8x16_t match1Nl = vandq_u8(match1Lf, cmpCr);
+					// merge matches of \r\n with those for .
+					uint8x16_t match2NlDot = vandq_u8(match2Dot, match1Nl);
+					if(searchEnd) {
 						uint8x16_t tmpData4 = vextq_u8(data, nextData, 4);
 						// match instances of \r\n.\r\n and \r\n.=y
-						uint8x16_t match3Cr = vceqq_u8(tmpData3, vdupq_n_u8('\r'));
+						uint8x16_t match3Cr = vceqq_u8(vextq_u8(data, nextData, 3), vdupq_n_u8('\r'));
 						uint8x16_t match4Lf = vceqq_u8(tmpData4, vdupq_n_u8('\n'));
 						uint8x16_t match4EqY = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d))); // =y
 						
@@ -194,29 +190,28 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 							len += i;
 							break;
 						}
-						
-						uint16_t killDots = neon_movemask(matchNlDots);
-						mask |= (killDots << 2) & 0xffff;
-						nextMask = killDots >> (sizeof(uint8x16_t)-2);
-					} else {
-						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(
-							vandq_u8(match2Eq, match3Y)
-						))) {
-							if(!isRaw)
-								match1Nl = vandq_u8(match1Lf, cmpCr);
-							uint8x16_t matchEnd = vandq_u8(
-								vandq_u8(match2Eq, match3Y),
-								match1Nl
-							);
-							if(LIKELIHOOD(0.001, neon_vect_is_nonzero(matchEnd))) {
-								escFirst = oldEscFirst;
-								len += i;
-								break;
-							}
-						}
-						if(isRaw) nextMask = 0;
 					}
-				}
+					uint16_t killDots = neon_movemask(match2NlDot);
+					mask |= (killDots << 2) & 0xffff;
+					nextMask = killDots >> (sizeof(uint8x16_t)-2);
+				} else if(searchEnd) {
+					if(LIKELIHOOD(0.001, neon_vect_is_nonzero(
+						vandq_u8(match2Eq, match3Y)
+					))) {
+						uint8x16_t match1Lf = vceqq_u8(vextq_u8(data, nextData, 1), vdupq_n_u8('\n'));
+						uint8x16_t matchEnd = vandq_u8(
+							vandq_u8(match2Eq, match3Y),
+							vandq_u8(match1Lf, cmpCr)
+						);
+						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(matchEnd))) {
+							escFirst = oldEscFirst;
+							len += i;
+							break;
+						}
+					}
+					if(isRaw) nextMask = 0;
+				} else if(isRaw) // no \r_. found
+					nextMask = 0;
 			}
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
