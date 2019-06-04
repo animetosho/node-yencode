@@ -1,5 +1,9 @@
 #include "common.h"
 #ifdef __ARM_NEON
+
+#ifndef __aarch64__
+#define YENC_DEC_USE_THINTABLE 1
+#endif
 #include "decoder_common.h"
 
 static uint16_t neon_movemask(uint8x16_t in) {
@@ -221,8 +225,11 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 				vld1q_u8((uint8_t*)(unshufLUTBig + (mask&0x7fff)))
 			));
 			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[mask >> 8];
-#else
+# else
 			// lookup compress masks and shuffle
+#  ifndef YENC_DEC_USE_THINTABLE
+#   define unshufLUT unshufLUTBig
+#  endif
 			vst1_u8(p, vtbl1_u8(
 				vget_low_u8(oData),
 				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
@@ -233,6 +240,9 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 				vld1_u8((uint8_t*)(unshufLUT + (mask>>8)))
 			));
 			p += BitsSetTable256inv[mask >> 8];
+#  ifndef YENC_DEC_USE_THINTABLE
+#   undef unshufLUT
+#  endif
 			
 # endif
 			
