@@ -134,16 +134,10 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
 			if(checkNewlines) {
 				__m128i tmpData2 = _mm_loadu_si128((__m128i*)(src+i+2));
-				__m128i match2Eq, match3Y, match2Dot;
+				__m128i match2Eq, match2Dot;
 				
-				// TODO: consider alignr loading
-				if(searchEnd) {
+				if(searchEnd)
 					match2Eq = _mm_cmpeq_epi8(_mm_set1_epi8('='), tmpData2);
-					match3Y  = _mm_cmpeq_epi8(
-						_mm_set1_epi8('y'),
-						_mm_loadu_si128((__m128i*)(src+i+3))
-					);
-				}
 				if(isRaw)
 					match2Dot = _mm_cmpeq_epi8(tmpData2, _mm_set1_epi8('.'));
 				
@@ -155,10 +149,25 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				
 				// find patterns of \r_.
 				if(isRaw && LIKELIHOOD(0.001, TEST_VECT_NON_ZERO(cmpCr, match2Dot))) {
-					__m128i match1Lf = _mm_cmpeq_epi8(
-						_mm_set1_epi8('\n'),
-						_mm_loadu_si128((__m128i*)(src+i+1))
-					);
+					__m128i tmpData1, tmpData3, tmpData4;
+					if(searchEnd) {
+#if defined(__SSSE3__) && !defined(__tune_btver1__)
+						if(use_isa >= ISA_LEVEL_SSSE3) {
+							__m128i nextData = _mm_cvtsi32_si128(*(uint32_t*)(src+i + sizeof(__m128i)));
+							tmpData1 = _mm_alignr_epi8(nextData, data, 1);
+							tmpData3 = _mm_alignr_epi8(nextData, data, 3);
+							tmpData4 = _mm_alignr_epi8(nextData, data, 4);
+						} else
+#endif
+						{
+							tmpData1 = _mm_loadu_si128((__m128i*)(src+i+1));
+							tmpData3 = _mm_loadu_si128((__m128i*)(src+i+3));
+							tmpData4 = _mm_loadu_si128((__m128i*)(src+i+4));
+						}
+					} else {
+						tmpData1 = _mm_loadu_si128((__m128i*)(src+i+1));
+					}
+					__m128i match1Lf = _mm_cmpeq_epi8(_mm_set1_epi8('\n'), tmpData1);
 					
 					__m128i match2NlDot, match1Nl;
 					// merge matches for \r\n.
@@ -172,18 +181,13 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 						match2NlDot = _mm_and_si128(match2Dot, match1Nl);
 					}
 					if(searchEnd) {
-						__m128i tmpData4 = _mm_loadu_si128((__m128i*)(src+i+4));
-						
 						// match instances of \r\n.\r\n and \r\n.=y
-						__m128i match3Cr = _mm_cmpeq_epi8(
-							_mm_set1_epi8('\r'),
-							_mm_loadu_si128((__m128i*)(src+i+3))
-						);
+						__m128i match3Cr = _mm_cmpeq_epi8(_mm_set1_epi8('\r'), tmpData3);
 						__m128i match4Lf = _mm_cmpeq_epi8(tmpData4, _mm_set1_epi8('\n'));
 						__m128i match4EqY = _mm_cmpeq_epi16(tmpData4, _mm_set1_epi16(0x793d)); // =y
 						
 						__m128i matchEnd;
-						__m128i match3EqY = _mm_and_si128(match2Eq, match3Y);
+						__m128i match3EqY = _mm_and_si128(match2Eq, _mm_cmpeq_epi8(_mm_set1_epi8('y'), tmpData3));
 #ifdef __AVX512VL__
 						if(use_isa >= ISA_LEVEL_AVX3) {
 							// match \r\n=y
@@ -223,6 +227,10 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 					nextMask = killDots >> (sizeof(__m128i)-2);
 				}
 				else if(searchEnd) {
+					__m128i match3Y = _mm_cmpeq_epi8(
+						_mm_set1_epi8('y'),
+						_mm_loadu_si128((__m128i*)(src+i+3))
+					);
 					if(LIKELIHOOD(0.001, TEST_VECT_NON_ZERO(match2Eq, match3Y))) {
 						// if the rare case of '=y' is found, do a more precise check
 						int endFound;
