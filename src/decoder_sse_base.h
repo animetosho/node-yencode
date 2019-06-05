@@ -1,7 +1,8 @@
 
 #ifdef __SSE2__
 
-#define _X(n) -(n>0),-(n>1),-(n>2),-(n>3),-(n>4),-(n>5),-(n>6),-(n>7),-(n>8),-(n>9),-(n>10),-(n>11),-(n>12),-(n>13),-(n>14),-(n>15)
+#define _X2(n,k) n>k?-1:0
+#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), _X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15)
 
 #ifdef __LZCNT__
 ALIGN_32(static const int8_t _unshuf_mask_lzc_table[256]) = {
@@ -18,8 +19,15 @@ static const __m128i* unshuf_mask_bsr_table = (const __m128i*)_unshuf_mask_bsr_t
 #endif
 
 #undef _X
+#undef _X2
 
-#include <x86intrin.h> // for LZCNT/BSR
+// for LZCNT/BSR
+#ifdef _MSC_VER
+# include <intrin.h>
+# include <ammintrin.h>
+#else
+# include <x86intrin.h>
+#endif
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& _nextMask) {
@@ -192,7 +200,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 						if(use_isa >= ISA_LEVEL_AVX3) {
 							// match \r\n=y
 							__m128i match3End = _mm_ternarylogic_epi32(match1Lf, cmpCr, match3EqY, 0x80); // match3EqY & match1Nl
-							__m128i match34EqY = _mm_ternarylogic_epi32(match4EqY, _mm_srli_epi16(match3EqY, 8), _mm_set1_epi16(0xff00), 0xEC); // (match4EqY & 0xff00) | (match3EqY >> 8)
+							__m128i match34EqY = _mm_ternarylogic_epi32(match4EqY, _mm_srli_epi16(match3EqY, 8), _mm_set1_epi16(-256), 0xEC); // (match4EqY & 0xff00) | (match3EqY >> 8)
 							// merge \r\n and =y matches for tmpData4
 							__m128i match4End = _mm_ternarylogic_epi32(match34EqY, match3Cr, match4Lf, 0xF8); // (match3Cr & match4Lf) | match34EqY
 							// merge with \r\n. and combine
@@ -300,11 +308,16 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				do {
 #ifdef __LZCNT__
 					// lzcnt is always at least as fast as bsr, so prefer it if it's available
-					intptr_t bitIndex = _lzcnt_u32(mask);
+					int bitIndex = _lzcnt_u32(mask);
 					__m128i mergeMask = _mm_load_si128(unshuf_mask_lzc_table + bitIndex);
 					mask ^= 0x80000000U>>bitIndex;
 #else
-					intptr_t bitIndex = _bit_scan_reverse(mask);
+# ifdef _MSC_VER
+					unsigned long bitIndex;
+					_BitScanReverse(&bitIndex, mask);
+# else
+					int bitIndex = _bit_scan_reverse(mask);
+# endif
 					__m128i mergeMask = _mm_load_si128(unshuf_mask_bsr_table + bitIndex);
 					mask ^= 1<<bitIndex;
 #endif

@@ -37,7 +37,7 @@ static void encoder_ssse3_lut() {
 		expandLUT[i] = expand;
 		
 		// calculate add mask for mixing escape chars in
-		__m128i maskEsc = _mm_cmpeq_epi8(_mm_and_si128(shuf, _mm_set1_epi8(0xf0)), _mm_set1_epi8(0xf0));
+		__m128i maskEsc = _mm_cmpeq_epi8(_mm_and_si128(shuf, _mm_set1_epi8(-16)), _mm_set1_epi8(-16)); // -16 == 0xf0
 		__m128i addMask = _mm_and_si128(_mm_slli_si128(maskEsc, 1), _mm_set1_epi8(64));
 		addMask = _mm_or_si128(addMask, _mm_and_si128(maskEsc, _mm_set1_epi8('=')));
 		
@@ -87,7 +87,13 @@ ALIGN_32(static const int8_t _expand_mask_table[256]) = {
 };
 static const __m128i* expand_mask_table = (const __m128i*)_expand_mask_table;
 
-#include <x86intrin.h> // for LZCNT/BSF
+// for LZCNT/BSF
+#ifdef _MSC_VER
+# include <intrin.h>
+# include <ammintrin.h>
+#else
+# include <x86intrin.h>
+#endif
 
 
 static const unsigned char* escapeLUT;
@@ -349,7 +355,12 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						// lzcnt is faster than bsf on AMD
 						intptr_t bitIndex = 31 - _lzcnt_u32(mask);
 #else
-						intptr_t bitIndex = _bit_scan_forward(mask);
+# ifdef _MSC_VER
+						unsigned long bitIndex;
+						_BitScanForward(&bitIndex, mask);
+# else
+						int bitIndex = _bit_scan_forward(mask);
+# endif
 #endif
 						__m128i mergeMask = _mm_load_si128(expand_mask_table + bitIndex);
 						data = _mm_or_si128(
