@@ -35,16 +35,15 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 		uint32_t mask = _mm256_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
 		uint32_t oMask = mask;
 		
-		__m256i oData;
 		if(LIKELIHOOD(0.01, escFirst!=0)) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
 			// first byte needs escaping due to preceeding = in last loop iteration
-			oData = _mm256_add_epi8(data, _mm256_set_epi8(
+			data = _mm256_add_epi8(data, _mm256_set_epi8(
 				-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,
 				-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64
 			));
 			mask &= ~1;
 		} else {
-			oData = _mm256_add_epi8(data, _mm256_set1_epi8(-42));
+			data = _mm256_add_epi8(data, _mm256_set1_epi8(-42));
 		}
 		if(isRaw) mask |= nextMask;
 		
@@ -70,10 +69,10 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 				if(use_isa >= ISA_LEVEL_AVX3) {
 					// GCC < 7 seems to generate rubbish assembly for this
-					oData = _mm256_mask_add_epi8(
-						oData,
+					data = _mm256_mask_add_epi8(
+						data,
 						maskEq,
-						oData,
+						data,
 						_mm256_set1_epi8(-64)
 					);
 				} else
@@ -87,17 +86,17 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 						eqAddLUT[maskEq&0xff]
 					);
 					//__m256i addMask = _mm256_i32gather_epi64(_mm_cvtepu8_epi32(_mm_cvtsi32_si128(maskEq)), eqAddLUT, 8);
-					oData = _mm256_add_epi8(oData, addMask);
+					data = _mm256_add_epi8(data, addMask);
 				}
 			} else {
 				escFirst = (maskEq >> (sizeof(__m256i)-1));
 				
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 				if(use_isa >= ISA_LEVEL_AVX3) {
-					oData = _mm256_mask_add_epi8(
-						oData,
+					data = _mm256_mask_add_epi8(
+						data,
 						maskEq << 1,
-						oData,
+						data,
 						_mm256_set1_epi8(-64)
 					);
 				} else
@@ -111,8 +110,8 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 #else
 					cmpEq = _mm256_alignr_epi8(cmpEq, _mm256_permute2x128_si256(cmpEq, cmpEq, 0x08), 15);
 #endif
-					oData = _mm256_add_epi8(
-						oData,
+					data = _mm256_add_epi8(
+						data,
 						_mm256_and_si256(
 							cmpEq,
 							_mm256_set1_epi8(-64)
@@ -236,7 +235,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 			// all that's left is to 'compress' the data (skip over masked chars)
 # if defined(__AVX512VBMI2__) && defined(__AVX512VL__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
-				_mm256_mask_compressstoreu_epi8(p, ~mask, oData);
+				_mm256_mask_compressstoreu_epi8(p, ~mask, data);
 				p += XMM_SIZE - _mm_popcnt_u32(mask);
 			} else
 # endif
@@ -247,18 +246,18 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 					*(__m128i*)((char*)unshufLUTBig + ((mask >> 12) & 0x7fff0)),
 					1
 				);
-				oData = _mm256_shuffle_epi8(oData, shuf);
+				data = _mm256_shuffle_epi8(data, shuf);
 				
-				_mm_storeu_si128((__m128i*)p, _mm256_castsi256_si128(oData));
+				_mm_storeu_si128((__m128i*)p, _mm256_castsi256_si128(data));
 				// increment output position
 				p -= _mm_popcnt_u32(mask & 0xffff);
 				
-				_mm_storeu_si128((__m128i*)(p + XMM_SIZE), _mm256_extracti128_si256(oData, 1));
+				_mm_storeu_si128((__m128i*)(p + XMM_SIZE), _mm256_extracti128_si256(data, 1));
 				p += XMM_SIZE*2 - _mm_popcnt_u32(mask & 0xffff0000);
 				
 			}
 		} else {
-			_mm256_storeu_si256((__m256i*)p, oData);
+			_mm256_storeu_si256((__m256i*)p, data);
 			p += sizeof(__m256i);
 			escFirst = 0;
 		}
