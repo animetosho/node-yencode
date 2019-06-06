@@ -96,48 +96,9 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 #endif
 			if(isRaw) mask |= nextMask;
 			
-			bool checkNewlines = (isRaw || searchEnd) && LIKELIHOOD(0.15, mask != maskEq);
-			
-			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
-			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
-			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
-			unsigned char oldEscFirst = escFirst;
-			if(LIKELIHOOD(0.0001, (maskEq & ((maskEq << 1) | escFirst)) != 0)) {
-				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
-				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
-				
-				escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
-				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
-				maskEq <<= 1;
-				mask &= ~maskEq;
-				
-				// unescape chars following `=`
-				oData = vaddq_u8(
-					oData,
-					vcombine_u8(
-						vld1_u8((uint8_t*)(eqAddLUT + (maskEq&0xff))),
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>8)&0xff)))
-					)
-				);
-			} else {
-				// no invalid = sequences found - we can cut out some things from above
-				// this code path is a shortened version of above; it's here because it's faster, and what we'll be dealing with most of the time
-				escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
-				maskEq <<= 1;
-				mask &= ~maskEq;
-				
-				oData = vaddq_u8(
-					oData,
-					vandq_u8(
-						vextq_u8(vdupq_n_u8(0), cmpEq, 15),
-						vdupq_n_u8(-64)
-					)
-				);
-			}
-			
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
-			if(checkNewlines) {
+			if((isRaw || searchEnd) && LIKELIHOOD(0.15, mask != maskEq)) {
 				// vext seems to be a cheap operation on ARM, relative to loads, so only avoid it if there's only one load (isRaw only)
 				uint8x16_t tmpData2, nextData;
 				if(isRaw && !searchEnd) {
@@ -190,7 +151,6 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(matchEnd))) {
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
-							escFirst = oldEscFirst;
 							len += i;
 							break;
 						}
@@ -208,7 +168,6 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 							vandq_u8(match1Lf, cmpCr)
 						);
 						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(matchEnd))) {
-							escFirst = oldEscFirst;
 							len += i;
 							break;
 						}
@@ -216,6 +175,42 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 					if(isRaw) nextMask = 0;
 				} else if(isRaw) // no \r_. found
 					nextMask = 0;
+			}
+			
+			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
+			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
+			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
+			if(LIKELIHOOD(0.0001, (maskEq & ((maskEq << 1) | escFirst)) != 0)) {
+				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
+				
+				escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
+				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
+				maskEq <<= 1;
+				mask &= ~maskEq;
+				
+				// unescape chars following `=`
+				oData = vaddq_u8(
+					oData,
+					vcombine_u8(
+						vld1_u8((uint8_t*)(eqAddLUT + (maskEq&0xff))),
+						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>8)&0xff)))
+					)
+				);
+			} else {
+				// no invalid = sequences found - we can cut out some things from above
+				// this code path is a shortened version of above; it's here because it's faster, and what we'll be dealing with most of the time
+				escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
+				maskEq <<= 1;
+				mask &= ~maskEq;
+				
+				oData = vaddq_u8(
+					oData,
+					vandq_u8(
+						vextq_u8(vdupq_n_u8(0), cmpEq, 15),
+						vdupq_n_u8(-64)
+					)
+				);
 			}
 			
 			// all that's left is to 'compress' the data (skip over masked chars)

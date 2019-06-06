@@ -49,80 +49,10 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 		
 		if (LIKELIHOOD(0.42 /*guess*/, mask != 0)) {
 			uint32_t maskEq = _mm256_movemask_epi8(cmpEq);
-			bool checkNewlines = (isRaw || searchEnd) && LIKELIHOOD(0.3, mask != maskEq);
-			int oldEscFirst = escFirst;
-			if(LIKELIHOOD(0.0001, (oMask & ((maskEq << 1) + escFirst)) != 0)) {
-				uint8_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
-				uint32_t maskEq2 = tmp;
-				for(int j=8; j<32; j+=8) {
-					tmp = eqFixLUT[((maskEq>>j)&0xff) & ~(tmp>>7)];
-					maskEq2 |= tmp<<j;
-				}
-				maskEq = maskEq2;
-				
-				escFirst = tmp>>7;
-				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
-				maskEq <<= 1;
-				mask &= ~maskEq;
-				
-				// unescape chars following `=`
-#if defined(__AVX512VL__) && defined(__AVX512BW__)
-				if(use_isa >= ISA_LEVEL_AVX3) {
-					// GCC < 7 seems to generate rubbish assembly for this
-					data = _mm256_mask_add_epi8(
-						data,
-						maskEq,
-						data,
-						_mm256_set1_epi8(-64)
-					);
-				} else
-#endif
-				{
-					// TODO: better to compute the mask instead??
-					__m256i addMask = _mm256_set_epi64x(
-						eqAddLUT[(maskEq>>24)&0xff],
-						eqAddLUT[(maskEq>>16)&0xff],
-						eqAddLUT[(maskEq>>8)&0xff],
-						eqAddLUT[maskEq&0xff]
-					);
-					//__m256i addMask = _mm256_i32gather_epi64(_mm_cvtepu8_epi32(_mm_cvtsi32_si128(maskEq)), eqAddLUT, 8);
-					data = _mm256_add_epi8(data, addMask);
-				}
-			} else {
-				escFirst = (maskEq >> (sizeof(__m256i)-1));
-				
-#if defined(__AVX512VL__) && defined(__AVX512BW__)
-				if(use_isa >= ISA_LEVEL_AVX3) {
-					data = _mm256_mask_add_epi8(
-						data,
-						maskEq << 1,
-						data,
-						_mm256_set1_epi8(-64)
-					);
-				} else
-#endif
-				{
-					// << 1 byte
-#if defined(__tune_znver1__) || defined(__tune_bdver4__)
-					cmpEq = _mm256_alignr_epi8(cmpEq, _mm256_inserti128_si256(
-						_mm256_setzero_si256(), _mm256_castsi256_si128(cmpEq), 1
-					), 15);
-#else
-					cmpEq = _mm256_alignr_epi8(cmpEq, _mm256_permute2x128_si256(cmpEq, cmpEq, 0x08), 15);
-#endif
-					data = _mm256_add_epi8(
-						data,
-						_mm256_and_si256(
-							cmpEq,
-							_mm256_set1_epi8(-64)
-						)
-					);
-				}
-			}
 			
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
-			if(checkNewlines) {
+			if((isRaw || searchEnd) && LIKELIHOOD(0.3, mask != maskEq)) {
 				__m256i tmpData2 = _mm256_loadu_si256((__m256i *)(src+i+2));
 				__m256i match2Eq, match3Y, match2Dot;
 				if(searchEnd) {
@@ -192,7 +122,6 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 						if(LIKELIHOOD(0.002, _mm256_movemask_epi8(matchEnd))) {
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
-							escFirst = oldEscFirst;
 							len += i;
 							break;
 						}
@@ -221,7 +150,6 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 								_mm256_and_si256(match1Lf, cmpCr)
 							);
 						if(!endNotFound) {
-							escFirst = oldEscFirst;
 							len += i;
 							break;
 						}
@@ -230,6 +158,75 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				}
 				else if(isRaw) // no \r_. found
 					nextMask = 0;
+			}
+			
+			if(LIKELIHOOD(0.0001, (oMask & ((maskEq << 1) + escFirst)) != 0)) {
+				uint8_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				uint32_t maskEq2 = tmp;
+				for(int j=8; j<32; j+=8) {
+					tmp = eqFixLUT[((maskEq>>j)&0xff) & ~(tmp>>7)];
+					maskEq2 |= tmp<<j;
+				}
+				maskEq = maskEq2;
+				
+				escFirst = tmp>>7;
+				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
+				maskEq <<= 1;
+				mask &= ~maskEq;
+				
+				// unescape chars following `=`
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+				if(use_isa >= ISA_LEVEL_AVX3) {
+					// GCC < 7 seems to generate rubbish assembly for this
+					data = _mm256_mask_add_epi8(
+						data,
+						maskEq,
+						data,
+						_mm256_set1_epi8(-64)
+					);
+				} else
+#endif
+				{
+					// TODO: better to compute the mask instead??
+					__m256i addMask = _mm256_set_epi64x(
+						eqAddLUT[(maskEq>>24)&0xff],
+						eqAddLUT[(maskEq>>16)&0xff],
+						eqAddLUT[(maskEq>>8)&0xff],
+						eqAddLUT[maskEq&0xff]
+					);
+					//__m256i addMask = _mm256_i32gather_epi64(_mm_cvtepu8_epi32(_mm_cvtsi32_si128(maskEq)), eqAddLUT, 8);
+					data = _mm256_add_epi8(data, addMask);
+				}
+			} else {
+				escFirst = (maskEq >> (sizeof(__m256i)-1));
+				
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+				if(use_isa >= ISA_LEVEL_AVX3) {
+					data = _mm256_mask_add_epi8(
+						data,
+						maskEq << 1,
+						data,
+						_mm256_set1_epi8(-64)
+					);
+				} else
+#endif
+				{
+					// << 1 byte
+#if defined(__tune_znver1__) || defined(__tune_bdver4__)
+					cmpEq = _mm256_alignr_epi8(cmpEq, _mm256_inserti128_si256(
+						_mm256_setzero_si256(), _mm256_castsi256_si128(cmpEq), 1
+					), 15);
+#else
+					cmpEq = _mm256_alignr_epi8(cmpEq, _mm256_permute2x128_si256(cmpEq, cmpEq, 0x08), 15);
+#endif
+					data = _mm256_add_epi8(
+						data,
+						_mm256_and_si256(
+							cmpEq,
+							_mm256_set1_epi8(-64)
+						)
+					);
+				}
 			}
 			
 			// all that's left is to 'compress' the data (skip over masked chars)

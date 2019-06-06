@@ -83,64 +83,10 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
 			int maskEq = _mm_movemask_epi8(cmpEq);
-			bool checkNewlines = (isRaw || searchEnd) && LIKELIHOOD(0.15, mask != maskEq);
-			int oldEscFirst = escFirst;
-			if(LIKELIHOOD(0.0001, (oMask & ((maskEq << 1) + escFirst)) != 0)) {
-				// resolve invalid sequences of = to deal with cases like '===='
-				int tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
-				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
-				
-				escFirst = (maskEq >> (sizeof(__m128i)-1));
-				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
-				maskEq <<= 1;
-				mask &= ~maskEq;
-				
-				// unescape chars following `=`
-#if defined(__AVX512VL__) && defined(__AVX512BW__)
-				if(use_isa >= ISA_LEVEL_AVX3) {
-					// GCC < 7 seems to generate rubbish assembly for this
-					oData = _mm_mask_add_epi8(
-						oData,
-						maskEq,
-						oData,
-						_mm_set1_epi8(-64)
-					);
-				} else
-#endif
-				{
-					oData = _mm_add_epi8(
-						oData,
-						LOAD_HALVES(
-							eqAddLUT + (maskEq&0xff),
-							eqAddLUT + ((maskEq>>8)&0xff)
-						)
-					);
-				}
-			} else {
-				// no invalid = sequences found - we can cut out some things from above
-				// this code path is a shortened version of above; it's here because it's faster, and what we'll be dealing with most of the time
-				escFirst = (maskEq >> (sizeof(__m128i)-1));
-				
-#if defined(__AVX512VL__) && defined(__AVX512BW__)
-				// using mask-add seems to be faster when doing complex checks, slower otherwise, maybe due to higher register pressure?
-				if(use_isa >= ISA_LEVEL_AVX3 && (isRaw || searchEnd)) {
-					oData = _mm_mask_add_epi8(oData, maskEq << 1, oData, _mm_set1_epi8(-64));
-				} else
-#endif
-				{
-					oData = _mm_add_epi8(
-						oData,
-						_mm_and_si128(
-							_mm_slli_si128(cmpEq, 1),
-							_mm_set1_epi8(-64)
-						)
-					);
-				}
-			}
 			
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
-			if(checkNewlines) {
+			if((isRaw || searchEnd) && LIKELIHOOD(0.15, mask != maskEq)) {
 				__m128i tmpData2 = _mm_loadu_si128((__m128i*)(src+i+2));
 				__m128i match2Eq, match2Dot;
 				
@@ -225,7 +171,6 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 						if(LIKELIHOOD(0.001, _mm_movemask_epi8(matchEnd))) {
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
-							escFirst = oldEscFirst;
 							len += i;
 							break;
 						}
@@ -261,7 +206,6 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 							);
 						
 						if(endFound) {
-							escFirst = oldEscFirst;
 							len += i;
 							break;
 						}
@@ -271,6 +215,59 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				else if(isRaw) // no \r_. found
 					nextMask = 0;
 #undef TEST_VECT_NON_ZERO
+			}
+			
+			if(LIKELIHOOD(0.0001, (oMask & ((maskEq << 1) + escFirst)) != 0)) {
+				// resolve invalid sequences of = to deal with cases like '===='
+				int tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
+				
+				escFirst = (maskEq >> (sizeof(__m128i)-1));
+				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
+				maskEq <<= 1;
+				mask &= ~maskEq;
+				
+				// unescape chars following `=`
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+				if(use_isa >= ISA_LEVEL_AVX3) {
+					// GCC < 7 seems to generate rubbish assembly for this
+					oData = _mm_mask_add_epi8(
+						oData,
+						maskEq,
+						oData,
+						_mm_set1_epi8(-64)
+					);
+				} else
+#endif
+				{
+					oData = _mm_add_epi8(
+						oData,
+						LOAD_HALVES(
+							eqAddLUT + (maskEq&0xff),
+							eqAddLUT + ((maskEq>>8)&0xff)
+						)
+					);
+				}
+			} else {
+				// no invalid = sequences found - we can cut out some things from above
+				// this code path is a shortened version of above; it's here because it's faster, and what we'll be dealing with most of the time
+				escFirst = (maskEq >> (sizeof(__m128i)-1));
+				
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+				// using mask-add seems to be faster when doing complex checks, slower otherwise, maybe due to higher register pressure?
+				if(use_isa >= ISA_LEVEL_AVX3 && (isRaw || searchEnd)) {
+					oData = _mm_mask_add_epi8(oData, maskEq << 1, oData, _mm_set1_epi8(-64));
+				} else
+#endif
+				{
+					oData = _mm_add_epi8(
+						oData,
+						_mm_and_si128(
+							_mm_slli_si128(cmpEq, 1),
+							_mm_set1_epi8(-64)
+						)
+					);
+				}
 			}
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
