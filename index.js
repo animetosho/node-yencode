@@ -20,8 +20,7 @@ module.exports = {
 	minSize: function(length, line_size) {
 		if(!length) return 0;
 		return length // no characters escaped
-			+ 2 * Math.floor(length / (line_size||128)) // newlines
-		);
+			+ 2 * Math.floor(length / (line_size||128)); // newlines
 	},
 	maxSize: function(length, line_size, esc_ratio) {
 		if(!length) return 0;
@@ -31,8 +30,7 @@ module.exports = {
 			esc_ratio++;
 		if(esc_ratio < 1 || esc_ratio > 2)
 			throw new Error('yEnc escape ratio must be between 0 and 1');
-		return
-			  Math.ceil(length*esc_ratio) // all characters escaped
+		return Math.ceil(length*esc_ratio) // all characters escaped
 			+ 2 * Math.floor((length*esc_ratio) / (line_size||128)) // newlines, considering the possibility of all chars escaped
 			+ 2 // allocation for offset and that a newline may occur early
 			+ 64 // extra space just in case things go awry... just kidding, it's just extra padding to make SIMD logic easier
