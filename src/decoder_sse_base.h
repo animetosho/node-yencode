@@ -103,25 +103,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				
 				// find patterns of \r_.
 				if(isRaw && LIKELIHOOD(0.001, TEST_VECT_NON_ZERO(cmpCr, match2Dot))) {
-					__m128i tmpData1, tmpData3, tmpData4;
-					if(searchEnd) {
-#if defined(__SSSE3__) && !defined(__tune_btver1__)
-						if(use_isa >= ISA_LEVEL_SSSE3) {
-							__m128i nextData = _mm_cvtsi32_si128(*(uint32_t*)(src+i + sizeof(__m128i)));
-							tmpData1 = _mm_alignr_epi8(nextData, data, 1);
-							tmpData3 = _mm_alignr_epi8(nextData, data, 3);
-							tmpData4 = _mm_alignr_epi8(nextData, data, 4);
-						} else
-#endif
-						{
-							tmpData1 = _mm_loadu_si128((__m128i*)(src+i+1));
-							tmpData3 = _mm_loadu_si128((__m128i*)(src+i+3));
-							tmpData4 = _mm_loadu_si128((__m128i*)(src+i+4));
-						}
-					} else {
-						tmpData1 = _mm_loadu_si128((__m128i*)(src+i+1));
-					}
-					__m128i match1Lf = _mm_cmpeq_epi8(_mm_set1_epi8('\n'), tmpData1);
+					__m128i match1Lf = _mm_cmpeq_epi8(_mm_set1_epi8('\n'), _mm_loadu_si128((__m128i*)(src+i+1)));
 					
 					__m128i match2NlDot, match1Nl;
 					// merge matches for \r\n.
@@ -135,6 +117,8 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 						match2NlDot = _mm_and_si128(match2Dot, match1Nl);
 					}
 					if(searchEnd) {
+						__m128i tmpData3 = _mm_loadu_si128((__m128i*)(src+i+3));
+						__m128i tmpData4 = _mm_loadu_si128((__m128i*)(src+i+4));
 						// match instances of \r\n.\r\n and \r\n.=y
 						__m128i match3Cr = _mm_cmpeq_epi8(_mm_set1_epi8('\r'), tmpData3);
 						__m128i match4Lf = _mm_cmpeq_epi8(tmpData4, _mm_set1_epi8('\n'));
