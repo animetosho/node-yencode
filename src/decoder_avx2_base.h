@@ -5,6 +5,10 @@ template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	int escFirst = _escFirst;
 	uint32_t nextMask = _nextMask;
+	__m256i yencOffset = escFirst ? _mm256_set_epi8(
+		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,
+		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64
+	) : _mm256_set1_epi8(-42);
 	for(long i = -len; i; i += sizeof(__m256i)) {
 		__m256i data = _mm256_load_si256((__m256i *)(src+i));
 		
@@ -33,18 +37,9 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 		}
 
 		uint32_t mask = _mm256_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
-		uint32_t oMask = mask;
 		
-		if(LIKELIHOOD(0.01, escFirst!=0)) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
-			// first byte needs escaping due to preceeding = in last loop iteration
-			data = _mm256_add_epi8(data, _mm256_set_epi8(
-				-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,
-				-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64
-			));
-			mask &= ~1;
-		} else {
-			data = _mm256_add_epi8(data, _mm256_set1_epi8(-42));
-		}
+		
+		data = _mm256_add_epi8(data, yencOffset);
 		if(isRaw) mask |= nextMask;
 		
 		if (LIKELIHOOD(0.42 /*guess*/, mask != 0)) {
@@ -160,7 +155,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 					nextMask = 0;
 			}
 			
-			if(LIKELIHOOD(0.0001, (oMask & ((maskEq << 1) + escFirst)) != 0)) {
+			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
 				uint8_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 				uint32_t maskEq2 = tmp;
 				for(int j=8; j<32; j+=8) {
@@ -169,6 +164,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				}
 				maskEq = maskEq2;
 				
+				mask &= ~escFirst;
 				escFirst = tmp>>7;
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq <<= 1;
@@ -228,6 +224,17 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 					);
 				}
 			}
+			// subtract 64 from first element if escFirst == 1
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+			if(use_isa >= ISA_LEVEL_AVX3) {
+				yencOffset = _mm256_mask_add_epi8(_mm256_set1_epi8(-42), escFirst, _mm256_set1_epi8(-42), _mm256_set1_epi8(-64));
+			} else
+#endif
+			{
+				yencOffset = _mm256_xor_si256(_mm256_set1_epi8(-42), _mm256_castsi128_si256(
+					_mm_slli_epi16(_mm_cvtsi32_si128(escFirst), 6)
+				));
+			}
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
 # if defined(__AVX512VBMI2__) && defined(__AVX512VL__)
@@ -257,6 +264,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 			_mm256_storeu_si256((__m256i*)p, data);
 			p += sizeof(__m256i);
 			escFirst = 0;
+			yencOffset = _mm256_set1_epi8(-42);
 		}
 	}
 	_mm256_zeroupper();

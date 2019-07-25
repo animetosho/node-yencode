@@ -33,6 +33,9 @@ template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	int escFirst = _escFirst;
 	int nextMask = _nextMask;
+	__m128i yencOffset = escFirst ? _mm_set_epi8(
+		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64
+	) : _mm_set1_epi8(-42);
 	for(long i = -len; i; i += sizeof(__m128i)) {
 		__m128i data = _mm_load_si128((__m128i *)(src+i));
 		
@@ -60,16 +63,8 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 		}
 
 		int mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
-		int oMask = mask;
 		
-		__m128i oData;
-		if(LIKELIHOOD(0.01 /* guess */, escFirst!=0)) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
-			// first byte needs escaping due to preceeding = in last loop iteration
-			oData = _mm_add_epi8(data, _mm_set_epi8(-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64));
-			mask &= 0xfffe;
-		} else {
-			oData = _mm_add_epi8(data, _mm_set1_epi8(-42));
-		}
+		data = _mm_add_epi8(data, yencOffset);
 		if(isRaw) mask |= nextMask;
 		
 		if (LIKELIHOOD(0.25 /* rough guess */, mask != 0)) {
@@ -201,11 +196,12 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 #undef TEST_VECT_NON_ZERO
 			}
 			
-			if(LIKELIHOOD(0.0001, (oMask & ((maskEq << 1) + escFirst)) != 0)) {
+			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
 				// resolve invalid sequences of = to deal with cases like '===='
 				int tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
 				
+				mask &= ~escFirst;
 				escFirst = (maskEq >> (sizeof(__m128i)-1));
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq <<= 1;
@@ -215,17 +211,17 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 				if(use_isa >= ISA_LEVEL_AVX3) {
 					// GCC < 7 seems to generate rubbish assembly for this
-					oData = _mm_mask_add_epi8(
-						oData,
+					data = _mm_mask_add_epi8(
+						data,
 						maskEq,
-						oData,
+						data,
 						_mm_set1_epi8(-64)
 					);
 				} else
 #endif
 				{
-					oData = _mm_add_epi8(
-						oData,
+					data = _mm_add_epi8(
+						data,
 						LOAD_HALVES(
 							eqAddLUT + (maskEq&0xff),
 							eqAddLUT + ((maskEq>>8)&0xff)
@@ -240,18 +236,29 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 				// using mask-add seems to be faster when doing complex checks, slower otherwise, maybe due to higher register pressure?
 				if(use_isa >= ISA_LEVEL_AVX3 && (isRaw || searchEnd)) {
-					oData = _mm_mask_add_epi8(oData, maskEq << 1, oData, _mm_set1_epi8(-64));
+					data = _mm_mask_add_epi8(data, maskEq << 1, data, _mm_set1_epi8(-64));
 				} else
 #endif
 				{
-					oData = _mm_add_epi8(
-						oData,
+					data = _mm_add_epi8(
+						data,
 						_mm_and_si128(
 							_mm_slli_si128(cmpEq, 1),
 							_mm_set1_epi8(-64)
 						)
 					);
 				}
+			}
+			// subtract 64 from first element if escFirst == 1
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+			if(use_isa >= ISA_LEVEL_AVX3) {
+				yencOffset = _mm_mask_add_epi8(_mm_set1_epi8(-42), escFirst, _mm_set1_epi8(-42), _mm_set1_epi8(-64));
+			} else
+#endif
+			{
+				yencOffset = _mm_xor_si128(_mm_set1_epi8(-42), 
+					_mm_slli_epi16(_mm_cvtsi32_si128(escFirst), 6)
+				);
 			}
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
@@ -261,17 +268,17 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 				if(use_isa >= ISA_LEVEL_VBMI2) {
 #  if defined(__clang__) && __clang_major__ == 6 && __clang_minor__ == 0
 					/* VBMI2 introduced in clang 6.0, but misnamed there; presumably will be fixed in 6.1 */
-					_mm128_mask_compressstoreu_epi8(p, ~mask, oData);
+					_mm128_mask_compressstoreu_epi8(p, ~mask, data);
 #  else
-					_mm_mask_compressstoreu_epi8(p, ~mask, oData);
+					_mm_mask_compressstoreu_epi8(p, ~mask, data);
 #  endif
 					p += XMM_SIZE - _mm_popcnt_u32(mask);
 				} else
 # endif
 				{
 					
-					oData = _mm_shuffle_epi8(oData, _mm_load_si128((__m128i*)(unshufLUTBig + (mask&0x7fff))));
-					STOREU_XMM(p, oData);
+					data = _mm_shuffle_epi8(data, _mm_load_si128((__m128i*)(unshufLUTBig + (mask&0x7fff))));
+					STOREU_XMM(p, data);
 					
 					// increment output position
 # if defined(__POPCNT__) && !defined(__tune_btver1__)
@@ -302,19 +309,20 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 					__m128i mergeMask = _mm_load_si128(unshuf_mask_bsr_table + bitIndex);
 					mask ^= 1<<bitIndex;
 #endif
-					oData = _mm_or_si128(
-						_mm_and_si128(mergeMask, oData),
-						_mm_andnot_si128(mergeMask, _mm_srli_si128(oData, 1))
+					data = _mm_or_si128(
+						_mm_and_si128(mergeMask, data),
+						_mm_andnot_si128(mergeMask, _mm_srli_si128(data, 1))
 					);
 				} while(mask);
-				STOREU_XMM(p, oData);
+				STOREU_XMM(p, data);
 				p += pAdvance;
 			}
 #undef LOAD_HALVES
 		} else {
-			STOREU_XMM(p, oData);
+			STOREU_XMM(p, data);
 			p += XMM_SIZE;
 			escFirst = 0;
+			yencOffset = _mm_set1_epi8(-42);
 		}
 	}
 	_escFirst = escFirst;
