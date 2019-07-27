@@ -35,6 +35,15 @@ static bool neon_vect_is_nonzero(uint8x16_t v) {
 template<bool isRaw, bool searchEnd>
 inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
 	uint8x16_t yencOffset = escFirst ? (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42} : vdupq_n_u8(42);
+#ifndef __aarch64__
+	uint8x16_t lfCompare = vdupq_n_u8('\n');
+	if(isRaw) {
+		if(nextMask == 1)
+			lfCompare[0] = '.';
+		if(nextMask == 2)
+			lfCompare[1] = '.';
+	}
+#endif
 	for(long i = -len; i; i += sizeof(uint8x16_t)) {
 		uint8x16_t data = vld1q_u8(src+i);
 		
@@ -52,7 +61,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 		cmp = vorrq_u8(
 			vorrq_u8(
 				cmpCr,
-				vceqq_u8(data, vdupq_n_u8('\n'))
+				vceqq_u8(data, lfCompare)
 			),
 			cmpEq
 		);
@@ -76,11 +85,12 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			uint16_t mask = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 0);
 			uint16_t maskEq = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 1);
 			
+			if(isRaw) mask |= nextMask;
 #else
 		cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 		uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmp), vget_high_u8(cmp));
 		cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
-		if(LIKELIHOOD(0.25, vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0) != 0) || (isRaw && LIKELIHOOD(0.001, nextMask!=0))) {
+		if(LIKELIHOOD(0.25, vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0) != 0)) {
 			uint8x16_t cmpEqMasked = vandq_u8(cmpEq, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 			uint8x8_t cmpEqPacked = vpadd_u8(vget_low_u8(cmpEqMasked), vget_high_u8(cmpEqMasked));
 			cmpEqPacked = vpadd_u8(cmpEqPacked, cmpEqPacked);
@@ -89,7 +99,6 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			uint16_t mask = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 0);
 			uint16_t maskEq = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 2);
 #endif
-			if(isRaw) mask |= nextMask;
 			
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
@@ -152,7 +161,18 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 					}
 					uint16_t killDots = neon_movemask(match2NlDot);
 					mask |= (killDots << 2) & 0xffff;
+#ifdef __aarch64__
 					nextMask = killDots >> (sizeof(uint8x16_t)-2);
+#else
+					// this bitiwse trick works because '.'|'\n' == '.'
+					lfCompare = vcombine_u8(vorr_u8(
+						vand_u8(
+							vext_u8(vget_high_u8(match2NlDot), vdup_n_u8(0), 6),
+							vdup_n_u8('.')
+						),
+						vget_high_u8(lfCompare)
+					), vget_high_u8(lfCompare));
+#endif
 				} else if(searchEnd) {
 					if(LIKELIHOOD(0.001, neon_vect_is_nonzero(
 						vandq_u8(match2Eq, match3Y)
@@ -167,9 +187,18 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 							break;
 						}
 					}
-					if(isRaw) nextMask = 0;
+					if(isRaw)
+#ifdef __aarch64__
+						nextMask = 0;
+#else
+						lfCompare = vcombine_u8(vget_high_u8(lfCompare), vget_high_u8(lfCompare));
+#endif
 				} else if(isRaw) // no \r_. found
+#ifdef __aarch64__
 					nextMask = 0;
+#else
+					lfCompare = vcombine_u8(vget_high_u8(lfCompare), vget_high_u8(lfCompare));
+#endif
 			}
 			
 			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
@@ -209,17 +238,17 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			yencOffset[0] = (escFirst << 6) | 42;
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
-# ifdef __aarch64__
+#ifdef __aarch64__
 			vst1q_u8(p, vqtbl1q_u8(
 				oData,
 				vld1q_u8((uint8_t*)(unshufLUTBig + (mask&0x7fff)))
 			));
 			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[mask >> 8];
-# else
+#else
 			// lookup compress masks and shuffle
-#  ifndef YENC_DEC_USE_THINTABLE
-#   define unshufLUT unshufLUTBig
-#  endif
+# ifndef YENC_DEC_USE_THINTABLE
+#  define unshufLUT unshufLUTBig
+# endif
 			vst1_u8(p, vtbl1_u8(
 				vget_low_u8(oData),
 				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
@@ -230,11 +259,11 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 				vld1_u8((uint8_t*)(unshufLUT + (mask>>8)))
 			));
 			p += BitsSetTable256inv[mask >> 8];
-#  ifndef YENC_DEC_USE_THINTABLE
-#   undef unshufLUT
-#  endif
-			
+# ifndef YENC_DEC_USE_THINTABLE
+#  undef unshufLUT
 # endif
+			
+#endif
 			
 		} else {
 			vst1q_u8(p, oData);
@@ -247,6 +276,14 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 #endif
 		}
 	}
+#ifndef __aarch64__
+	if(lfCompare[0] == '.')
+		nextMask = 1;
+	else if(lfCompare[1] == '.')
+		nextMask = 2;
+	else
+		nextMask = 	0;
+#endif
 }
 
 void decoder_set_neon_funcs() {
