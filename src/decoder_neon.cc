@@ -34,6 +34,7 @@ static bool neon_vect_is_nonzero(uint8x16_t v) {
 
 template<bool isRaw, bool searchEnd>
 inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
+	uint8x16_t yencOffset = escFirst ? (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42} : vdupq_n_u8(42);
 	for(long i = -len; i; i += sizeof(uint8x16_t)) {
 		uint8x16_t data = vld1q_u8(src+i);
 		
@@ -58,18 +59,11 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 #endif
 		
 		
-		uint8x16_t oData;
-		if(LIKELIHOOD(0.01 /* guess */, escFirst!=0)) { // rarely hit branch: seems to be faster to use 'if' than a lookup table, possibly due to values being able to be held in registers?
-			// first byte needs escaping due to preceeding = in last loop iteration
-			oData = vsubq_u8(data, (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42});
-			cmp = vandq_u8(cmp, (uint8x16_t){0,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-		} else {
-			oData = vsubq_u8(data, vdupq_n_u8(42));
-			cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-		}
+		uint8x16_t oData = vsubq_u8(data, yencOffset);
 		
 #ifdef __aarch64__
 		if (LIKELIHOOD(0.25 /*guess*/, neon_vect_is_nonzero(cmp)) || (isRaw && LIKELIHOOD(0.001, nextMask!=0))) {
+			cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 			/* for if CPU has fast VADD?
 			uint16_t mask = (vaddv_u8(vget_high_u8(cmp)) << 8) | vaddv_u8(vget_low_u8(cmp));
 			uint16_t maskEq = neon_movemask(cmpEq);
@@ -83,6 +77,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			uint16_t maskEq = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 1);
 			
 #else
+		cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 		uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmp), vget_high_u8(cmp));
 		cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
 		if(LIKELIHOOD(0.25, vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0) != 0) || (isRaw && LIKELIHOOD(0.001, nextMask!=0))) {
@@ -180,10 +175,11 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
-			if(LIKELIHOOD(0.0001, (maskEq & ((maskEq << 1) | escFirst)) != 0)) {
+			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) | escFirst)) != 0)) {
 				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
 				
+				mask &= ~escFirst;
 				escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq <<= 1;
@@ -201,8 +197,6 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 				// no invalid = sequences found - we can cut out some things from above
 				// this code path is a shortened version of above; it's here because it's faster, and what we'll be dealing with most of the time
 				escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
-				maskEq <<= 1;
-				mask &= ~maskEq;
 				
 				oData = vaddq_u8(
 					oData,
@@ -212,6 +206,7 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 					)
 				);
 			}
+			yencOffset[0] = (escFirst << 6) | 42;
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
 # ifdef __aarch64__
@@ -245,6 +240,11 @@ inline void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, uns
 			vst1q_u8(p, oData);
 			p += sizeof(uint8x16_t);
 			escFirst = 0;
+#ifdef __aarch64__
+			yencOffset = vdupq_n_u8(42);
+#else
+			yencOffset = vcombine_u8(vdup_n_u8(42), vget_high_u8(yencOffset));
+#endif
 		}
 	}
 }
