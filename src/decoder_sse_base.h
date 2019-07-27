@@ -32,10 +32,13 @@ static const __m128i* unshuf_mask_bsr_table = (const __m128i*)_unshuf_mask_bsr_t
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	int escFirst = _escFirst;
-	int nextMask = _nextMask;
 	__m128i yencOffset = escFirst ? _mm_set_epi8(
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64
 	) : _mm_set1_epi8(-42);
+	__m128i lfCompare = _mm_set1_epi8('\n');
+	if(_nextMask && isRaw) {
+		lfCompare = _mm_insert_epi16(lfCompare, _nextMask == 1 ? 0x0a2e /*".\n"*/ : 0x2e0a /*"\n."*/, 0);
+	}
 	for(long i = -len; i; i += sizeof(__m128i)) {
 		__m128i data = _mm_load_si128((__m128i *)(src+i));
 		
@@ -46,7 +49,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 #ifdef __AVX512VL__
 		if(use_isa >= ISA_LEVEL_AVX3) {
 			cmp = _mm_ternarylogic_epi32(
-				_mm_cmpeq_epi8(data, _mm_set1_epi8('\n')),
+				_mm_cmpeq_epi8(data, lfCompare),
 				cmpCr,
 				cmpEq,
 				0xFE
@@ -56,7 +59,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 		{
 			cmp = _mm_or_si128(
 				_mm_or_si128(
-					_mm_cmpeq_epi8(data, _mm_set1_epi8('\n')), cmpCr
+					_mm_cmpeq_epi8(data, lfCompare), cmpCr
 				),
 				cmpEq
 			);
@@ -65,7 +68,6 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 		int mask = _mm_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
 		
 		data = _mm_add_epi8(data, yencOffset);
-		if(isRaw) mask |= nextMask;
 		
 		if (LIKELIHOOD(0.25 /* rough guess */, mask != 0)) {
 			
@@ -154,9 +156,24 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 							break;
 						}
 					}
-					int killDots = _mm_movemask_epi8(match2NlDot);
-					mask |= (killDots << 2) & 0xffff;
-					nextMask = killDots >> (sizeof(__m128i)-2);
+					mask |= (_mm_movemask_epi8(match2NlDot) << 2) & 0xffff;
+#ifdef __AVX512VL__
+					if(use_isa >= ISA_LEVEL_AVX3)
+						lfCompare = _mm_ternarylogic_epi32(
+							_mm_srli_si128(match2NlDot, 14), _mm_set1_epi8('\n'), _mm_set1_epi8('.'), 0xEC
+						);
+					else
+#endif
+					{
+						// this bitiwse trick works because '.'|'\n' == '.'
+						lfCompare = _mm_or_si128(
+							_mm_and_si128(
+								_mm_srli_si128(match2NlDot, 14),
+								_mm_set1_epi8('.')
+							),
+							_mm_set1_epi8('\n')
+						);
+					}
 				}
 				else if(searchEnd) {
 					__m128i match3Y = _mm_cmpeq_epi8(
@@ -189,10 +206,10 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 							break;
 						}
 					}
-					if(isRaw) nextMask = 0;
+					if(isRaw) lfCompare = _mm_set1_epi8('\n');
 				}
 				else if(isRaw) // no \r_. found
-					nextMask = 0;
+					lfCompare = _mm_set1_epi8('\n');
 #undef TEST_VECT_NON_ZERO
 			}
 			
@@ -326,6 +343,6 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 		}
 	}
 	_escFirst = escFirst;
-	_nextMask = nextMask;
+	_nextMask = _mm_movemask_epi8(_mm_cmpeq_epi8(lfCompare, _mm_set1_epi8('.')));
 }
 #endif

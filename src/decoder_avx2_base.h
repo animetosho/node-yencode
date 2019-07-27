@@ -4,11 +4,17 @@
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	int escFirst = _escFirst;
-	uint32_t nextMask = _nextMask;
 	__m256i yencOffset = escFirst ? _mm256_set_epi8(
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64
 	) : _mm256_set1_epi8(-42);
+	__m256i lfCompare = _mm256_set1_epi8('\n');
+	if(_nextMask && isRaw) {
+		lfCompare = _mm256_set_epi8(
+			'\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n',
+			'\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n',_nextMask==2?'.':'\n',_nextMask==1?'.':'\n'
+		);
+	}
 	for(long i = -len; i; i += sizeof(__m256i)) {
 		__m256i data = _mm256_load_si256((__m256i *)(src+i));
 		
@@ -19,7 +25,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 #ifdef __AVX512VL__
 		if(use_isa >= ISA_LEVEL_AVX3) {
 			cmp = _mm256_ternarylogic_epi32(
-				_mm256_cmpeq_epi8(data, _mm256_set1_epi8('\n')),
+				_mm256_cmpeq_epi8(data, lfCompare),
 				cmpCr,
 				cmpEq,
 				0xFE
@@ -29,18 +35,15 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 		{
 			cmp = _mm256_or_si256(
 				_mm256_or_si256(
-					_mm256_cmpeq_epi8(data, _mm256_set1_epi8('\n')),
+					_mm256_cmpeq_epi8(data, lfCompare),
 					cmpCr
 				),
 				cmpEq
 			);
 		}
-
+		
 		uint32_t mask = _mm256_movemask_epi8(cmp); // not the most accurate mask if we have invalid sequences; we fix this up later
-		
-		
 		data = _mm256_add_epi8(data, yencOffset);
-		if(isRaw) mask |= nextMask;
 		
 		if (LIKELIHOOD(0.42 /*guess*/, mask != 0)) {
 			uint32_t maskEq = _mm256_movemask_epi8(cmpEq);
@@ -121,9 +124,22 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 							break;
 						}
 					}
-					uint32_t killDots = _mm256_movemask_epi8(match2NlDot);
-					mask |= (killDots << 2) & 0xffffffff;
-					nextMask = killDots >> (sizeof(__m256i)-2);
+					mask |= (_mm256_movemask_epi8(match2NlDot) << 2) & 0xffffffff;
+					match2NlDot = _mm256_castsi128_si256(_mm_srli_si128(_mm256_extracti128_si256(match2NlDot, 1), 14));
+#ifdef __AVX512VL__
+					if(use_isa >= ISA_LEVEL_AVX3)
+						lfCompare = _mm256_ternarylogic_epi32(
+							match2NlDot, _mm256_set1_epi8('\n'), _mm256_set1_epi8('.'), 0xEC
+						);
+					else
+#endif
+					{
+						// this bitiwse trick works because '.'|'\n' == '.'
+						lfCompare = _mm256_or_si256(
+							_mm256_and_si256(match2NlDot, _mm256_set1_epi8('.')),
+							_mm256_set1_epi8('\n')
+						);
+					}
 				}
 				else if(searchEnd) {
 					if(LIKELIHOOD(0.002, !_mm256_testz_si256(match2Eq, match3Y))) {
@@ -149,10 +165,10 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 							break;
 						}
 					}
-					if(isRaw) nextMask = 0;
+					if(isRaw) lfCompare = _mm256_set1_epi8('\n');
 				}
 				else if(isRaw) // no \r_. found
-					nextMask = 0;
+					lfCompare = _mm256_set1_epi8('\n');
 			}
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
@@ -269,6 +285,6 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 	}
 	_mm256_zeroupper();
 	_escFirst = escFirst;
-	_nextMask = nextMask;
+	_nextMask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(lfCompare, _mm256_set1_epi8('.')));
 }
 #endif
