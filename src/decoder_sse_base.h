@@ -289,7 +289,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 #  else
 					_mm_mask_compressstoreu_epi8(p, ~mask, data);
 #  endif
-					p += XMM_SIZE - _mm_popcnt_u32(mask);
+					p += XMM_SIZE - popcnt32(mask);
 				} else
 # endif
 				{
@@ -300,7 +300,7 @@ inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsi
 					// increment output position
 # if defined(__POPCNT__) && !defined(__tune_btver1__)
 					if(use_isa >= ISA_LEVEL_AVX)
-						p += XMM_SIZE - _mm_popcnt_u32(mask);
+						p += XMM_SIZE - popcnt32(mask);
 					else
 # endif
 						p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];

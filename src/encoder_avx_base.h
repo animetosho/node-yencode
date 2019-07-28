@@ -98,11 +98,11 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 					paddedData = _mm512_unpacklo_epi8(_mm512_set1_epi8('='), paddedData);
 #  ifndef PLATFORM_AMD64
 					__mmask64 compactMask = (((uint64_t)compactMask2) << 32) | compactMask1;
-					int shufALen = _mm_popcnt_u32(mask & 0xffff) + 16; // needed for overflow handling
+					unsigned int shufALen = popcnt32(mask & 0xffff) + 16; // needed for overflow handling
 #  endif
 					_mm512_mask_compressstoreu_epi8(p, compactMask, paddedData);
 					
-					int bytes = _mm_popcnt_u32(mask) + 32;
+					unsigned int bytes = popcnt32(mask) + 32;
 					p += bytes;
 					
 # else
@@ -110,8 +110,8 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 					__m256i data1 = _mm256_unpacklo_epi8(_mm256_set1_epi8('='), dataForUnpack);
 					__m256i data2 = _mm256_unpackhi_epi8(_mm256_set1_epi8('='), dataForUnpack);
 					
-					int shufALen = _mm_popcnt_u32(mask & 0xffff) + 16;
-					int shufBLen = _mm_popcnt_u32(mask >> 16) + 16;
+					unsigned int shufALen = popcnt32(mask & 0xffff) + 16;
+					unsigned int shufBLen = popcnt32(mask >> 16) + 16;
 #  ifdef PLATFORM_AMD64
 					uint32_t compactMask1 = compactMask & 0xffffffff;
 					uint32_t compactMask2 = compactMask >> 32;
@@ -130,13 +130,13 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 #ifdef PLATFORM_AMD64
 						uint64_t eqMask = _pext_u64(0x5555555555555555, compactMask);
 						eqMask >>= bytes - ovrflowAmt -1;
-						i -= ovrflowAmt - _mm_popcnt_u64(eqMask);
+						i -= ovrflowAmt - (unsigned int)_mm_popcnt_u64(eqMask);
 #else
 						uint64_t eqMask1 = _pext_u32(0x55555555, compactMask1);
 						uint64_t eqMask2 = _pext_u32(0x55555555, compactMask2);
 						uint64_t eqMask = (eqMask2 << shufALen) | eqMask1;
 						eqMask >>= bytes - ovrflowAmt -1;
-						i -= ovrflowAmt - _mm_popcnt_u32(eqMask & 0xffffffff) - _mm_popcnt_u32(eqMask >> 32);
+						i -= ovrflowAmt - popcnt32(eqMask & 0xffffffff) - popcnt32(eqMask >> 32);
 #endif
 						p -= ovrflowAmt - (eqMask & 1);
 						if(LIKELIHOOD(0.02, eqMask & 1))
@@ -150,8 +150,8 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 					
 					int m1 = mask & 0xffff;
 					int m2 = (mask >> 11) & 0x1fffe0;
-					unsigned char shuf1Len = _mm_popcnt_u32(m1) + 16;
-					unsigned char shuf2Len = _mm_popcnt_u32(m2) + 16;
+					unsigned char shuf1Len = popcnt32(m1) + 16;
+					unsigned char shuf2Len = popcnt32(m2) + 16;
 					
 					data = _mm256_add_epi8(data, _mm256_and_si256(cmp, _mm256_set1_epi8(64)));
 					
@@ -193,9 +193,9 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 						
 						eqMask >>= shuf1Len + shuf2Len - ovrflowAmt -1;
 #ifdef PLATFORM_AMD64
-						i -= ovrflowAmt - _mm_popcnt_u64(eqMask);
+						i -= ovrflowAmt - (unsigned int)_mm_popcnt_u64(eqMask);
 #else
-						i -= ovrflowAmt - _mm_popcnt_u32(eqMask & 0xffffffff) - _mm_popcnt_u32(eqMask >> 32);
+						i -= ovrflowAmt - popcnt32(eqMask & 0xffffffff) - popcnt32(eqMask >> 32);
 #endif
 						p -= ovrflowAmt - (eqMask & 1);
 						if(LIKELIHOOD(0.02, eqMask & 1))

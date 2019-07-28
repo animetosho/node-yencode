@@ -184,15 +184,15 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						paddedData = _mm256_unpacklo_epi8(_mm256_set1_epi8('='), paddedData);
 						_mm256_mask_compressstoreu_epi8(p, compactMask, paddedData);
 						
-						int bytes = _mm_popcnt_u32(mask) + 16;
+						unsigned int bytes = popcnt32(mask) + 16;
 						p += bytes;
 						col += bytes;
 						
 						ovrflowAmt = col - (line_size-1);
 						if(ovrflowAmt > 0) {
 #   if (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
-							shufALen = _mm_popcnt_u32(m1) + 8;
-							shufBLen = _mm_popcnt_u32(m2) + 8;
+							shufALen = popcnt32(m1) + 8;
+							shufBLen = popcnt32(m2) + 8;
 #   else
 							shufALen = BitsSetTable256plus8[m1];
 							shufBLen = BitsSetTable256plus8[m2];
@@ -202,8 +202,8 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						__m128i data1 = _mm_unpacklo_epi8(_mm_set1_epi8('='), data);
 						data2 = _mm_unpackhi_epi8(_mm_set1_epi8('='), data);
 #   if (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
-						shufALen = _mm_popcnt_u32(m1) + 8;
-						shufBLen = _mm_popcnt_u32(m2) + 8;
+						shufALen = popcnt32(m1) + 8;
+						shufBLen = popcnt32(m2) + 8;
 #   else
 						shufALen = BitsSetTable256plus8[m1];
 						shufBLen = BitsSetTable256plus8[m2];
@@ -247,8 +247,8 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 					unsigned char shufALen, shufBLen;
 # if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
 					if(use_isa >= ISA_LEVEL_AVX) {
-						shufALen = _mm_popcnt_u32(m1) + 8;
-						shufBLen = _mm_popcnt_u32(m2) + 8;
+						shufALen = popcnt32(m1) + 8;
+						shufBLen = popcnt32(m2) + 8;
 					} else
 # endif
 					{
@@ -268,7 +268,7 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 							// from experimentation, it doesn't seem like it's worth trying to branch here, i.e. it isn't worth trying to avoid a pmovmskb+shift+or by checking overflow amount
 							uint32_t eqMask = (_mm_movemask_epi8(shufMB) << shufALen) | _mm_movemask_epi8(shufMA);
 							eqMask >>= shufBLen+shufALen - ovrflowAmt -1;
-							i -= ovrflowAmt - _mm_popcnt_u32(eqMask);
+							i -= ovrflowAmt - popcnt32(eqMask);
 							p -= ovrflowAmt - (eqMask & 1);
 							if(eqMask & 1)
 								goto after_last_char_fast;

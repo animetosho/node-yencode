@@ -92,6 +92,8 @@
 #endif
 #ifdef __POPCNT__
 #include <nmmintrin.h>
+// POPCNT can never return a negative result, but GCC doesn't seem to realise this, so typecast it to hint it better
+#define popcnt32 (unsigned int)_mm_popcnt_u32 
 #endif
 
 #if defined(__AVX2__) || defined(__AVX512F__)

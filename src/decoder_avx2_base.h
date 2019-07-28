@@ -256,7 +256,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 # if defined(__AVX512VBMI2__) && defined(__AVX512VL__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
 				_mm256_mask_compressstoreu_epi8(p, ~mask, data);
-				p += XMM_SIZE - _mm_popcnt_u32(mask);
+				p += XMM_SIZE - popcnt32(mask);
 			} else
 # endif
 			{
@@ -270,10 +270,10 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 				
 				_mm_storeu_si128((__m128i*)p, _mm256_castsi256_si128(data));
 				// increment output position
-				p -= _mm_popcnt_u32(mask & 0xffff);
+				p -= popcnt32(mask & 0xffff);
 				
 				_mm_storeu_si128((__m128i*)(p + XMM_SIZE), _mm256_extracti128_si256(data, 1));
-				p += XMM_SIZE*2 - _mm_popcnt_u32(mask & 0xffff0000);
+				p += XMM_SIZE*2 - popcnt32(mask & 0xffff0000);
 				
 			}
 		} else {
