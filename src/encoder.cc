@@ -26,7 +26,7 @@ static const uint16_t escapedLUT[256] = { // escaped sequences for characters th
 static size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
 	unsigned char* es = (unsigned char*)src + len;
 	unsigned char *p = dest; // destination pointer
-	long i = -len; // input position
+	long i = -(long)len; // input position
 	unsigned char c, escaped; // input character; escaped input character
 	int col = *colOffset;
 	

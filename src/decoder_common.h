@@ -21,7 +21,7 @@ template<bool isRaw>
 size_t do_decode_noend_scalar(const unsigned char* src, unsigned char* dest, size_t len, YencDecoderState* state) {
 	const unsigned char *es = src + len; // end source pointer
 	unsigned char *p = dest; // destination pointer
-	long i = -len; // input position
+	long i = -(long)len; // input position
 	unsigned char c; // input character
 	
 	if(len < 1) return 0;
@@ -159,7 +159,7 @@ template<bool isRaw>
 int do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
 	const unsigned char *es = (*src) + len; // end source pointer
 	unsigned char *p = *dest; // destination pointer
-	long i = -len; // input position
+	long i = -(long)len; // input position
 	unsigned char c; // input character
 	
 	if(len < 1) return 0;

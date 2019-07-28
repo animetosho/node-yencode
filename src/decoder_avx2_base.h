@@ -96,7 +96,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 						if(use_isa >= ISA_LEVEL_AVX3) {
 							// match \r\n=y
 							__m256i match3End = _mm256_ternarylogic_epi32(match1Lf, cmpCr, match3EqY, 0x80); // match3EqY & match1Nl
-							__m256i match34EqY = _mm256_ternarylogic_epi32(match4EqY, _mm256_srli_epi16(match3EqY, 8), _mm256_set1_epi16(0xff00), 0xEC); // (match4EqY & 0xff00) | (match3EqY >> 8)
+							__m256i match34EqY = _mm256_ternarylogic_epi32(match4EqY, _mm256_srli_epi16(match3EqY, 8), _mm256_set1_epi16(-0xff), 0xEC); // (match4EqY & 0xff00) | (match3EqY >> 8)
 							// merge \r\n and =y matches for tmpData4
 							__m256i match4End = _mm256_ternarylogic_epi32(match34EqY, match3Cr, match4Lf, 0xF8); // (match3Cr & match4Lf) | match34EqY
 							// merge with \r\n. and combine
