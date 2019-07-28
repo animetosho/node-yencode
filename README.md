@@ -1,9 +1,9 @@
-This module provides a very fast (non-JS) compiled implementation of
-[yEnc](http://www.yenc.org/yenc-draft.1.3.txt) and CRC32 hash calculation for
-node.js. The implementations are optimised for speed, and can optionally use
-x86/ARM SIMD optimised routines if available.
+This module provides a very fast (as in gigabytes per second) compiled implementation of
+[yEnc](http://www.yenc.org/yenc-draft.1.3.txt) and CRC32 (IEEE) hash calculation for
+node.js. The implementations are optimised for speed, and uses
+x86/ARM SIMD optimised routines if such CPU features are available.
 
-This module should be *significantly* faster than pure Javascript versions.
+This module should be several times faster than pure Javascript versions.
 
 Supports:
 ---------
@@ -30,7 +30,7 @@ Supports:
     (\>1GB/s on a low power Atom/ARM CPU, \>15GB/s on a modern Intel CPU)
 
 -   ability to combine two CRC32 hashes into one (useful for amalgamating
-    *pcrc32s* into a *crc32* for yEnc)
+    *pcrc32s* into a *crc32* for yEnc), as well as quickly compute the CRC32 of a sequence of null bytes
 
 -   eventually may support incremental processing (algorithms internally support
     it, they’re just not exposed to the Javascript interface)
@@ -210,7 +210,7 @@ Buffer post(string filename, data, int line_size=128)
 -----------------------------------------------------
 
 Returns a single yEnc encoded post, suitable for posting to newsgroups.  
-Note that *data* can be a Buffer or string or anything that `new Buffer` accepts
+Note that *data* can be a Buffer or string or anything that `Buffer.from` or `new Buffer` accepts
 (this differs from the above functions).
 
 **Example**
