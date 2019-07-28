@@ -190,7 +190,7 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						
 						ovrflowAmt = col - (line_size-1);
 						if(ovrflowAmt > 0) {
-#   if (defined(__tune_znver1__) || defined(__tune_btver2__))
+#   if (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
 							shufALen = _mm_popcnt_u32(m1) + 8;
 							shufBLen = _mm_popcnt_u32(m2) + 8;
 #   else
@@ -201,7 +201,7 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 #  else
 						__m128i data1 = _mm_unpacklo_epi8(_mm_set1_epi8('='), data);
 						data2 = _mm_unpackhi_epi8(_mm_set1_epi8('='), data);
-#   if (defined(__tune_znver1__) || defined(__tune_btver2__))
+#   if (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
 						shufALen = _mm_popcnt_u32(m1) + 8;
 						shufBLen = _mm_popcnt_u32(m2) + 8;
 #   else
@@ -245,7 +245,7 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 					}
 					// store out
 					unsigned char shufALen, shufBLen;
-# if defined(__POPCNT__) && (defined(__tune_znver1__) || defined(__tune_btver2__))
+# if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
 					if(use_isa >= ISA_LEVEL_AVX) {
 						shufALen = _mm_popcnt_u32(m1) + 8;
 						shufBLen = _mm_popcnt_u32(m2) + 8;
