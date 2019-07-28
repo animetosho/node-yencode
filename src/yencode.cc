@@ -49,25 +49,32 @@ static inline size_t YENC_MAX_SIZE(size_t len, size_t line_size) {
 
 #if NODE_VERSION_AT_LEAST(0, 11, 0)
 // for node 0.12.x
-#define FUNC(name) static void name(const FunctionCallbackInfo<Value>& args)
-#define FUNC_START \
+# define FUNC(name) static void name(const FunctionCallbackInfo<Value>& args)
+# define FUNC_START \
 	Isolate* isolate = args.GetIsolate(); \
 	HandleScope scope(isolate)
 
-#define NEW_STRING(s) String::NewFromUtf8(isolate, s)
-#define NEW_OBJECT Object::New(isolate)
-#if NODE_VERSION_AT_LEAST(3, 0, 0) // iojs3
-#define NEW_BUFFER(...) node::Buffer::New(ISOLATE __VA_ARGS__).ToLocalChecked()
-#else
-#define NEW_BUFFER(...) node::Buffer::New(ISOLATE __VA_ARGS__)
-#endif
+# if NODE_VERSION_AT_LEAST(12, 0, 0)
+#  define NEW_STRING(s) String::NewFromOneByte(isolate, (const uint8_t*)(s), NewStringType::kNormal).ToLocalChecked()
+#  define RETURN_ERROR(e) { isolate->ThrowException(Exception::Error(String::NewFromOneByte(isolate, (const uint8_t*)(e), NewStringType::kNormal).ToLocalChecked())); return; }
+#  define ARG_TO_INT(a) (a).As<Integer>()->Value()
+# else
+#  define NEW_STRING(s) String::NewFromUtf8(isolate, s)
+#  define RETURN_ERROR(e) { isolate->ThrowException(Exception::Error(String::NewFromUtf8(isolate, e))); return; }
+#  define ARG_TO_INT(a) (a)->ToInteger()->Value()
+# endif
+# define NEW_OBJECT Object::New(isolate)
+# if NODE_VERSION_AT_LEAST(3, 0, 0) // iojs3
+#  define NEW_BUFFER(...) node::Buffer::New(ISOLATE __VA_ARGS__).ToLocalChecked()
+# else
+#  define NEW_BUFFER(...) node::Buffer::New(ISOLATE __VA_ARGS__)
+# endif
 
-#define RETURN_ERROR(e) { isolate->ThrowException(Exception::Error(String::NewFromUtf8(isolate, e))); return; }
-#define RETURN_VAL(v) { args.GetReturnValue().Set(v); return; }
-#define RETURN_UNDEF return
-#define ISOLATE isolate,
-//#define MARK_EXT_MEM isolate->AdjustAmountOfExternalAllocatedMemory
-#define MARK_EXT_MEM(x)
+# define RETURN_VAL(v) { args.GetReturnValue().Set(v); return; }
+# define RETURN_UNDEF return
+# define ISOLATE isolate,
+//# define MARK_EXT_MEM isolate->AdjustAmountOfExternalAllocatedMemory
+# define MARK_EXT_MEM(x)
 
 #else
 // for node 0.10.x
@@ -76,6 +83,7 @@ static inline size_t YENC_MAX_SIZE(size_t len, size_t line_size) {
 #define NEW_STRING String::New
 #define NEW_OBJECT Object::New()
 #define NEW_BUFFER(...) Local<Object>::New(node::Buffer::New(ISOLATE __VA_ARGS__)->handle_)
+#define ARG_TO_INT(a) (a)->ToInteger()->Value()
 
 #define RETURN_ERROR(e) \
 	return ThrowException(Exception::Error( \
@@ -104,10 +112,10 @@ FUNC(Encode) {
 	int line_size = 128, col = 0;
 	if (args.Length() >= 2) {
 		// TODO: probably should throw errors instead of transparently fixing these...
-		line_size = args[1]->ToInteger()->Value();
+		line_size = ARG_TO_INT(args[1]);
 		if (line_size < 1) line_size = 128;
 		if (args.Length() >= 3) {
-			col = args[2]->ToInteger()->Value();
+			col = ARG_TO_INT(args[2]);
 			if (col >= line_size) col = 0;
 		}
 	}
@@ -135,10 +143,10 @@ FUNC(EncodeTo) {
 	int line_size = 128, col = 0;
 	if (args.Length() >= 3) {
 		// TODO: probably should throw errors instead of transparently fixing these...
-		line_size = args[2]->ToInteger()->Value();
+		line_size = ARG_TO_INT(args[2]);
 		if (line_size < 1) line_size = 128;
 		if (args.Length() >= 4) {
-			col = args[3]->ToInteger()->Value();
+			col = ARG_TO_INT(args[3]);
 			if (col >= line_size) col = 0;
 		}
 	}
@@ -206,7 +214,7 @@ FUNC(DecodeIncr) {
 	unsigned char *result = NULL;
 	bool allocResult = true;
 	if (args.Length() > 1) {
-		state = (YencDecoderState)(args[1]->ToInteger()->Value());
+		state = (YencDecoderState)(ARG_TO_INT(args[1]));
 		if (args.Length() > 2 && node::Buffer::HasInstance(args[2])) {
 			if(node::Buffer::Length(args[2]) < arg_len)
 				RETURN_UNDEF;
@@ -286,7 +294,7 @@ FUNC(CRC32Combine) {
 		RETURN_ERROR("You must supply a 4 byte Buffer for the first two arguments");
 	
 	union crc32 crc1, crc2;
-	size_t len = (size_t)args[2]->ToInteger()->Value();
+	size_t len = (size_t)ARG_TO_INT(args[2]);
 	
 	memcpy(&crc1.u32, node::Buffer::Data(args[0]), sizeof(uint32_t));
 	memcpy(&crc2.u32, node::Buffer::Data(args[1]), sizeof(uint32_t));
@@ -309,13 +317,19 @@ FUNC(CRC32Zeroes) {
 	} else {
 		crc1.u32 = 0;
 	}
-	size_t len = (size_t)args[0]->ToInteger()->Value();
+	size_t len = (size_t)ARG_TO_INT(args[0]);
 	do_crc32_zeros(crc1.u8a, len);
 	RETURN_CRC(crc1);
 }
 
 
-void yencode_init(Handle<Object> target) {
+void yencode_init(
+#if NODE_VERSION_AT_LEAST(12, 0, 0)
+ Local<Object> target
+#else
+ Handle<Object> target
+#endif
+) {
 	NODE_SET_METHOD(target, "encode", Encode);
 	NODE_SET_METHOD(target, "encodeTo", EncodeTo);
 	NODE_SET_METHOD(target, "decode", Decode<false>);
