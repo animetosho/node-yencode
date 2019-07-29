@@ -478,11 +478,13 @@ int do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, 
 }
 
 static uint8_t eqFixLUT[256];
-ALIGN_32(static uint64_t eqAddLUT[256]);
+static uint64_t ALIGN_32(eqAddLUT[256]);
 #ifdef YENC_DEC_USE_THINTABLE
-ALIGN_32(static uint64_t unshufLUT[256]);
+static uint64_t ALIGN_32(unshufLUT[256]);
 #else
-ALIGN_32(static struct { char bytes[16]; } unshufLUTBig[32768]);
+#pragma pack(16)
+static struct { char bytes[16]; } ALIGN_32(unshufLUTBig[32768]);
+#pragma pack()
 #endif
 
 static inline void decoder_init_lut() {
