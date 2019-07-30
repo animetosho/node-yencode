@@ -229,12 +229,21 @@ FUNC(DecodeIncr) {
 	
 	const unsigned char* src = (const unsigned char*)node::Buffer::Data(args[0]);
 	const unsigned char* sp = src;
+#ifdef DBG_ALIGN_SOURCE
+	void* newSrc = valloc(arg_len);
+	memcpy(newSrc, src, arg_len);
+	sp = (const unsigned char*)newSrc;
+#endif
 	
 	if(allocResult) result = (unsigned char*) malloc(arg_len);
 	unsigned char* dp = result;
 	int ended = do_decode_end<isRaw>(&sp, &dp, arg_len, &state);
 	size_t len = dp - result;
 	if(allocResult) result = (unsigned char*)realloc(result, len);
+	
+#ifdef DBG_ALIGN_SOURCE
+	free(newSrc);
+#endif
 	
 	Local<Object> ret = NEW_OBJECT;
 	SET_OBJ(ret, "read", Integer::New(ISOLATE sp - src));

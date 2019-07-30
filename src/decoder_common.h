@@ -462,7 +462,7 @@ int do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, 
 	if(len)
 		return do_decode_scalar<isRaw, searchEnd>(src, dest, len, pState);
 	/** for debugging: ensure that the SIMD routine doesn't exit early
-	if(len) {
+	if(len && !searchEnd) {
 		const uint8_t* s = *src;
 		unsigned char* p = *dest;
 		int ended = do_decode_scalar<isRaw, searchEnd>(src, dest, len, pState);
