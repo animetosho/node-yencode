@@ -54,7 +54,7 @@ static inline size_t YENC_MAX_SIZE(size_t len, size_t line_size) {
 	Isolate* isolate = args.GetIsolate(); \
 	HandleScope scope(isolate)
 
-# if NODE_VERSION_AT_LEAST(12, 0, 0)
+# if NODE_VERSION_AT_LEAST(8, 0, 0)
 #  define NEW_STRING(s) String::NewFromOneByte(isolate, (const uint8_t*)(s), NewStringType::kNormal).ToLocalChecked()
 #  define RETURN_ERROR(e) { isolate->ThrowException(Exception::Error(String::NewFromOneByte(isolate, (const uint8_t*)(e), NewStringType::kNormal).ToLocalChecked())); return; }
 #  define ARG_TO_INT(a) (a).As<Integer>()->Value()
@@ -95,7 +95,11 @@ static inline size_t YENC_MAX_SIZE(size_t len, size_t line_size) {
 #define MARK_EXT_MEM V8::AdjustAmountOfExternalAllocatedMemory
 #endif
 
-
+#if NODE_VERSION_AT_LEAST(12, 0, 0)
+# define SET_OBJ(obj, key, val) (obj)->Set(isolate->GetCurrentContext(), NEW_STRING(key), val).Check()
+#else
+# define SET_OBJ(obj, key, val) (obj)->Set(NEW_STRING(key), val)
+#endif
 
 
 // encode(str, line_size, col)
@@ -112,10 +116,10 @@ FUNC(Encode) {
 	int line_size = 128, col = 0;
 	if (args.Length() >= 2) {
 		// TODO: probably should throw errors instead of transparently fixing these...
-		line_size = ARG_TO_INT(args[1]);
+		line_size = (int)ARG_TO_INT(args[1]);
 		if (line_size < 1) line_size = 128;
 		if (args.Length() >= 3) {
-			col = ARG_TO_INT(args[2]);
+			col = (int)ARG_TO_INT(args[2]);
 			if (col >= line_size) col = 0;
 		}
 	}
@@ -143,10 +147,10 @@ FUNC(EncodeTo) {
 	int line_size = 128, col = 0;
 	if (args.Length() >= 3) {
 		// TODO: probably should throw errors instead of transparently fixing these...
-		line_size = ARG_TO_INT(args[2]);
+		line_size = (int)ARG_TO_INT(args[2]);
 		if (line_size < 1) line_size = 128;
 		if (args.Length() >= 4) {
-			col = ARG_TO_INT(args[3]);
+			col = (int)ARG_TO_INT(args[3]);
 			if (col >= line_size) col = 0;
 		}
 	}
@@ -233,11 +237,11 @@ FUNC(DecodeIncr) {
 	if(allocResult) result = (unsigned char*)realloc(result, len);
 	
 	Local<Object> ret = NEW_OBJECT;
-	ret->Set(NEW_STRING("read"), Integer::New(ISOLATE sp - src));
-	ret->Set(NEW_STRING("written"), Integer::New(ISOLATE len));
-	if(allocResult) ret->Set(NEW_STRING("output"), NEW_BUFFER((char*)result, len, free_buffer, (void*)len));
-	ret->Set(NEW_STRING("ended"), Integer::New(ISOLATE ended));
-	ret->Set(NEW_STRING("state"), Integer::New(ISOLATE state));
+	SET_OBJ(ret, "read", Integer::New(ISOLATE sp - src));
+	SET_OBJ(ret, "written", Integer::New(ISOLATE len));
+	if(allocResult) SET_OBJ(ret, "output", NEW_BUFFER((char*)result, len, free_buffer, (void*)len));
+	SET_OBJ(ret, "ended", Integer::New(ISOLATE ended));
+	SET_OBJ(ret, "state", Integer::New(ISOLATE state));
 	MARK_EXT_MEM(len);
 	RETURN_VAL( ret );
 }
@@ -324,7 +328,7 @@ FUNC(CRC32Zeroes) {
 
 
 void yencode_init(
-#if NODE_VERSION_AT_LEAST(12, 0, 0)
+#if NODE_VERSION_AT_LEAST(8, 0, 0)
  Local<Object> target
 #else
  Handle<Object> target

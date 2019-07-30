@@ -140,7 +140,7 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "psrlq $32, %[buf1]\n"
     "movd %[buf2], %[tmp2]\n"
     "psrlq $32, %[buf2]\n"
-    "movd %[buf3], "TMP3"\n"
+    "movd %[buf3], " TMP3 "\n"
     "psrlq $32, %[buf3]\n"
 
     "movzbl %b[tmp0], %[temp]\n"
@@ -152,8 +152,8 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "movzbl %b[tmp2], %[temp]\n"
     "shrl $8, %[tmp2]\n"
     "movq (%[table], %[temp], 8), %[crc2]\n"
-    "movzbl "TMP3b", %[temp]\n"
-    "shrl $8, "TMP3"\n"
+    "movzbl " TMP3b ", %[temp]\n"
+    "shrl $8, " TMP3 "\n"
     "movq (%[table], %[temp], 8), %[crc3]\n"
 
 #define XOR(byte) \
@@ -166,8 +166,8 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "movzbl %b[tmp2], %[temp]\n" \
     "shrl $8, %[tmp2]\n" \
     "pxor " #byte "*256*8(%[table], %[temp], 8), %[crc2]\n" \
-    "movzbl "TMP3b", %[temp]\n" \
-    "shrl $8, "TMP3"\n" \
+    "movzbl " TMP3b ", %[temp]\n" \
+    "shrl $8, " TMP3 "\n" \
     "pxor " #byte "*256*8(%[table], %[temp], 8), %[crc3]\n"
 
     XOR(1)
@@ -179,8 +179,8 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "movd %[buf1], %[tmp1]\n"
     "pxor 3*256*8(%[table], %[tmp2], 8), %[crc2]\n"
     "movd %[buf2], %[tmp2]\n"
-    "pxor 3*256*8(%[table], "TMP3", 8), %[crc3]\n"
-    "movd %[buf3], "TMP3"\n"
+    "pxor 3*256*8(%[table], " TMP3 ", 8), %[crc3]\n"
+    "movd %[buf3], " TMP3 "\n"
 
     XOR(4)
     XOR(5)
@@ -192,7 +192,7 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "movq 1*8(%[src]), %[buf1]\n"
     "pxor 7*256*8(%[table], %[tmp2], 8), %[crc2]\n"
     "movq 2*8(%[src]), %[buf2]\n"
-    "pxor 7*256*8(%[table], "TMP3", 8), %[crc3]\n"
+    "pxor 7*256*8(%[table], " TMP3 ", 8), %[crc3]\n"
     "movq 3*8(%[src]), %[buf3]\n"
     "cmpl %[src], %[end]\n"
     "ja 1b\n"
