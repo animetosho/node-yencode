@@ -256,7 +256,7 @@ inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, uns
 # if defined(__AVX512VBMI2__) && defined(__AVX512VL__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
 				_mm256_mask_compressstoreu_epi8(p, ~mask, data);
-				p += XMM_SIZE - popcnt32(mask);
+				p += XMM_SIZE*2 - popcnt32(mask);
 			} else
 # endif
 			{
