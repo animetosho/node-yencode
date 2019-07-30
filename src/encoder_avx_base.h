@@ -15,7 +15,7 @@
 # define PLATFORM_AMD64 1
 #endif
 
-static __m256i ALIGN_32(shufExpandLUT[65536]); // huge 2MB table
+static __m256i ALIGN_TO(32, shufExpandLUT[65536]); // huge 2MB table
 static void encoder_avx2_lut() {
 	for(int i=0; i<65536; i++) {
 		int k = i;

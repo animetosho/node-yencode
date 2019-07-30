@@ -4,7 +4,7 @@
 #include "encoder.h"
 #include "encoder_common.h"
 
-uint8x16_t ALIGN_32(shufLUT[256]);
+uint8x16_t ALIGN_TO(16, shufLUT[256]);
 
 static const unsigned char* escapeLUT;
 static const uint16_t* escapedLUT;

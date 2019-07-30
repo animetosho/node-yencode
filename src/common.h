@@ -143,9 +143,9 @@ static bool cpu_supports_neon() {
 #endif
 
 #ifdef _MSC_VER
-#define ALIGN_32(v) __declspec(align(32)) v
+#define ALIGN_TO(a, v) __declspec(align(a)) v
 #else
-#define ALIGN_32(v) v __attribute__((aligned(32)))
+#define ALIGN_TO(a, v) v __attribute__((aligned(a)))
 #endif
 
 

@@ -11,7 +11,7 @@ struct TShufMix {
 	__m128i shuf, mix;
 };
 #pragma pack()
-static struct TShufMix ALIGN_32(shufMixLUT[256]);
+static struct TShufMix ALIGN_TO(32, shufMixLUT[256]);
 
 
 static uint16_t expandLUT[256];
@@ -49,7 +49,7 @@ static void encoder_ssse3_lut() {
 #endif
 
 // for SSE2 expanding
-static const uint8_t ALIGN_32(_expand_mix_table[256]) = {
+static const uint8_t ALIGN_TO(16, _expand_mix_table[256]) = {
 	'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
 	 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
 	 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
@@ -69,7 +69,7 @@ static const uint8_t ALIGN_32(_expand_mix_table[256]) = {
 };
 static const __m128i* expand_mix_table = (const __m128i*)_expand_mix_table;
 
-static const int8_t ALIGN_32(_expand_mask_table[256]) = {
+static const int8_t ALIGN_TO(16, _expand_mask_table[256]) = {
 	 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -314,7 +314,7 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 				{
 					if(mask & (mask-1)) {
 						unsigned char* sp = p;
-						uint32_t ALIGN_32(mmTmp[4]);
+						uint32_t ALIGN_TO(16, mmTmp[4]);
 						// special characters exist
 						_mm_store_si128((__m128i*)mmTmp, data);
 						#define DO_THING(n) \
