@@ -337,8 +337,10 @@ FUNC(CRC32Zeroes) {
 
 
 void yencode_init(
-#if NODE_VERSION_AT_LEAST(8, 0, 0)
- Local<Object> target
+#if NODE_VERSION_AT_LEAST(4, 0, 0)
+ Local<Object> target,
+ Local<Value> module,
+ void* priv
 #else
  Handle<Object> target
 #endif
