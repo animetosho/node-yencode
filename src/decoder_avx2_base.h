@@ -2,7 +2,7 @@
 #ifdef __AVX2__
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
-inline void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& _nextMask) {
+HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	int escFirst = _escFirst;
 	__m256i yencOffset = escFirst ? _mm256_set_epi8(
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,

@@ -36,7 +36,7 @@ static void encoder_avx2_lut() {
 
 
 template<enum YEncDecIsaLevel use_isa>
-static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
+static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len) {
 	unsigned char* es = (unsigned char*)src + len;
 	unsigned char *p = dest; // destination pointer
 	long i = -(long)len; // input position

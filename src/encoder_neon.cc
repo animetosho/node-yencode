@@ -9,7 +9,7 @@ uint8x16_t ALIGN_TO(16, shufLUT[256]);
 static const unsigned char* escapeLUT;
 static const uint16_t* escapedLUT;
 
-static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char* src, unsigned char* dest, size_t len) {
+static size_t do_encode_neon(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len) {
 	unsigned char* es = (unsigned char*)src + len;
 	unsigned char *p = dest; // destination pointer
 	long i = -(long)len; // input position

@@ -40,7 +40,7 @@ static const __m128i* unshuf_mask_bsr_table = (const __m128i*)_unshuf_mask_bsr_t
 #endif
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
-inline void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& _nextMask) {
+HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	int escFirst = _escFirst;
 	__m128i yencOffset = escFirst ? _mm_set_epi8(
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64

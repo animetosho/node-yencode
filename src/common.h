@@ -1,6 +1,8 @@
 #ifndef __YENC_COMMON
 #define __YENC_COMMON
 
+#include "hedley.h"
+
 #if defined(__x86_64__) || \
     defined(__amd64__ ) || \
     defined(__LP64    ) || \
