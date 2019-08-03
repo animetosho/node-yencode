@@ -87,7 +87,7 @@
       ],
       "conditions": [
         ['target_arch in "ia32 x64" and OS!="win"', {
-          "variables": {"supports_avx2%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -dM -E src/decoder_avx2.cc -mavx2 2>/dev/null || true)"},
+          "variables": {"supports_avx2%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/decoder_avx2.cc -mavx2 2>/dev/null || true)"},
           "conditions": [
             ['supports_avx2!=""', {
               "cflags": ["-mavx2"],
@@ -112,7 +112,7 @@
       ],
       "conditions": [
         ['target_arch in "ia32 x64" and OS!="win"', {
-          "variables": {"supports_avx3%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -dM -E src/decoder_avx3.cc -mavx512vl -mavx512bw 2>/dev/null || true)"},
+          "variables": {"supports_avx3%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/decoder_avx3.cc -mavx512vl -mavx512bw 2>/dev/null || true)"},
           "conditions": [
             ['supports_avx3!=""', {
               "cflags": ["-mavx512vl", "-mavx512bw"],
@@ -125,7 +125,9 @@
           ]
         }],
         ['target_arch in "ia32 x64" and OS=="win"', {
-          "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "3"}}
+          "msvs_settings": {
+            "VCCLCompilerTool": {"AdditionalOptions": ["/arch:AVX512"], "EnableEnhancedInstructionSet": "0"}
+          }
         }]
       ]
     },
