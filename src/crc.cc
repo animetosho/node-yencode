@@ -43,7 +43,9 @@ void crc_init() {
 	// instance never deleted... oh well...
 	
 #ifdef PLATFORM_X86
-	if((cpu_flags() & 0x80202) == 0x80202) // SSE4.1 + SSSE3 + CLMUL
+	int flags[4];
+	_cpuid1(flags);
+	if((flags[2] & 0x80202) == 0x80202) // SSE4.1 + SSSE3 + CLMUL
 		crc_clmul_set_funcs(&_do_crc32, &_do_crc32_incremental);
 #endif
 #ifdef PLATFORM_ARM

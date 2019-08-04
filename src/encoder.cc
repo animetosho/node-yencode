@@ -149,16 +149,18 @@ void encoder_neon_init(const unsigned char*, const uint16_t*);
 
 void encoder_init() {
 #ifdef PLATFORM_X86
-	int flags = cpu_flags();
-	if((flags & 0x200) == 0x200) {
-		if((flags & 0x18800000) == 0x18800000) { // POPCNT + OSXSAVE + AVX
+	int flags[4];
+	_cpuid1(flags);
+	if((flags[2] & 0x200) == 0x200) {
+		if((flags[2] & 0x18800000) == 0x18800000) { // POPCNT + OSXSAVE + AVX
 			int xcr = _GET_XCR() & 0xff; // ignore unused bits
 			if((xcr & 6) == 6) { // AVX enabled
 				int cpuInfo[4];
 				_cpuidX(cpuInfo, 7, 0);
-				if((cpuInfo[1] & 0x20) == 0x20)
+				if((cpuInfo[1] & 0x128) == 0x128) { // BMI2 + AVX2 + BMI1
+					// AVX2 is beneficial even on Zen1
 					encoder_avx2_init(escapeLUT, escapedLUT);
-				else
+				} else
 					encoder_avx_init(escapeLUT, escapedLUT);
 			} else
 				encoder_ssse3_init(escapeLUT, escapedLUT);

@@ -16,18 +16,20 @@ void decoder_set_neon_funcs();
 
 void decoder_init() {
 #ifdef PLATFORM_X86
-	int flags = cpu_flags();
-	if((flags & 0x200) == 0x200) {
-		if((flags & 0x18800000) == 0x18800000) { // POPCNT + OSXSAVE + AVX
+	int flags[4];
+	_cpuid1(flags);
+	if((flags[2] & 0x200) == 0x200) {
+		if((flags[2] & 0x18800000) == 0x18800000) { // POPCNT + OSXSAVE + AVX
 			int xcr = _GET_XCR() & 0xff; // ignore unused bits
 			if((xcr & 6) == 6) { // AVX enabled
 				int cpuInfo[4];
 				_cpuidX(cpuInfo, 7, 0);
 				if(((xcr & 0xE0) == 0xE0) && (cpuInfo[1] & 0x40010000) == 0x40010000) // AVX512BW + AVX512VL
 					decoder_set_avx3_funcs();
-				else if((cpuInfo[1] & 0x20) == 0x20)
+				else if((cpuInfo[1] & 0x128) == 0x128) { // BMI2 + AVX2 + BMI1
+					// AVX2 is beneficial even on Zen1
 					decoder_set_avx2_funcs();
-				else
+				} else
 					decoder_set_avx_funcs();
 			} else
 				decoder_set_ssse3_funcs();

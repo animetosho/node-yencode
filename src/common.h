@@ -153,24 +153,8 @@ static bool cpu_supports_neon() {
 
 
 #ifdef PLATFORM_X86
-static int cpu_flags() {
 #ifdef _MSC_VER
-	int cpuInfo[4];
-	__cpuid(cpuInfo, 1);
-	return cpuInfo[2];
-#else
-	int flags;
-	// conveniently stolen from zlib-ng
-	__asm__ __volatile__ (
-		"cpuid"
-	: "=c" (flags)
-	: "a" (1)
-	: "%edx", "%ebx"
-	);
-	return flags;
-#endif
-}
-#ifdef _MSC_VER
+# define _cpuid1(ar) __cpuid(ar, 1)
 # if _MSC_VER >= 1600
 #  define _cpuidX __cpuidex
 #  include <immintrin.h>
@@ -182,6 +166,7 @@ static int cpu_flags() {
 # endif
 #else
 # include <cpuid.h>
+# define _cpuid1(ar) __cpuid(1, ar[0], ar[1], ar[2], ar[3])
 # define _cpuidX(ar, eax, ecx) __cpuid_count(eax, ecx, ar[0], ar[1], ar[2], ar[3])
 static inline int _GET_XCR() {
 	int xcr0;
@@ -189,11 +174,22 @@ static inline int _GET_XCR() {
 	return xcr0;
 }
 #endif
+// checks if CPU has 128-bit AVX units; currently not used as AVX2 is beneficial even on Zen1
+// static bool cpu_has_slow_avx(cpuid1flag0) {
+	// int family = ((cpuid1flag0>>8) & 0xf) + ((cpuid1flag0>>16) & 0xff0),
+		// model = ((cpuid1flag0>>4) & 0xf) + ((cpuid1flag0>>12) & 0xf0);
+	// return (
+		   // family == 0x6f // AMD Bulldozer family
+		// || family == 0x7f // AMD Jaguar/Puma family
+		// || (family == 0x8f && (model == 0 /*Summit Ridge ES*/ || model == 1 /*Zen*/ || model == 8 /*Zen+*/ || model == 0x11 /*Zen APU*/ || model == 0x18 /*Zen+ APU*/ || model == 0x50 /*Subor Z+*/)) // AMD Zen1 family
+		// || (family == 6 && model == 0xf) // Centaur/Zhaoxin; overlaps with Intel Core 2, but they don't support AVX
+	// );
+// }
 
 enum YEncDecIsaLevel {
 	ISA_LEVEL_SSE2,
 	ISA_LEVEL_SSSE3,
-	ISA_LEVEL_AVX, // includes POPCNT
+	ISA_LEVEL_AVX, // includes POPCNT; AVX2 also includes BMI1/2
 	ISA_LEVEL_AVX3, // SKX variant; AVX512VL + AVX512BW
 	ISA_LEVEL_VBMI2 // ICL
 };
