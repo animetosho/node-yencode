@@ -283,8 +283,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			yencOffset = _mm256_set1_epi8(-42);
 		}
 	}
-	_mm256_zeroupper();
 	_escFirst = escFirst;
 	_nextMask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(lfCompare, _mm256_set1_epi8('.')));
+	_mm256_zeroupper();
 }
 #endif
