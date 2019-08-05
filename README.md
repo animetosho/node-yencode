@@ -55,19 +55,16 @@ Note, Windows builds are always compiled with SSE2 support. If you can’t have
 this, delete all instances of `"msvs_settings": {"VCCLCompilerTool":
 {"EnableEnhancedInstructionSet": "2"}},` in *binding.gyp* before compiling.
 
-Some versions of GCC/Clang don't like the `-march=native` switch. If you're such
-having build issues, see the following section.
-
 Redistributable Builds
 ----------------------
 
 By default, non-Windows builds are built with `-march=native` flag, which means
 that the compiler will optimise the build for the CPU of the build machine. If
 you’re looking to run built binaries elsewhere, this may be undesirable. To make
-builds redistributable, try removing all instances of `"-march=native",` from
-*binding.gyp* and recompiling.
+builds redistributable, replace `supports_native!=""` from
+*binding.gyp* with `""!=""` and recompiling.
 
-Windows builds are redistributable by default.
+Windows builds are redistributable by default as MSVC doesn’t support native CPU targeting.
 
 Older Compilers
 ---------------
