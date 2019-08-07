@@ -15,6 +15,31 @@
 # define PLATFORM_AMD64 1
 #endif
 
+
+static const char ALIGN_TO(64, _expand_mergemix_table[33*32*2]) = {
+#define _X(n) -(n>0), -(n>1), -(n>2), -(n>3), -(n>4), -(n>5), -(n>6), -(n>7), \
+	-(n>8), -(n>9), -(n>10), -(n>11), -(n>12), -(n>13), -(n>14), -(n>15), \
+	-(n>16), -(n>17), -(n>18), -(n>19), -(n>20), -(n>21), -(n>22), -(n>23), \
+	-(n>24), -(n>25), -(n>26), -(n>27), -(n>28), -(n>29), -(n>30), -(n>31)
+#define _Y2(n, m) '='*(n==m) + 64*(n==m-1)
+#define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
+	_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15), \
+	_Y2(n,16), _Y2(n,17), _Y2(n,18), _Y2(n,19), _Y2(n,20), _Y2(n,21), _Y2(n,22), _Y2(n,23), \
+	_Y2(n,24), _Y2(n,25), _Y2(n,26), _Y2(n,27), _Y2(n,28), _Y2(n,29), _Y2(n,30), _Y2(n,31)
+#define _XY(n) _X(n), _Y(n)
+	_XY(31), _XY(30), _XY(29), _XY(28), _XY(27), _XY(26), _XY(25), _XY(24),
+	_XY(23), _XY(22), _XY(21), _XY(20), _XY(19), _XY(18), _XY(17), _XY(16),
+	_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8),
+	_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0),
+	_XY(32)
+#undef _XY
+#undef _Y
+#undef _Y2
+#undef _X
+};
+static const __m256i* expand_mergemix_table = (const __m256i*)_expand_mergemix_table;
+
+
 static __m256i ALIGN_TO(32, shufExpandLUT[65536]); // huge 2MB table
 static void encoder_avx2_lut() {
 	for(int i=0; i<65536; i++) {
@@ -73,7 +98,16 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 			);
 			
 			uint32_t mask = _mm256_movemask_epi8(cmp);
-			if (LIKELIHOOD(0.3959, mask != 0)) {
+			// unlike the SSE (128-bit) encoder, the probability of at least one escaped character in a vector is much higher here, which causes the branch to be relatively unpredictable, resulting in poor performance
+			// because of this, we tilt the probability towards the fast path by process single-character escape cases there; this results in a speedup, despite the fast path being slower
+			int onlyOneOrNoneBitSet =
+#if defined(__tune_znver2__) || defined(__tune_znver1__)
+				_mm_popcnt_u32(mask) < 2;
+#else
+				(mask & (mask-1)) == 0;
+#endif
+			// likelihood of >1 bit set: 1-((63/64)^32 + (63/64)^31 * (1/64) * 32C1)
+			if (LIKELIHOOD(0.089, !onlyOneOrNoneBitSet)) {
 				
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && defined(__BMI2__) && 0
 				if(use_isa >= ISA_LEVEL_VBMI2) {
@@ -205,15 +239,39 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 					}
 				}
 			} else {
+				intptr_t bitIndex = _lzcnt_u32(mask);
+				__m256i mergeMask = _mm256_load_si256(expand_mergemix_table + bitIndex*2);
+				__m256i dataMasked = _mm256_andnot_si256(mergeMask, data);
+				// to deal with the pain of lane crossing, use shift + mask/blend
+				__m256i dataShifted = _mm256_alignr_epi8(
+					dataMasked,
+					//_mm256_permute2x128_si256(dataMasked, dataMasked, 8)
+					_mm256_inserti128_si256(_mm256_setzero_si256(), _mm256_castsi256_si128(dataMasked), 1),
+					15
+				);
+				data = _mm256_blendv_epi8(dataShifted, data, mergeMask);
+				
+				data = _mm256_add_epi8(data, _mm256_load_si256(expand_mergemix_table + bitIndex*2 + 1));
+				// store main + additional char
 				_mm256_storeu_si256((__m256i*)p, data);
-				p += YMM_SIZE;
-				col += YMM_SIZE;
+				p[YMM_SIZE] = es[i-1] + 42 + (64 & (mask>>(YMM_SIZE-1-6)));
+				unsigned int processed = popcnt32(mask);
+				p += YMM_SIZE + processed;
+				col += YMM_SIZE + processed;
+				
 				int ovrflowAmt = col - (line_size-1);
 				if(LIKELIHOOD(0.3, ovrflowAmt > 0)) {
-					p -= ovrflowAmt;
-					i -= ovrflowAmt;
-					//col = line_size-1;
-					goto last_char_avx2;
+					if(ovrflowAmt-1 == bitIndex) {
+						// this is an escape character, so line will need to overflow
+						p -= ovrflowAmt - 1;
+						i -= ovrflowAmt - 1;
+						goto after_last_char_avx2;
+					} else {
+						int overflowedPastEsc = (unsigned int)(ovrflowAmt-1) > (unsigned int)bitIndex;
+						p -= ovrflowAmt;
+						i -= ovrflowAmt - overflowedPastEsc;
+						goto last_char_avx2;
+					}
 				}
 			}
 		}
