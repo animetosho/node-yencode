@@ -16,7 +16,7 @@
 #endif
 
 
-static const char ALIGN_TO(64, _expand_mergemix_table[33*32*2]) = {
+static const int8_t ALIGN_TO(64, _expand_mergemix_table[33*32*2]) = {
 #define _X(n) -(n>0), -(n>1), -(n>2), -(n>3), -(n>4), -(n>5), -(n>6), -(n>7), \
 	-(n>8), -(n>9), -(n>10), -(n>11), -(n>12), -(n>13), -(n>14), -(n>15), \
 	-(n>16), -(n>17), -(n>18), -(n>19), -(n>20), -(n>21), -(n>22), -(n>23), \
@@ -125,7 +125,7 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 # endif
 					
 # if 0
-					// uses 512b instructions, but probably more efficient
+					// uses 512b instructions, which may be more efficient if CPU doesn't hard throttle on these (like SKX does, and also switches CPU to 512b port mode)
 					__m512i paddedData = _mm512_permutexvar_epi64(_mm512_set_epi64(
 						3,3, 2,2, 1,1, 0,0
 					), _mm512_castsi256_si512(data));
@@ -145,7 +145,7 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 					__m256i data2 = _mm256_unpackhi_epi8(_mm256_set1_epi8('='), dataForUnpack);
 					
 					unsigned int shufALen = popcnt32(mask & 0xffff) + 16;
-					unsigned int shufBLen = popcnt32(mask >> 16) + 16;
+					unsigned int shufBLen = popcnt32(mask & 0xffff0000) + 16;
 #  ifdef PLATFORM_AMD64
 					uint32_t compactMask1 = compactMask & 0xffffffff;
 					uint32_t compactMask2 = compactMask >> 32;
@@ -161,17 +161,17 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 					
 					int ovrflowAmt = col - (line_size-1);
 					if(LIKELIHOOD(0.3, ovrflowAmt > 0)) {
-#ifdef PLATFORM_AMD64
+# ifdef PLATFORM_AMD64
 						uint64_t eqMask = _pext_u64(0x5555555555555555, compactMask);
 						eqMask >>= bytes - ovrflowAmt -1;
 						i -= ovrflowAmt - (unsigned int)_mm_popcnt_u64(eqMask);
-#else
+# else
 						uint64_t eqMask1 = _pext_u32(0x55555555, compactMask1);
 						uint64_t eqMask2 = _pext_u32(0x55555555, compactMask2);
 						uint64_t eqMask = (eqMask2 << shufALen) | eqMask1;
 						eqMask >>= bytes - ovrflowAmt -1;
 						i -= ovrflowAmt - popcnt32(eqMask & 0xffffffff) - popcnt32(eqMask >> 32);
-#endif
+# endif
 						p -= ovrflowAmt - (eqMask & 1);
 						if(LIKELIHOOD(0.02, eqMask & 1))
 							goto after_last_char_avx2;
@@ -240,18 +240,39 @@ static size_t do_encode_avx2(int line_size, int* colOffset, const unsigned char*
 				}
 			} else {
 				intptr_t bitIndex = _lzcnt_u32(mask);
-				__m256i mergeMask = _mm256_load_si256(expand_mergemix_table + bitIndex*2);
-				__m256i dataMasked = _mm256_andnot_si256(mergeMask, data);
-				// to deal with the pain of lane crossing, use shift + mask/blend
-				__m256i dataShifted = _mm256_alignr_epi8(
-					dataMasked,
-					//_mm256_permute2x128_si256(dataMasked, dataMasked, 8)
-					_mm256_inserti128_si256(_mm256_setzero_si256(), _mm256_castsi256_si128(dataMasked), 1),
-					15
-				);
-				data = _mm256_blendv_epi8(dataShifted, data, mergeMask);
-				
-				data = _mm256_add_epi8(data, _mm256_load_si256(expand_mergemix_table + bitIndex*2 + 1));
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
+				if(use_isa >= ISA_LEVEL_VBMI2) {
+					data = _mm256_mask_expand_epi8(
+						_mm256_set1_epi8('='),
+# if defined(__GNUC__) && __GNUC__ >= 8
+						// GCC 8/9/10(dev) fails to optimize this, so use intrinsic explicitly; Clang 6+ has no issue, but Clang 6/7 doesn't have the intrinsic; MSVC 2019 also fails and lacks the intrinsic
+						_knot_mask32(mask),
+# else
+						~mask,
+# endif
+						_mm256_mask_add_epi8(data, mask, data, _mm256_set1_epi8(64))
+					);
+				} else
+#endif
+				{
+					__m256i mergeMask = _mm256_load_si256(expand_mergemix_table + bitIndex*2);
+					__m256i dataMasked = _mm256_andnot_si256(mergeMask, data);
+					// to deal with the pain of lane crossing, use shift + mask/blend
+					__m256i dataShifted = _mm256_alignr_epi8(
+						dataMasked,
+						//_mm256_permute2x128_si256(dataMasked, dataMasked, 8)
+						_mm256_inserti128_si256(_mm256_setzero_si256(), _mm256_castsi256_si128(dataMasked), 1),
+						15
+					);
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+					if(use_isa >= ISA_LEVEL_AVX3)
+						data = _mm256_ternarylogic_epi32(dataShifted, data, mergeMask, 0xf8); // (data & mergeMask) | dataShifted
+					else
+#endif
+						data = _mm256_blendv_epi8(dataShifted, data, mergeMask);
+					
+					data = _mm256_add_epi8(data, _mm256_load_si256(expand_mergemix_table + bitIndex*2 + 1));
+				}
 				// store main + additional char
 				_mm256_storeu_si256((__m256i*)p, data);
 				p[YMM_SIZE] = es[i-1] + 42 + (64 & (mask>>(YMM_SIZE-1-6)));
