@@ -46,15 +46,15 @@ static void encoder_sse_lut() {
 }
 
 // for SSE2 expanding
-#define _X(n) -(n>0), -(n>1), -(n>2), -(n>3), -(n>4), -(n>5), -(n>6), -(n>7), \
-	-(n>8), -(n>9), -(n>10), -(n>11), -(n>12), -(n>13), -(n>14), -(n>15)
+#define _X2(n,k) n>k?-1:0
+#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), _X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15)
 #define _Y2(n, m) '='*(n==m) + 64*(n==m-1)
 #define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
 	_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15)
 #define _XY(n) _X(n), _Y(n)
 
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
-static const int8_t ALIGN_TO(16, _expand_maskmix_lzc_table[33*32]) = {
+static const int8_t ALIGN_TO(16, _expand_maskmix_lzc_table[32*32]) = {
 	// 512 bytes of padding; this allows us to save doing a subtraction in-loop
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -73,15 +73,14 @@ static const int8_t ALIGN_TO(16, _expand_maskmix_lzc_table[33*32]) = {
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 	
-	_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8), 
+	_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8),
 	_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0)
 };
 static const __m128i* expand_maskmix_lzc_table = (const __m128i*)_expand_maskmix_lzc_table;
 #else
-static const int8_t ALIGN_TO(16, _expand_maskmix_table[17*32]) = {
-	_XY( 0), _XY( 1), _XY( 2), _XY( 3), _XY( 4), _XY( 5), _XY( 6), _XY( 7), 
-	_XY( 8), _XY( 9), _XY(10), _XY(11), _XY(12), _XY(13), _XY(14), _XY(15), 
-	_XY(16)
+static const int8_t ALIGN_TO(16, _expand_maskmix_table[16*32]) = {
+	_XY( 0), _XY( 1), _XY( 2), _XY( 3), _XY( 4), _XY( 5), _XY( 6), _XY( 7),
+	_XY( 8), _XY( 9), _XY(10), _XY(11), _XY(12), _XY(13), _XY(14), _XY(15)
 };
 static const __m128i* expand_maskmix_table = (const __m128i*)_expand_maskmix_table;
 #endif
@@ -89,6 +88,7 @@ static const __m128i* expand_maskmix_table = (const __m128i*)_expand_maskmix_tab
 #undef _Y
 #undef _Y2
 #undef _X
+#undef _X2
 
 // for LZCNT/BSF
 #ifdef _MSC_VER

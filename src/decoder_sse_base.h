@@ -4,7 +4,7 @@
 #define _X2(n,k) n>k?-1:0
 #define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), _X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15)
 
-#ifdef __LZCNT__
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
 static const int8_t ALIGN_TO(16, _unshuf_mask_lzc_table[512]) = {
 	// 256 bytes of padding; this allows us to save doing a subtraction in-loop
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -35,8 +35,10 @@ static const __m128i* unshuf_mask_bsr_table = (const __m128i*)_unshuf_mask_bsr_t
 #ifdef _MSC_VER
 # include <intrin.h>
 # include <ammintrin.h>
+# define _BSR_VAR(var, src) var; _BitScanReverse(&var, src)
 #else
 # include <x86intrin.h>
+# define _BSR_VAR(var, src) var = _bit_scan_reverse(src)
 #endif
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
@@ -229,6 +231,14 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
 				
 				mask &= ~escFirst;
+				if(use_isa < ISA_LEVEL_SSSE3 && !mask) {
+					// SSE2 code assumes at least one bit is set, so if the invalid sequence caused this to no longer be the case, bail
+					STOREU_XMM(p, data);
+					p += XMM_SIZE;
+					escFirst = 0;
+					yencOffset = _mm_set1_epi8(-42);
+					continue;
+				}
 				escFirst = (maskEq >> (sizeof(__m128i)-1));
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq <<= 1;
@@ -321,18 +331,13 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				
 				intptr_t pAdvance = BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
 				do {
-#ifdef __LZCNT__
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
 					// lzcnt is always at least as fast as bsr, so prefer it if it's available
-					int bitIndex = _lzcnt_u32(mask);
+					unsigned int bitIndex = _lzcnt_u32(mask);
 					__m128i mergeMask = _mm_load_si128(unshuf_mask_lzc_table + bitIndex);
 					mask ^= 0x80000000U>>bitIndex;
 #else
-# ifdef _MSC_VER
-					unsigned long bitIndex;
-					_BitScanReverse(&bitIndex, mask);
-# else
-					int bitIndex = _bit_scan_reverse(mask);
-# endif
+					unsigned int _BSR_VAR(bitIndex, mask);
 					__m128i mergeMask = _mm_load_si128(unshuf_mask_bsr_table + bitIndex);
 					mask ^= 1<<bitIndex;
 #endif

@@ -17,10 +17,11 @@
 
 
 static const int8_t ALIGN_TO(64, _expand_mergemix_table[33*32*2]) = {
-#define _X(n) -(n>0), -(n>1), -(n>2), -(n>3), -(n>4), -(n>5), -(n>6), -(n>7), \
-	-(n>8), -(n>9), -(n>10), -(n>11), -(n>12), -(n>13), -(n>14), -(n>15), \
-	-(n>16), -(n>17), -(n>18), -(n>19), -(n>20), -(n>21), -(n>22), -(n>23), \
-	-(n>24), -(n>25), -(n>26), -(n>27), -(n>28), -(n>29), -(n>30), -(n>31)
+#define _X2(n,k) n>k?-1:0
+#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), \
+	_X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15), \
+	_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
+	_X2(n,24), _X2(n,25), _X2(n,26), _X2(n,27), _X2(n,28), _X2(n,29), _X2(n,30), _X2(n,31)
 #define _Y2(n, m) '='*(n==m) + 64*(n==m-1)
 #define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
 	_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15), \
@@ -36,6 +37,7 @@ static const int8_t ALIGN_TO(64, _expand_mergemix_table[33*32*2]) = {
 #undef _Y
 #undef _Y2
 #undef _X
+#undef _X2
 };
 static const __m256i* expand_mergemix_table = (const __m256i*)_expand_mergemix_table;
 
