@@ -5,7 +5,6 @@
 #include "encoder.h"
 #include "encoder_common.h"
 
-#ifdef __SSSE3__
 #pragma pack(16)
 struct TShufMix {
 	__m128i shuf, mix;
@@ -13,10 +12,9 @@ struct TShufMix {
 #pragma pack()
 static struct TShufMix ALIGN_TO(32, shufMixLUT[256]);
 
-
 static uint16_t expandLUT[256];
 
-static void encoder_ssse3_lut() {
+static void encoder_sse_lut() {
 	for(int i=0; i<256; i++) {
 		int k = i;
 		uint8_t res[16];
@@ -46,60 +44,88 @@ static void encoder_ssse3_lut() {
 		_mm_store_si128(&(shufMixLUT[i].mix), addMask);
 	}
 }
-#endif
 
 // for SSE2 expanding
-static const uint8_t ALIGN_TO(16, _expand_mix_table[256]) = {
-	'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
-	 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
-	 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
-	 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
-	 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
-	 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
-	 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
-	 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
-	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 , 0 ,
-	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 , 0 ,
-	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 , 0 ,
-	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 , 0 ,
-	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 , 0 ,
-	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64, 0 ,
-	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'=', 64,
-	 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,'='
-};
-static const __m128i* expand_mix_table = (const __m128i*)_expand_mix_table;
+#define _X(n) -(n>0), -(n>1), -(n>2), -(n>3), -(n>4), -(n>5), -(n>6), -(n>7), \
+	-(n>8), -(n>9), -(n>10), -(n>11), -(n>12), -(n>13), -(n>14), -(n>15)
+#define _Y2(n, m) '='*(n==m) + 64*(n==m-1)
+#define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
+	_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15)
+#define _XY(n) _X(n), _Y(n)
 
-static const int8_t ALIGN_TO(16, _expand_mask_table[256]) = {
-	 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0,
-	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
+static const int8_t ALIGN_TO(16, _expand_maskmix_lzc_table[33*32]) = {
+	// 512 bytes of padding; this allows us to save doing a subtraction in-loop
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	
+	_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8), 
+	_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0)
 };
-static const __m128i* expand_mask_table = (const __m128i*)_expand_mask_table;
+static const __m128i* expand_maskmix_lzc_table = (const __m128i*)_expand_maskmix_lzc_table;
+#else
+static const int8_t ALIGN_TO(16, _expand_maskmix_table[17*32]) = {
+	_XY( 0), _XY( 1), _XY( 2), _XY( 3), _XY( 4), _XY( 5), _XY( 6), _XY( 7), 
+	_XY( 8), _XY( 9), _XY(10), _XY(11), _XY(12), _XY(13), _XY(14), _XY(15), 
+	_XY(16)
+};
+static const __m128i* expand_maskmix_table = (const __m128i*)_expand_maskmix_table;
+#endif
+#undef _XY
+#undef _Y
+#undef _Y2
+#undef _X
 
 // for LZCNT/BSF
 #ifdef _MSC_VER
 # include <intrin.h>
 # include <ammintrin.h>
+# define _BSR_VAR(var, src) var; _BitScanReverse(&var, src)
 #else
 # include <x86intrin.h>
+# define _BSR_VAR(var, src) var = _bit_scan_reverse(src)
 #endif
 
 
 static const unsigned char* escapeLUT;
 static const uint16_t* escapedLUT;
+
+static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
+	while(mask) {
+		// get highest bit
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
+		unsigned int bitIndex = _lzcnt_u32(mask);
+		__m128i mergeMask = _mm_load_si128(expand_maskmix_lzc_table + bitIndex*2);
+		mask ^= 0x80000000U>>bitIndex;
+#else
+		// TODO: consider LUT for when BSR is slow
+		unsigned int _BSR_VAR(bitIndex, mask);
+		__m128i mergeMask = _mm_load_si128(expand_maskmix_table + bitIndex*2);
+		mask ^= 1<<bitIndex;
+#endif
+		// perform expansion
+		data = _mm_or_si128(
+			_mm_and_si128(mergeMask, data),
+			_mm_slli_si128(_mm_andnot_si128(mergeMask, data), 1)
+		);
+	}
+	return data;
+}
+
 
 template<enum YEncDecIsaLevel use_isa>
 static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len) {
@@ -158,13 +184,13 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 			unsigned int mask = _mm_movemask_epi8(cmp);
 			// likelihood of non-0 = 1-(63/64)^(sizeof(__m128i))
 			if (LIKELIHOOD(0.2227, mask != 0)) { // seems to always be faster than _mm_test_all_zeros, possibly because http://stackoverflow.com/questions/34155897/simd-sse-how-to-check-that-all-vector-elements-are-non-zero#comment-62475316
+				uint8_t m1 = mask & 0xFF;
+				uint8_t m2 = mask >> 8;
+				__m128i shufMA, shufMB;
+				__m128i data2;
+				
 #ifdef __SSSE3__
 				if(use_isa >= ISA_LEVEL_SSSE3) {
-					uint8_t m1 = mask & 0xFF;
-					uint8_t m2 = mask >> 8;
-					__m128i shufMA, shufMB;
-					__m128i data2;
-					
 # if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && 0
 					if(use_isa >= ISA_LEVEL_VBMI2) {
 						data = _mm_mask_add_epi8(data, mask, data, _mm_set1_epi8(64));
@@ -245,132 +271,35 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						data = _mm_add_epi8(data, shufMixMA);
 						data2 = _mm_add_epi8(data2, shufMixMB);
 					}
-					// store out
-					unsigned char shufALen, shufBLen;
-# if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
-					if(use_isa >= ISA_LEVEL_AVX) {
-						shufALen = popcnt32(m1) + 8;
-						shufBLen = popcnt32(m2) + 8;
-					} else
-# endif
-					{
-						shufALen = BitsSetTable256plus8[m1];
-						shufBLen = BitsSetTable256plus8[m2];
-					}
-					STOREU_XMM(p, data);
-					p += shufALen;
-					STOREU_XMM(p, data2);
-					p += shufBLen;
-					col += shufALen + shufBLen;
-					
-					int ovrflowAmt = col - (line_size-1);
-					if(LIKELIHOOD(0.15 /*guess, using 128b lines*/, ovrflowAmt > 0)) {
-# if defined(__POPCNT__)
-						if(use_isa >= ISA_LEVEL_AVX) {
-							// from experimentation, it doesn't seem like it's worth trying to branch here, i.e. it isn't worth trying to avoid a pmovmskb+shift+or by checking overflow amount
-							uint32_t eqMask = (_mm_movemask_epi8(shufMB) << shufALen) | _mm_movemask_epi8(shufMA);
-							eqMask >>= shufBLen+shufALen - ovrflowAmt -1;
-							i -= ovrflowAmt - popcnt32(eqMask);
-							p -= ovrflowAmt - (eqMask & 1);
-							if(eqMask & 1)
-								goto after_last_char_fast;
-							else
-								goto last_char_fast;
-						} else
-# endif
-						{
-							// we overflowed - find correct position to revert back to
-							p -= ovrflowAmt;
-							if(ovrflowAmt == shufBLen) {
-								i -= 8;
-								goto last_char_fast;
-							} else {
-								int isEsc;
-								uint16_t tst;
-								int midPointOffset = ovrflowAmt - shufBLen +1;
-								if(ovrflowAmt > shufBLen) {
-									// `shufALen - midPointOffset` expands to `shufALen + shufBLen - ovrflowAmt -1`
-									// since `shufALen + shufBLen` > ovrflowAmt is implied (i.e. you can't overflow more than you've added)
-									// ...the expression cannot underflow, and cannot exceed 14
-									tst = *(uint16_t*)((char*)(&(shufMixLUT[m1].shuf)) + shufALen - midPointOffset);
-									i -= 8;
-								} else { // i.e. ovrflowAmt < shufBLen (== case handled above)
-									// -14 <= midPointOffset <= 0, should be true here
-									tst = *(uint16_t*)((char*)(&(shufMixLUT[m2].shuf)) - midPointOffset);
-								}
-								isEsc = (0xf0 == (tst&0xF0));
-								p += isEsc;
-								i -= 8 - ((tst>>8)&0xf) - isEsc;
-								//col = line_size-1 + isEsc; // doesn't need to be set, since it's never read again
-								if(isEsc)
-									goto after_last_char_fast;
-								else
-									goto last_char_fast;
-							}
-						}
-					}
 				} else
 #endif
 				{
 					if(mask & (mask-1)) {
-						unsigned char* sp = p;
-						uint32_t ALIGN_TO(16, mmTmp[4]);
-						// special characters exist
-						_mm_store_si128((__m128i*)mmTmp, data);
-						#define DO_THING(n) \
-							c = es[i-XMM_SIZE+n], escaped = escapeLUT[c]; \
-							if (LIKELIHOOD(0.9844, escaped != 0)) \
-								*(p+n) = escaped; \
-							else { \
-								memcpy(p+n, &escapedLUT[c], sizeof(uint16_t)); \
-								p++; \
-							}
-						#define DO_THING_4(n) \
-							if(mask & (0xF << n)) { \
-								DO_THING(n); \
-								DO_THING(n+1); \
-								DO_THING(n+2); \
-								DO_THING(n+3); \
-							} else { \
-								memcpy(p+n, &mmTmp[n>>2], sizeof(uint32_t)); \
-							}
-						DO_THING_4(0);
-						DO_THING_4(4);
-						DO_THING_4(8);
-						DO_THING_4(12);
-						p += XMM_SIZE;
-						col += (int)(p - sp);
-						
-						if(col > line_size-1) {
-							// TODO: consider revert optimisation from SSSE3 route
-							// we overflowed - need to revert and use slower method :(
-							col -= (int)(p - sp);
-							p = sp;
-							i -= XMM_SIZE;
-							break;
-						}
-						#undef DO_THING_4
-						#undef DO_THING
+						data2 = sse2_expand_bytes(m2, _mm_srli_si128(data, 8));
+						data = sse2_expand_bytes(m1, data);
+						// add in escaped chars
+						__m128i shufMixMA = _mm_load_si128(&(shufMixLUT[m1].mix));
+						__m128i shufMixMB = _mm_load_si128(&(shufMixLUT[m2].mix));
+						data = _mm_add_epi8(data, shufMixMA);
+						data2 = _mm_add_epi8(data2, shufMixMB);
 					} else {
 						// shortcut for common case of only 1 bit set
-#if defined(__LZCNT__)
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
 						// lzcnt is faster than bsf on AMD
-						intptr_t bitIndex = 31 - _lzcnt_u32(mask);
+						unsigned int bitIndex = _lzcnt_u32(mask);
+						__m128i mergeMask = _mm_load_si128(expand_maskmix_lzc_table + bitIndex*2);
+						__m128i mixVals = _mm_load_si128(expand_maskmix_lzc_table + bitIndex*2 + 1);
 #else
-# ifdef _MSC_VER
-						unsigned long bitIndex;
-						_BitScanForward(&bitIndex, mask);
-# else
-						int bitIndex = _bit_scan_forward(mask);
-# endif
+						unsigned int _BSR_VAR(bitIndex, mask);
+						__m128i mergeMask = _mm_load_si128(expand_maskmix_table + bitIndex*2);
+						__m128i mixVals = _mm_load_si128(expand_maskmix_table + bitIndex*2 + 1);
 #endif
-						__m128i mergeMask = _mm_load_si128(expand_mask_table + bitIndex);
 						data = _mm_or_si128(
 							_mm_and_si128(mergeMask, data),
 							_mm_slli_si128(_mm_andnot_si128(mergeMask, data), 1)
 						);
 						// add escape chars
-						data = _mm_add_epi8(data, _mm_load_si128(expand_mix_table + bitIndex));
+						data = _mm_add_epi8(data, mixVals);
 						
 						// store main part
 						STOREU_XMM(p, data);
@@ -382,8 +311,12 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						
 						int ovrflowAmt = col - (line_size-1);
 						if(LIKELIHOOD(0.15, ovrflowAmt > 0)) {
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
+							bitIndex = bitIndex-16;
+#else
 							bitIndex = 15-bitIndex;
-							if(ovrflowAmt-1 == bitIndex) {
+#endif
+							if((unsigned int)ovrflowAmt-1 == bitIndex) {
 								// this is an escape character, so line will need to overflow
 								p -= ovrflowAmt - 1;
 								i -= ovrflowAmt - 1;
@@ -394,6 +327,73 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 								i -= ovrflowAmt - overflowedPastEsc;
 								goto last_char_fast;
 							}
+						}
+						continue;
+					}
+					
+				}
+				
+				// store out
+				unsigned char shufALen, shufBLen;
+# if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
+				if(use_isa >= ISA_LEVEL_AVX) {
+					shufALen = popcnt32(m1) + 8;
+					shufBLen = popcnt32(m2) + 8;
+				} else
+# endif
+				{
+					shufALen = BitsSetTable256plus8[m1];
+					shufBLen = BitsSetTable256plus8[m2];
+				}
+				STOREU_XMM(p, data);
+				p += shufALen;
+				STOREU_XMM(p, data2);
+				p += shufBLen;
+				col += shufALen + shufBLen;
+				
+				int ovrflowAmt = col - (line_size-1);
+				if(LIKELIHOOD(0.15 /*guess, using 128b lines*/, ovrflowAmt > 0)) {
+# if defined(__POPCNT__)
+					if(use_isa >= ISA_LEVEL_AVX) {
+						// from experimentation, it doesn't seem like it's worth trying to branch here, i.e. it isn't worth trying to avoid a pmovmskb+shift+or by checking overflow amount
+						uint32_t eqMask = (_mm_movemask_epi8(shufMB) << shufALen) | _mm_movemask_epi8(shufMA);
+						eqMask >>= shufBLen+shufALen - ovrflowAmt -1;
+						i -= ovrflowAmt - popcnt32(eqMask);
+						p -= ovrflowAmt - (eqMask & 1);
+						if(eqMask & 1)
+							goto after_last_char_fast;
+						else
+							goto last_char_fast;
+					} else
+# endif
+					{
+						// we overflowed - find correct position to revert back to
+						p -= ovrflowAmt;
+						if(ovrflowAmt == shufBLen) {
+							i -= 8;
+							goto last_char_fast;
+						} else {
+							int isEsc;
+							uint16_t tst;
+							int midPointOffset = ovrflowAmt - shufBLen +1;
+							if(ovrflowAmt > shufBLen) {
+								// `shufALen - midPointOffset` expands to `shufALen + shufBLen - ovrflowAmt -1`
+								// since `shufALen + shufBLen` > ovrflowAmt is implied (i.e. you can't overflow more than you've added)
+								// ...the expression cannot underflow, and cannot exceed 14
+								tst = *(uint16_t*)((char*)(&(shufMixLUT[m1].shuf)) + shufALen - midPointOffset);
+								i -= 8;
+							} else { // i.e. ovrflowAmt < shufBLen (== case handled above)
+								// -14 <= midPointOffset <= 0, should be true here
+								tst = *(uint16_t*)((char*)(&(shufMixLUT[m2].shuf)) - midPointOffset);
+							}
+							isEsc = (0xf0 == (tst&0xF0));
+							p += isEsc;
+							i -= 8 - ((tst>>8)&0xf) - isEsc;
+							//col = line_size-1 + isEsc; // doesn't need to be set, since it's never read again
+							if(isEsc)
+								goto after_last_char_fast;
+							else
+								goto last_char_fast;
 						}
 					}
 				}

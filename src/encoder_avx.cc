@@ -8,7 +8,7 @@ void encoder_avx_init(const unsigned char* _escapeLUT, const uint16_t* _escapedL
 	escapedLUT = _escapedLUT;
 	
 	_do_encode = &do_encode_sse<ISA_LEVEL_AVX>;
-	encoder_ssse3_lut();
+	encoder_sse_lut();
 }
 #else
 void encoder_ssse3_init(const unsigned char*, const uint16_t*);
