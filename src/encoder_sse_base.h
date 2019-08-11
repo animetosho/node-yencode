@@ -108,12 +108,12 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
 	while(mask) {
 		// get highest bit
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
-		unsigned int bitIndex = _lzcnt_u32(mask);
+		unsigned long bitIndex = _lzcnt_u32(mask);
 		__m128i mergeMask = _mm_load_si128(expand_maskmix_lzc_table + bitIndex*2);
 		mask ^= 0x80000000U>>bitIndex;
 #else
 		// TODO: consider LUT for when BSR is slow
-		unsigned int _BSR_VAR(bitIndex, mask);
+		unsigned long _BSR_VAR(bitIndex, mask);
 		__m128i mergeMask = _mm_load_si128(expand_maskmix_table + bitIndex*2);
 		mask ^= 1<<bitIndex;
 #endif
@@ -286,11 +286,11 @@ static size_t do_encode_sse(int line_size, int* colOffset, const unsigned char* 
 						// shortcut for common case of only 1 bit set
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 						// lzcnt is faster than bsf on AMD
-						unsigned int bitIndex = _lzcnt_u32(mask);
+						unsigned long bitIndex = _lzcnt_u32(mask);
 						__m128i mergeMask = _mm_load_si128(expand_maskmix_lzc_table + bitIndex*2);
 						__m128i mixVals = _mm_load_si128(expand_maskmix_lzc_table + bitIndex*2 + 1);
 #else
-						unsigned int _BSR_VAR(bitIndex, mask);
+						unsigned long _BSR_VAR(bitIndex, mask);
 						__m128i mergeMask = _mm_load_si128(expand_maskmix_table + bitIndex*2);
 						__m128i mixVals = _mm_load_si128(expand_maskmix_table + bitIndex*2 + 1);
 #endif

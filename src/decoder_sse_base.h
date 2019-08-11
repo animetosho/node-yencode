@@ -333,11 +333,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				do {
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 					// lzcnt is always at least as fast as bsr, so prefer it if it's available
-					unsigned int bitIndex = _lzcnt_u32(mask);
+					unsigned long bitIndex = _lzcnt_u32(mask);
 					__m128i mergeMask = _mm_load_si128(unshuf_mask_lzc_table + bitIndex);
 					mask ^= 0x80000000U>>bitIndex;
 #else
-					unsigned int _BSR_VAR(bitIndex, mask);
+					unsigned long _BSR_VAR(bitIndex, mask);
 					__m128i mergeMask = _mm_load_si128(unshuf_mask_bsr_table + bitIndex);
 					mask ^= 1<<bitIndex;
 #endif

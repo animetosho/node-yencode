@@ -1,18 +1,22 @@
 {
   "target_defaults": {
-    "variables": {"supports_native%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/common.h -march=native 2>/dev/null || true)"},
     "conditions": [
       ['target_arch=="ia32"', {
         "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
       }],
-      ['supports_native!=""', {
-        "cflags": ["-march=native"],
-        "cxxflags": ["-march=native"],
-        "xcode_settings": {
-          "OTHER_CFLAGS": ["-march=native"],
-          "OTHER_CXXFLAGS": ["-march=native"],
-        }
-      }]
+      ['OS!="win"', {
+        "variables": {"supports_native%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/common.h -march=native 2>/dev/null || true)"},
+        "conditions": [
+          ['supports_native!=""', {
+            "cflags": ["-march=native"],
+            "cxxflags": ["-march=native"],
+            "xcode_settings": {
+              "OTHER_CFLAGS": ["-march=native"],
+              "OTHER_CXXFLAGS": ["-march=native"],
+            }
+          }]
+        ]
+      }],
     ],
     "defines": ["YENC_ENABLE_AVX256=0"],
     "cflags": ["-Wno-unused-function"],
