@@ -24,11 +24,14 @@ void decoder_init() {
 			if((xcr & 6) == 6) { // AVX enabled
 				int cpuInfo[4];
 				_cpuidX(cpuInfo, 7, 0);
-				if(((xcr & 0xE0) == 0xE0) && (cpuInfo[1] & 0x40010000) == 0x40010000) // AVX512BW + AVX512VL
-					decoder_set_avx3_funcs();
-				else if((cpuInfo[1] & 0x128) == 0x128) { // BMI2 + AVX2 + BMI1
-					// AVX2 is beneficial even on Zen1
-					decoder_set_avx2_funcs();
+				int flags2[4];
+				_cpuid1x(flags2);
+				if((cpuInfo[1] & 0x128) == 0x128 && (flags2[2] & 0x20) == 0x20) { // BMI2 + AVX2 + BMI1 + ABM
+					if(((xcr & 0xE0) == 0xE0) && (cpuInfo[1] & 0x40010000) == 0x40010000) // AVX512BW + AVX512VL
+						decoder_set_avx3_funcs();
+					else
+						// AVX2 is beneficial even on Zen1
+						decoder_set_avx2_funcs();
 				} else
 					decoder_set_avx_funcs();
 			} else

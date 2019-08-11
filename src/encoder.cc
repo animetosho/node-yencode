@@ -157,7 +157,9 @@ void encoder_init() {
 			if((xcr & 6) == 6) { // AVX enabled
 				int cpuInfo[4];
 				_cpuidX(cpuInfo, 7, 0);
-				if((cpuInfo[1] & 0x128) == 0x128) { // BMI2 + AVX2 + BMI1
+				int flags2[4];
+				_cpuid1x(flags2);
+				if((cpuInfo[1] & 0x128) == 0x128 && (flags2[2] & 0x20) == 0x20) { // BMI2 + AVX2 + BMI1 + ABM
 					// AVX2 is beneficial even on Zen1
 					encoder_avx2_init(escapeLUT, escapedLUT);
 				} else

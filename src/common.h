@@ -155,6 +155,7 @@ static bool cpu_supports_neon() {
 #ifdef PLATFORM_X86
 #ifdef _MSC_VER
 # define _cpuid1(ar) __cpuid(ar, 1)
+# define _cpuid1x(ar) __cpuid(ar, 0x80000001)
 # if _MSC_VER >= 1600
 #  define _cpuidX __cpuidex
 #  include <immintrin.h>
@@ -167,6 +168,7 @@ static bool cpu_supports_neon() {
 #else
 # include <cpuid.h>
 # define _cpuid1(ar) __cpuid(1, ar[0], ar[1], ar[2], ar[3])
+# define _cpuid1x(ar) __cpuid(0x80000001, ar[0], ar[1], ar[2], ar[3])
 # define _cpuidX(ar, eax, ecx) __cpuid_count(eax, ecx, ar[0], ar[1], ar[2], ar[3])
 static inline int _GET_XCR() {
 	int xcr0;
