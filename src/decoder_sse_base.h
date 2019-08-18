@@ -43,7 +43,9 @@ static const __m128i* unshuf_mask_bsr_table = (const __m128i*)_unshuf_mask_bsr_t
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& _escFirst, uint16_t& _nextMask) {
-	int escFirst = _escFirst;
+	HEDLEY_ASSUME(_escFirst == 0 || _escFirst == 1);
+	HEDLEY_ASSUME(_nextMask == 0 || _nextMask == 1 || _nextMask == 2);
+	unsigned long escFirst = _escFirst;
 	__m128i yencOffset = escFirst ? _mm_set_epi8(
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64
 	) : _mm_set1_epi8(-42);
@@ -227,7 +229,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
 				// resolve invalid sequences of = to deal with cases like '===='
-				int tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				unsigned tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
 				
 				mask &= ~escFirst;
@@ -319,9 +321,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 					
 					// increment output position
 # if defined(__POPCNT__) && !defined(__tune_btver1__)
-					if(use_isa >= ISA_LEVEL_AVX)
-						p += XMM_SIZE - popcnt32(mask);
-					else
+					if(use_isa >= ISA_LEVEL_AVX) {
+						p -= popcnt32(mask);
+						p += XMM_SIZE;
+					} else
 # endif
 						p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
 				}

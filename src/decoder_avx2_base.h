@@ -3,7 +3,9 @@
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& _escFirst, uint16_t& _nextMask) {
-	int escFirst = _escFirst;
+	HEDLEY_ASSUME(_escFirst == 0 || _escFirst == 1);
+	HEDLEY_ASSUME(_nextMask == 0 || _nextMask == 1 || _nextMask == 2);
+	unsigned long escFirst = _escFirst;
 	__m256i yencOffset = escFirst ? _mm256_set_epi8(
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64
@@ -172,7 +174,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			}
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
-				uint8_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				unsigned tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
 				uint32_t maskEq2 = tmp;
 				for(int j=8; j<32; j+=8) {
 					tmp = eqFixLUT[((maskEq>>j)&0xff) & ~(tmp>>7)];
@@ -206,7 +208,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 						eqAddLUT[(maskEq>>8)&0xff],
 						eqAddLUT[maskEq&0xff]
 					);
-					//__m256i addMask = _mm256_i32gather_epi64(_mm_cvtepu8_epi32(_mm_cvtsi32_si128(maskEq)), eqAddLUT, 8);
+					//__m256i addMask = _mm256_i32gather_epi64((long long int*)eqAddLUT, _mm_cvtepu8_epi32(_mm_cvtsi32_si128(maskEq)), 8);
 					data = _mm256_add_epi8(data, addMask);
 				}
 			} else {
@@ -273,7 +275,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				p -= popcnt32(mask & 0xffff);
 				
 				_mm_storeu_si128((__m128i*)(p + XMM_SIZE), _mm256_extracti128_si256(data, 1));
-				p += XMM_SIZE*2 - popcnt32(mask & 0xffff0000);
+				p -= popcnt32(mask & 0xffff0000);
+				p += XMM_SIZE*2;
 				
 			}
 		} else {
