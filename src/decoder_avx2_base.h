@@ -194,7 +194,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 					// GCC < 7 seems to generate rubbish assembly for this
 					data = _mm256_mask_add_epi8(
 						data,
-						maskEq,
+						(__mmask32)maskEq,
 						data,
 						_mm256_set1_epi8(-64)
 					);
@@ -218,7 +218,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				if(use_isa >= ISA_LEVEL_AVX3) {
 					data = _mm256_mask_add_epi8(
 						data,
-						maskEq << 1,
+						(__mmask32)(maskEq << 1),
 						data,
 						_mm256_set1_epi8(-64)
 					);
@@ -245,7 +245,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			// subtract 64 from first element if escFirst == 1
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
-				yencOffset = _mm256_mask_add_epi8(_mm256_set1_epi8(-42), escFirst, _mm256_set1_epi8(-42), _mm256_set1_epi8(-64));
+				yencOffset = _mm256_mask_add_epi8(_mm256_set1_epi8(-42), (__mmask32)escFirst, _mm256_set1_epi8(-42), _mm256_set1_epi8(-64));
 			} else
 #endif
 			{
@@ -257,7 +257,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			// all that's left is to 'compress' the data (skip over masked chars)
 # if defined(__AVX512VBMI2__) && defined(__AVX512VL__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
-				_mm256_mask_compressstoreu_epi8(p, ~mask, data);
+				_mm256_mask_compressstoreu_epi8(p, (__mmask32)(~mask), data);
 				p += XMM_SIZE*2 - popcnt32(mask);
 			} else
 # endif
@@ -286,8 +286,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			yencOffset = _mm256_set1_epi8(-42);
 		}
 	}
-	_escFirst = escFirst;
-	_nextMask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(lfCompare, _mm256_set1_epi8('.')));
+	_escFirst = (unsigned char)escFirst;
+	_nextMask = (uint16_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8(lfCompare, _mm256_set1_epi8('.')));
 	_mm256_zeroupper();
 }
 #endif

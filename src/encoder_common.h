@@ -52,7 +52,7 @@ static size_t do_encode_simd(int line_size, int* colOffset, const uint8_t* HEDLE
 	kernel(line_size, colOffset, es, p, len);
 	
 	// scalar loop to process remaining
-	long i = -len;
+	long i = -(long)len;
 	if(*colOffset == 0 && i < 0) {
 		uint8_t c = es[i++];
 		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {

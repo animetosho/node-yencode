@@ -252,7 +252,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 					// GCC < 7 seems to generate rubbish assembly for this
 					data = _mm_mask_add_epi8(
 						data,
-						maskEq,
+						(__mmask16)maskEq,
 						data,
 						_mm_set1_epi8(-64)
 					);
@@ -275,7 +275,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 				// using mask-add seems to be faster when doing complex checks, slower otherwise, maybe due to higher register pressure?
 				if(use_isa >= ISA_LEVEL_AVX3 && (isRaw || searchEnd)) {
-					data = _mm_mask_add_epi8(data, maskEq << 1, data, _mm_set1_epi8(-64));
+					data = _mm_mask_add_epi8(data, (__mmask16)(maskEq << 1), data, _mm_set1_epi8(-64));
 				} else
 #endif
 				{
@@ -291,7 +291,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			// subtract 64 from first element if escFirst == 1
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
-				yencOffset = _mm_mask_add_epi8(_mm_set1_epi8(-42), escFirst, _mm_set1_epi8(-42), _mm_set1_epi8(-64));
+				yencOffset = _mm_mask_add_epi8(_mm_set1_epi8(-42), (__mmask16)escFirst, _mm_set1_epi8(-42), _mm_set1_epi8(-64));
 			} else
 #endif
 			{
@@ -307,9 +307,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				if(use_isa >= ISA_LEVEL_VBMI2) {
 #  if defined(__clang__) && __clang_major__ == 6 && __clang_minor__ == 0
 					/* VBMI2 introduced in clang 6.0, but misnamed there; presumably will be fixed in 6.1 */
-					_mm128_mask_compressstoreu_epi8(p, ~mask, data);
+					_mm128_mask_compressstoreu_epi8(p, (__mmask16)(~mask), data);
 #  else
-					_mm_mask_compressstoreu_epi8(p, ~mask, data);
+					_mm_mask_compressstoreu_epi8(p, (__mmask16)(~mask), data);
 #  endif
 					p += XMM_SIZE - popcnt32(mask);
 				} else
@@ -360,7 +360,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			yencOffset = _mm_set1_epi8(-42);
 		}
 	}
-	_escFirst = escFirst;
-	_nextMask = _mm_movemask_epi8(_mm_cmpeq_epi8(lfCompare, _mm_set1_epi8('.')));
+	_escFirst = (unsigned char)escFirst;
+	_nextMask = (uint16_t)_mm_movemask_epi8(_mm_cmpeq_epi8(lfCompare, _mm_set1_epi8('.')));
 }
 #endif
