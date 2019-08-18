@@ -2,7 +2,7 @@
 #ifdef __AVX2__
 
 #include "encoder.h"
-#include "encoder_sse_base.h"
+#include "encoder_common.h"
 #define YMM_SIZE 32
 
 #if defined(__x86_64__) || \
@@ -321,7 +321,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 					i -= ovrflowAmt - 1;
 					encode_eol_handle_post(es, i, p, col);
 				} else {
-					int overflowedPastEsc = (unsigned int)(ovrflowAmt-1) > (unsigned int)bitIndex;
+					int overflowedPastEsc = (ovrflowAmt-1) > bitIndex;
 					p -= ovrflowAmt;
 					i -= ovrflowAmt - overflowedPastEsc;
 					encode_eol_handle_pre(es, i, p, col);
