@@ -5,17 +5,14 @@
 #ifdef __SSSE3__
 #include "encoder_sse_base.h"
 
-void encoder_ssse3_init(const unsigned char* _escapeLUT, const uint16_t* _escapedLUT) {
-	escapeLUT = _escapeLUT;
-	escapedLUT = _escapedLUT;
-	
-	_do_encode = &do_encode_sse<ISA_LEVEL_SSSE3>;
+void encoder_ssse3_init() {
+	_do_encode = &do_encode_simd< do_encode_sse<ISA_LEVEL_SSSE3> >;
 	encoder_sse_lut();
 }
 #else
-void encoder_sse2_init(const unsigned char*, const uint16_t*);
-void encoder_ssse3_init(const unsigned char* _escapeLUT, const uint16_t* _escapedLUT) {
-	encoder_sse2_init(_escapeLUT, _escapedLUT);
+void encoder_sse2_init();
+void encoder_ssse3_init() {
+	encoder_sse2_init();
 }
 #endif
 

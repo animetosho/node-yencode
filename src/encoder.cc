@@ -1,29 +1,7 @@
 #include "common.h"
+#include "encoder_common.h"
 
-// lookup tables for scalar processing
-#define _B1(n) _B(n), _B(n+1), _B(n+2), _B(n+3)
-#define _B2(n) _B1(n), _B1(n+4), _B1(n+8), _B1(n+12)
-#define _B3(n) _B2(n), _B2(n+16), _B2(n+32), _B2(n+48)
-#define _BX _B3(0), _B3(64), _B3(128), _B3(192)
-
-static const unsigned char escapeLUT[256] = { // whether or not the character is critical
-#define _B(n) ((n == 214 || n == 214+'\r' || n == 214+'\n' || n == '='-42) ? 0 : (n+42) & 0xff)
-	_BX
-#undef _B
-};
-static const uint16_t escapedLUT[256] = { // escaped sequences for characters that need escaping
-#define _B(n) ((n == 214 || n == 214+'\r' || n == 214+'\n' || n == '='-42 || n == 214+'\t' || n == 214+' ' || n == '.'-42) ? UINT16_PACK('=', ((n+42+64)&0xff)) : 0)
-	_BX
-#undef _B
-};
-
-#undef _B1
-#undef _B2
-#undef _B3
-#undef _BX
-
-
-static size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len) {
+size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len, bool doEnd) {
 	unsigned char* es = (unsigned char*)src + len;
 	unsigned char *p = dest; // destination pointer
 	long i = -(long)len; // input position
@@ -126,26 +104,28 @@ static size_t do_encode_generic(int line_size, int* colOffset, const unsigned ch
 	}
 	
 	end:
-	// special case: if the last character is a space/tab, it needs to be escaped as it's the final character on the line
-	unsigned char lc = *(p-1);
-	if(lc == '\t' || lc == ' ') {
-		*(p-1) = '=';
-		*p = lc+64;
-		p++;
-		col++;
+	if(doEnd) {
+		// special case: if the last character is a space/tab, it needs to be escaped as it's the final character on the line
+		unsigned char lc = *(p-1);
+		if(lc == '\t' || lc == ' ') {
+			*(p-1) = '=';
+			*p = lc+64;
+			p++;
+			col++;
+		}
 	}
 	*colOffset = col;
 	return p - dest;
 }
 
 
-size_t (*_do_encode)(int, int*, const unsigned char* HEDLEY_RESTRICT, unsigned char* HEDLEY_RESTRICT, size_t) = &do_encode_generic;
+size_t (*_do_encode)(int, int*, const unsigned char* HEDLEY_RESTRICT, unsigned char* HEDLEY_RESTRICT, size_t, bool) = &do_encode_generic;
 
-void encoder_sse2_init(const unsigned char*, const uint16_t*);
-void encoder_ssse3_init(const unsigned char*, const uint16_t*);
-void encoder_avx_init(const unsigned char*, const uint16_t*);
-void encoder_avx2_init(const unsigned char*, const uint16_t*);
-void encoder_neon_init(const unsigned char*, const uint16_t*);
+void encoder_sse2_init();
+void encoder_ssse3_init();
+void encoder_avx_init();
+void encoder_avx2_init();
+void encoder_neon_init();
 
 void encoder_init() {
 #ifdef PLATFORM_X86
@@ -161,18 +141,18 @@ void encoder_init() {
 				_cpuid1x(flags2);
 				if((cpuInfo[1] & 0x128) == 0x128 && (flags2[2] & 0x20) == 0x20) { // BMI2 + AVX2 + BMI1 + ABM
 					// AVX2 is beneficial even on Zen1
-					encoder_avx2_init(escapeLUT, escapedLUT);
+					encoder_avx2_init();
 				} else
-					encoder_avx_init(escapeLUT, escapedLUT);
+					encoder_avx_init();
 			} else
-				encoder_ssse3_init(escapeLUT, escapedLUT);
+				encoder_ssse3_init();
 		} else
-			encoder_ssse3_init(escapeLUT, escapedLUT);
+			encoder_ssse3_init();
 	} else
-		encoder_sse2_init(escapeLUT, escapedLUT);
+		encoder_sse2_init();
 #endif
 #ifdef PLATFORM_ARM
 	if(cpu_supports_neon())
-		encoder_neon_init(escapeLUT, escapedLUT);
+		encoder_neon_init();
 #endif
 }

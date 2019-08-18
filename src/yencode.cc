@@ -128,7 +128,7 @@ FUNC(Encode) {
 	size_t dest_len = YENC_MAX_SIZE(arg_len, line_size);
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
-	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len);
+	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, true);
 	result = (unsigned char*)realloc(result, len);
 	MARK_EXT_MEM(len);
 	RETURN_VAL( NEW_BUFFER((char*)result, len, free_buffer, (void*)len) );
@@ -160,7 +160,7 @@ FUNC(EncodeTo) {
 	if(node::Buffer::Length(args[1]) < dest_len)
 		RETURN_VAL(Integer::New(ISOLATE 0));
 	
-	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len);
+	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, true);
 	RETURN_VAL( Integer::New(ISOLATE len) );
 }
 
