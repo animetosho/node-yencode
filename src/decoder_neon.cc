@@ -46,60 +46,91 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			lfCompare[1] = '.';
 	}
 #endif
-	for(long i = -len; i; i += sizeof(uint8x16_t)) {
-		uint8x16_t data = vld1q_u8(src+i);
+	for(long i = -len; i; i += sizeof(uint8x16_t)*2) {
+		uint8x16_t dataA = vld1q_u8(src+i);
+		uint8x16_t dataB = vld1q_u8(src+i+sizeof(uint8x16_t));
 		
 		// search for special chars
-		uint8x16_t cmpEq = vceqq_u8(data, vdupq_n_u8('=')),
+		uint8x16_t cmpEqA = vceqq_u8(dataA, vdupq_n_u8('=')),
+		cmpEqB = vceqq_u8(dataB, vdupq_n_u8('=')),
 #ifdef __aarch64__
-		cmp = vqtbx1q_u8(
-			cmpEq,
+		cmpA = vqtbx1q_u8(
+			cmpEqA,
 			//                                \n      \r
 			(uint8x16_t){0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
-			data
+			dataA
+		),
+		cmpB = vqtbx1q_u8(
+			cmpEqB,
+			//                                \n      \r
+			(uint8x16_t){0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
+			dataB
 		);
 #else
-		cmpCr = vceqq_u8(data, vdupq_n_u8('\r')),
-		cmp = vorrq_u8(
+		cmpCrA = vceqq_u8(dataA, vdupq_n_u8('\r')),
+		cmpCrB = vceqq_u8(dataB, vdupq_n_u8('\r')),
+		cmpA = vorrq_u8(
 			vorrq_u8(
-				cmpCr,
-				vceqq_u8(data, lfCompare)
+				cmpCrA,
+				vceqq_u8(dataA, lfCompare)
 			),
-			cmpEq
+			cmpEqA
+		),
+		cmpB = vorrq_u8(
+			vorrq_u8(
+				cmpCrB,
+				vceqq_u8(dataB, vdupq_n_u8('\n'))
+			),
+			cmpEqB
 		);
 #endif
 		
 		
-		uint8x16_t oData = vsubq_u8(data, yencOffset);
+		uint8x16_t oDataA = vsubq_u8(dataA, yencOffset);
+		uint8x16_t oDataB = vsubq_u8(dataB, vdupq_n_u8(42));
 		
 #ifdef __aarch64__
-		if (LIKELIHOOD(0.25 /*guess*/, neon_vect_is_nonzero(cmp)) || (isRaw && LIKELIHOOD(0.001, nextMask!=0))) {
-			cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-			/* for if CPU has fast VADD?
-			uint16_t mask = (vaddv_u8(vget_high_u8(cmp)) << 8) | vaddv_u8(vget_low_u8(cmp));
-			uint16_t maskEq = neon_movemask(cmpEq);
-			*/
+		if (LIKELIHOOD(0.42 /*guess*/, neon_vect_is_nonzero(vorrq_u8(cmpA, cmpB))) || (isRaw && LIKELIHOOD(0.001, nextMask!=0))) {
+			cmpA = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+			cmpB = vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+			uint8x16_t cmpMerge = vpaddq_u8(cmpA, cmpB);
+			uint8x16_t cmpEqMerge = vpaddq_u8(
+				vandq_u8(cmpEqA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128}),
+				vandq_u8(cmpEqB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128})
+			);
 			
-			uint8x16_t cmpEqMasked = vandq_u8(cmpEq, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-			uint8x16_t cmpCombined = vpaddq_u8(cmp, cmpEqMasked);
+			uint8x16_t cmpCombined = vpaddq_u8(cmpMerge, cmpEqMerge);
 			uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmpCombined), vget_high_u8(cmpCombined));
-			cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
-			uint16_t mask = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 0);
-			uint16_t maskEq = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 1);
+			uint32_t mask = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
+			uint32_t maskEq = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 1);
 			
 			if(isRaw) mask |= nextMask;
 #else
-		cmp = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-		uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmp), vget_high_u8(cmp));
+		cmpA = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+		cmpB = vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+		uint8x8_t cmpPacked = vpadd_u8(
+			vpadd_u8(
+				vget_low_u8(cmpA), vget_high_u8(cmpA)
+			),
+			vpadd_u8(
+				vget_low_u8(cmpB), vget_high_u8(cmpB)
+			)
+		);
 		cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
-		if(LIKELIHOOD(0.25, vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0) != 0)) {
-			uint8x16_t cmpEqMasked = vandq_u8(cmpEq, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-			uint8x8_t cmpEqPacked = vpadd_u8(vget_low_u8(cmpEqMasked), vget_high_u8(cmpEqMasked));
+		uint32_t mask = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
+		if(LIKELIHOOD(0.25, mask != 0)) {
+			uint8x16_t cmpEqMaskedA = vandq_u8(cmpEqA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+			uint8x16_t cmpEqMaskedB = vandq_u8(cmpEqB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+			uint8x8_t cmpEqPacked = vpadd_u8(
+				vpadd_u8(
+					vget_low_u8(cmpEqMaskedA), vget_high_u8(cmpEqMaskedA)
+				),
+				vpadd_u8(
+					vget_low_u8(cmpEqMaskedB), vget_high_u8(cmpEqMaskedB)
+				)
+			);
 			cmpEqPacked = vpadd_u8(cmpEqPacked, cmpEqPacked);
-			
-			cmpPacked = vpadd_u8(cmpPacked, cmpEqPacked);
-			uint16_t mask = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 0);
-			uint16_t maskEq = vget_lane_u16(vreinterpret_u16_u8(cmpPacked), 2);
+			uint32_t maskEq = vget_lane_u32(vreinterpret_u32_u8(cmpEqPacked), 0);
 #endif
 			
 			// handle \r\n. sequences
@@ -108,52 +139,78 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				// vext seems to be a cheap operation on ARM, relative to loads, so only avoid it if there's only one load (isRaw only)
 				uint8x16_t tmpData2, nextData;
 				if(isRaw && !searchEnd) {
-					tmpData2 = vld1q_u8(src+i + 2);
+					tmpData2 = vld1q_u8(src+i + 2 + sizeof(uint8x16_t));
 				} else {
-					nextData = vld1q_u8(src+i + sizeof(uint8x16_t)); // only 32-bits needed, but there doesn't appear a nice way to do this via intrinsics: https://stackoverflow.com/questions/46910799/arm-neon-intrinsics-convert-d-64-bit-register-to-low-half-of-q-128-bit-regis
-					tmpData2 = vextq_u8(data, nextData, 2);
+					nextData = vld1q_u8(src+i + sizeof(uint8x16_t)*2); // only 32-bits needed, but there doesn't appear a nice way to do this via intrinsics: https://stackoverflow.com/questions/46910799/arm-neon-intrinsics-convert-d-64-bit-register-to-low-half-of-q-128-bit-regis
+					tmpData2 = vextq_u8(dataB, nextData, 2);
 				}
 #ifdef __aarch64__
-				uint8x16_t cmpCr = vceqq_u8(data, vdupq_n_u8('\r'));
+				uint8x16_t cmpCrA = vceqq_u8(dataA, vdupq_n_u8('\r'));
+				uint8x16_t cmpCrB = vceqq_u8(dataB, vdupq_n_u8('\r'));
 #endif
-				uint8x16_t match2Eq, match3Y, match2Dot;
+				uint8x16_t match2EqA, match3YA, match2DotA;
+				uint8x16_t match2EqB, match3YB, match2DotB;
 				if(searchEnd) {
-					match2Eq = vceqq_u8(tmpData2, vdupq_n_u8('='));
-					match3Y  = vceqq_u8(vextq_u8(data, nextData, 3), vdupq_n_u8('y'));
+					match2EqA = vextq_u8(cmpEqA, cmpEqB, 2);
+					match2EqB = vceqq_u8(tmpData2, vdupq_n_u8('='));
+					match3YA  = vceqq_u8(vextq_u8(dataA, dataB, 3), vdupq_n_u8('y'));
+					match3YB  = vceqq_u8(vextq_u8(dataB, nextData, 3), vdupq_n_u8('y'));
 				}
-				if(isRaw)
-					match2Dot = vceqq_u8(tmpData2, vdupq_n_u8('.'));
+				if(isRaw) {
+					match2DotA = vceqq_u8(vextq_u8(dataA, dataB, 2), vdupq_n_u8('.'));
+					match2DotB = vceqq_u8(tmpData2, vdupq_n_u8('.'));
+				}
 				
 				// find patterns of \r_.
-				if(isRaw && LIKELIHOOD(0.001, neon_vect_is_nonzero(vandq_u8(cmpCr, match2Dot)))) {
-					uint8x16_t match1Lf;
+				if(isRaw && LIKELIHOOD(0.001, neon_vect_is_nonzero(vorrq_u8(
+					vandq_u8(cmpCrA, match2DotA),
+					vandq_u8(cmpCrB, match2DotB)
+				)))) {
+					uint8x16_t match1LfA = vceqq_u8(vextq_u8(dataA, dataB, 1), vdupq_n_u8('\n'));
+					uint8x16_t match1LfB;
 					if(searchEnd)
-						match1Lf = vceqq_u8(vextq_u8(data, nextData, 1), vdupq_n_u8('\n'));
+						match1LfB = vceqq_u8(vextq_u8(dataB, nextData, 1), vdupq_n_u8('\n'));
 					else
-						match1Lf = vceqq_u8(vld1q_u8(src+i + 1), vdupq_n_u8('\n'));
-					uint8x16_t match1Nl = vandq_u8(match1Lf, cmpCr);
+						match1LfB = vceqq_u8(vld1q_u8(src+i + 1+sizeof(uint8x16_t)), vdupq_n_u8('\n'));
+					uint8x16_t match1NlA = vandq_u8(match1LfA, cmpCrA);
+					uint8x16_t match1NlB = vandq_u8(match1LfB, cmpCrB);
 					// merge matches of \r\n with those for .
-					uint8x16_t match2NlDot = vandq_u8(match2Dot, match1Nl);
+					uint8x16_t match2NlDotA = vandq_u8(match2DotA, match1NlA);
+					uint8x16_t match2NlDotB = vandq_u8(match2DotB, match1NlB);
 					if(searchEnd) {
-						uint8x16_t tmpData4 = vextq_u8(data, nextData, 4);
+						uint8x16_t tmpData4 = vextq_u8(dataB, nextData, 4);
 						// match instances of \r\n.\r\n and \r\n.=y
-						uint8x16_t match3Cr = vceqq_u8(vextq_u8(data, nextData, 3), vdupq_n_u8('\r'));
-						uint8x16_t match4Lf = vceqq_u8(tmpData4, vdupq_n_u8('\n'));
-						uint8x16_t match4EqY = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d))); // =y
+						uint8x16_t match3CrA = vextq_u8(cmpCrA, cmpCrB, 3);
+						uint8x16_t match3CrB = vceqq_u8(vextq_u8(dataB, nextData, 3), vdupq_n_u8('\r'));
+						uint8x16_t match4LfA = vextq_u8(match1LfA, match1LfB, 3);
+						uint8x16_t match4LfB = vceqq_u8(tmpData4, vdupq_n_u8('\n'));
+						uint8x16_t match4EqYA = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(vextq_u8(dataA, dataB, 4)), vdupq_n_u16(0x793d))); // =y
+						uint8x16_t match4EqYB = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d))); // =y
 						
-						uint8x16_t match3EqY = vandq_u8(match2Eq, match3Y);
-						match4EqY = vreinterpretq_u8_u16(vshlq_n_u16(vreinterpretq_u16_u8(match4EqY), 8));
+						uint8x16_t match3EqYA = vandq_u8(match2EqA, match3YA);
+						uint8x16_t match3EqYB = vandq_u8(match2EqB, match3YB);
+						match4EqYA = vreinterpretq_u8_u16(vshlq_n_u16(vreinterpretq_u16_u8(match4EqYA), 8));
+						match4EqYB = vreinterpretq_u8_u16(vshlq_n_u16(vreinterpretq_u16_u8(match4EqYB), 8));
 						// merge \r\n and =y matches for tmpData4
-						uint8x16_t match4End = vorrq_u8(
-							vandq_u8(match3Cr, match4Lf),
-							vorrq_u8(match4EqY, vreinterpretq_u8_u16(vshrq_n_u16(vreinterpretq_u16_u8(match3EqY), 8)))
+						uint8x16_t match4EndA = vorrq_u8(
+							vandq_u8(match3CrA, match4LfA),
+							vorrq_u8(match4EqYA, vreinterpretq_u8_u16(vshrq_n_u16(vreinterpretq_u16_u8(match3EqYA), 8)))
+						);
+						uint8x16_t match4EndB = vorrq_u8(
+							vandq_u8(match3CrB, match4LfB),
+							vorrq_u8(match4EqYB, vreinterpretq_u8_u16(vshrq_n_u16(vreinterpretq_u16_u8(match3EqYB), 8)))
 						);
 						// merge with \r\n.
-						match4End = vandq_u8(match4End, match2NlDot);
+						match4EndA = vandq_u8(match4EndA, match2NlDotA);
+						match4EndB = vandq_u8(match4EndB, match2NlDotB);
 						// match \r\n=y
-						uint8x16_t match3End = vandq_u8(match3EqY, match1Nl);
+						uint8x16_t match3EndA = vandq_u8(match3EqYA, match1NlA);
+						uint8x16_t match3EndB = vandq_u8(match3EqYB, match1NlB);
 						// combine match sequences
-						uint8x16_t matchEnd = vorrq_u8(match4End, match3End);
+						uint8x16_t matchEnd = vorrq_u8(
+							vorrq_u8(match4EndA, match3EndA),
+							vorrq_u8(match4EndB, match3EndB)
+						);
 						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(matchEnd))) {
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
@@ -161,28 +218,54 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 							break;
 						}
 					}
-					uint16_t killDots = neon_movemask(match2NlDot);
-					mask |= (killDots << 2) & 0xffff;
 #ifdef __aarch64__
-					nextMask = killDots >> (sizeof(uint8x16_t)-2);
+					uint8x16_t mergeKillDots = vpaddq_u8(
+						vandq_u8(match2NlDotA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128}),
+						vandq_u8(match2NlDotB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128})
+					);
+					uint8x8_t mergeKillDots2 = vpadd_u8(vget_low_u8(mergeKillDots), vget_high_u8(mergeKillDots));
+#else
+					uint8x16_t match2NlDotMaskedA = vandq_u8(match2NlDotA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+					uint8x16_t match2NlDotMaskedB = vandq_u8(match2NlDotB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+					uint8x8_t mergeKillDots2 = vpadd_u8(
+						vpadd_u8(
+							vget_low_u8(match2NlDotMaskedA), vget_high_u8(match2NlDotMaskedA)
+						),
+						vpadd_u8(
+							vget_low_u8(match2NlDotMaskedB), vget_high_u8(match2NlDotMaskedB)
+						)
+					);
+#endif
+					mergeKillDots2 = vpadd_u8(mergeKillDots2, mergeKillDots2);
+					uint32_t killDots = vget_lane_u32(vreinterpret_u32_u8(mergeKillDots2), 0);
+					mask |= (killDots << 2) & 0xffffffff;
+#ifdef __aarch64__
+					nextMask = killDots >> (32-2);
 #else
 					// this bitiwse trick works because '.'|'\n' == '.'
 					lfCompare = vcombine_u8(vorr_u8(
 						vand_u8(
-							vext_u8(vget_high_u8(match2NlDot), vdup_n_u8(0), 6),
+							vext_u8(vget_high_u8(match2NlDotB), vdup_n_u8(0), 6),
 							vdup_n_u8('.')
 						),
 						vget_high_u8(lfCompare)
 					), vget_high_u8(lfCompare));
 #endif
 				} else if(searchEnd) {
-					if(LIKELIHOOD(0.001, neon_vect_is_nonzero(
-						vandq_u8(match2Eq, match3Y)
-					))) {
-						uint8x16_t match1Lf = vceqq_u8(vextq_u8(data, nextData, 1), vdupq_n_u8('\n'));
-						uint8x16_t matchEnd = vandq_u8(
-							vandq_u8(match2Eq, match3Y),
-							vandq_u8(match1Lf, cmpCr)
+					if(LIKELIHOOD(0.001, neon_vect_is_nonzero(vorrq_u8(
+						vandq_u8(match2EqA, match3YA),
+						vandq_u8(match2EqB, match3YB)
+					)))) {
+						uint8x16_t match1LfA = vceqq_u8(vextq_u8(dataA, dataB, 1), vdupq_n_u8('\n'));
+						uint8x16_t match1LfB = vceqq_u8(vextq_u8(dataB, nextData, 1), vdupq_n_u8('\n'));
+						uint8x16_t matchEnd = vorrq_u8(
+							vandq_u8(
+								vandq_u8(match2EqA, match3YA),
+								vandq_u8(match1LfA, cmpCrA)
+							), vandq_u8(
+								vandq_u8(match2EqB, match3YB),
+								vandq_u8(match1LfB, cmpCrB)
+							)
 						);
 						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(matchEnd))) {
 							len += i;
@@ -207,32 +290,51 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) | escFirst)) != 0)) {
-				uint16_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
-				maskEq = (eqFixLUT[(maskEq>>8) & ~(tmp>>7)] << 8) | tmp;
+				uint8_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				uint32_t maskEq2 = tmp;
+				for(int j=8; j<32; j+=8) {
+					tmp = eqFixLUT[((maskEq>>j)&0xff) & ~(tmp>>7)];
+					maskEq2 |= tmp<<j;
+				}
+				maskEq = maskEq2;
 				
 				mask &= ~escFirst;
-				escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
+				escFirst = tmp>>7;
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq <<= 1;
 				mask &= ~maskEq;
 				
 				// unescape chars following `=`
-				oData = vaddq_u8(
-					oData,
+				oDataA = vaddq_u8(
+					oDataA,
 					vcombine_u8(
 						vld1_u8((uint8_t*)(eqAddLUT + (maskEq&0xff))),
 						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>8)&0xff)))
 					)
 				);
+				oDataB = vaddq_u8(
+					oDataB,
+					vcombine_u8(
+						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>16)&0xff))),
+						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>24)&0xff)))
+					)
+				);
 			} else {
 				// no invalid = sequences found - we can cut out some things from above
 				// this code path is a shortened version of above; it's here because it's faster, and what we'll be dealing with most of the time
-				escFirst = (maskEq >> (sizeof(uint8x16_t)-1));
+				escFirst = (maskEq >> 31);
 				
-				oData = vaddq_u8(
-					oData,
+				oDataA = vaddq_u8(
+					oDataA,
 					vandq_u8(
-						vextq_u8(vdupq_n_u8(0), cmpEq, 15),
+						vextq_u8(vdupq_n_u8(0), cmpEqA, 15),
+						vdupq_n_u8(-64)
+					)
+				);
+				oDataB = vaddq_u8(
+					oDataB,
+					vandq_u8(
+						vextq_u8(cmpEqA, cmpEqB, 15),
 						vdupq_n_u8(-64)
 					)
 				);
@@ -242,7 +344,13 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			// all that's left is to 'compress' the data (skip over masked chars)
 #ifdef __aarch64__
 			vst1q_u8(p, vqtbl1q_u8(
-				oData,
+				oDataA,
+				vld1q_u8((uint8_t*)(unshufLUTBig + (mask&0x7fff)))
+			));
+			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
+			mask >>= 16;
+			vst1q_u8(p, vqtbl1q_u8(
+				oDataB,
 				vld1q_u8((uint8_t*)(unshufLUTBig + (mask&0x7fff)))
 			));
 			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[mask >> 8];
@@ -252,15 +360,28 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #  define unshufLUT unshufLUTBig
 # endif
 			vst1_u8(p, vtbl1_u8(
-				vget_low_u8(oData),
+				vget_low_u8(oDataA),
 				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
 			));
 			p += BitsSetTable256inv[mask & 0xff];
+			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
-				vget_high_u8(oData),
-				vld1_u8((uint8_t*)(unshufLUT + (mask>>8)))
+				vget_high_u8(oDataA),
+				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
 			));
-			p += BitsSetTable256inv[mask >> 8];
+			p += BitsSetTable256inv[mask & 0xff];
+			mask >>= 8;
+			vst1_u8(p, vtbl1_u8(
+				vget_low_u8(oDataB),
+				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
+			));
+			p += BitsSetTable256inv[mask & 0xff];
+			mask >>= 8;
+			vst1_u8(p, vtbl1_u8(
+				vget_high_u8(oDataB),
+				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
+			));
+			p += BitsSetTable256inv[mask & 0xff];
 # ifndef YENC_DEC_USE_THINTABLE
 #  undef unshufLUT
 # endif
@@ -268,8 +389,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #endif
 			
 		} else {
-			vst1q_u8(p, oData);
-			p += sizeof(uint8x16_t);
+			vst1q_u8(p, oDataA);
+			vst1q_u8(p+sizeof(uint8x16_t), oDataB);
+			p += sizeof(uint8x16_t)*2;
 			escFirst = 0;
 #ifdef __aarch64__
 			yencOffset = vdupq_n_u8(42);
@@ -290,10 +412,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 
 void decoder_set_neon_funcs() {
 	decoder_init_lut();
-	_do_decode = &do_decode_simd<false, false, sizeof(uint8x16_t), do_decode_neon<false, false> >;
-	_do_decode_raw = &do_decode_simd<true, false, sizeof(uint8x16_t), do_decode_neon<true, false> >;
-	_do_decode_end = &do_decode_simd<false, true, sizeof(uint8x16_t), do_decode_neon<false, true> >;
-	_do_decode_end_raw = &do_decode_simd<true, true, sizeof(uint8x16_t), do_decode_neon<true, true> >;
+	_do_decode = &do_decode_simd<false, false, sizeof(uint8x16_t)*2, do_decode_neon<false, false> >;
+	_do_decode_raw = &do_decode_simd<true, false, sizeof(uint8x16_t)*2, do_decode_neon<true, false> >;
+	_do_decode_end = &do_decode_simd<false, true, sizeof(uint8x16_t)*2, do_decode_neon<false, true> >;
+	_do_decode_end_raw = &do_decode_simd<true, true, sizeof(uint8x16_t)*2, do_decode_neon<true, true> >;
 }
 #else
 void decoder_set_neon_funcs() {}
