@@ -37,6 +37,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
 	int col = *colOffset;
+	int lineSizeSub1 = line_size - 1;
 	
 	// offset position to enable simpler loop condition checking
 	const int INPUT_OFFSET = sizeof(uint8x16_t) + 2 -1; // extra 2 chars for EOL handling, -1 to change <= to <
@@ -54,8 +55,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 			col = 1;
 		}
 	}
-	if(LIKELIHOOD(0.001, col >= line_size-1)) {
-		if(col == line_size-1)
+	if(LIKELIHOOD(0.001, col >= lineSizeSub1)) {
+		if(col == lineSizeSub1)
 			encode_eol_handle_pre(es, i, p, col);
 		else
 			encode_eol_handle_post(es, i, p, col);
@@ -131,7 +132,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 			p += shufBLen;
 			col += shufALen + shufBLen;
 			
-			int ovrflowAmt = col - (line_size-1);
+			long ovrflowAmt = col - lineSizeSub1;
 			if(LIKELIHOOD(0.15, ovrflowAmt >= 0)) {
 				// we overflowed - find correct position to revert back to
 				p -= ovrflowAmt;
@@ -150,7 +151,6 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 					isEsc = (0xf0 == (tst&0xF0));
 					p += isEsc;
 					i -= 8 - ((tst>>8)&0xf) - isEsc;
-					//col = line_size-1 + isEsc; // doesn't need to be set, since it's never read again
 					if(isEsc) {
 						encode_eol_handle_post(es, i, p, col);
 						continue;
@@ -162,10 +162,10 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 			vst1q_u8(p, data);
 			p += sizeof(uint8x16_t);
 			col += sizeof(uint8x16_t);
-			if(col >= line_size-1) {
-				p -= col - (line_size-1);
-				i -= col - (line_size-1);
-				//col = line_size-1; // doesn't need to be set, since it's never read again
+			long ovrflowAmt = col - lineSizeSub1;
+			if(ovrflowAmt >= 0) {
+				p -= ovrflowAmt;
+				i -= ovrflowAmt;
 				encode_eol_handle_pre(es, i, p, col);
 			}
 		}

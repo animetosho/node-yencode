@@ -123,7 +123,7 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
 }
 
 
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col) {
+static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col) {
 	uint8_t c = es[i++];
 	if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
 		*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
@@ -145,7 +145,7 @@ static const uint32_t ALIGN_TO(32, _maskMix_eol_table[4*32]) = {
 static struct TShufMix* maskMixEOL = (struct TShufMix*)_maskMix_eol_table;
 
 template<enum YEncDecIsaLevel use_isa>
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col) {
+static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col) {
 	// load 2 bytes & broadcast
 	__m128i lineChars = _mm_cvtsi32_si128(*(uint16_t*)(es+i)); // 01xxxxxx
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
@@ -177,8 +177,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		col = 1 + esc2ndChar;
 		p += 4 + esc1stChar + esc2ndChar;
 	} else {
-		lineChars = _mm_and_si128(lineChars, _mm_load_si128(&(maskMixEOL[0].shuf)));
-		lineChars = _mm_add_epi8(lineChars, _mm_load_si128(&(maskMixEOL[0].mix)));
+		lineChars = _mm_and_si128(lineChars, _mm_cvtsi32_si128(0xff0000ff));
+		lineChars = _mm_add_epi8(lineChars, _mm_cvtsi32_si128(0x2a0a0d2a));
 		*(int*)p = _mm_cvtsi128_si32(lineChars);
 		col = 1;
 		p += 4;
@@ -193,7 +193,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
-	int col = *colOffset;
+	long col = *colOffset;
+	long lineSizeSub1 = line_size - 1;
 	
 	// offset position to enable simpler loop condition checking
 	const int INPUT_OFFSET = XMM_SIZE + 2 -1; // extra 2 chars for EOL handling, -1 to change <= to <
@@ -211,8 +212,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 			col = 1;
 		}
 	}
-	if(LIKELIHOOD(0.001, col >= line_size-1)) {
-		if(col == line_size-1)
+	if(LIKELIHOOD(0.001, col >= lineSizeSub1)) {
+		if(col == lineSizeSub1)
 			encode_eol_handle_pre<use_isa>(es, i, p, col);
 		else
 			encode_eol_handle_post(es, i, p, col);
@@ -285,7 +286,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 					p += bytes;
 					col += bytes;
 					
-					ovrflowAmt = col - (line_size-1);
+					ovrflowAmt = col - lineSizeSub1;
 					if(ovrflowAmt >= 0) {
 #   if (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
 						shufALen = popcnt32(m1) + 8;
@@ -311,7 +312,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 					p += shufBLen;
 					col += shufALen + shufBLen;
 					
-					ovrflowAmt = col - (line_size-1);
+					ovrflowAmt = col - lineSizeSub1;
 #  endif
 
 					// TODO: improve overflow handling - do we need to calculate all this?
@@ -378,14 +379,14 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 					p += XMM_SIZE + 1;
 					col += XMM_SIZE + 1;
 					
-					int ovrflowAmt = col - (line_size-1);
+					long ovrflowAmt = col - lineSizeSub1;
 					if(LIKELIHOOD(0.15, ovrflowAmt >= 0)) {
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 						bitIndex = bitIndex-16;
 #else
 						bitIndex = 15-bitIndex;
 #endif
-						if((unsigned int)ovrflowAmt-1 == bitIndex) {
+						if(ovrflowAmt-1 == (long)bitIndex) {
 							// this is an escape character, so line will need to overflow
 							p -= ovrflowAmt - 1;
 							i -= ovrflowAmt - 1;
@@ -403,7 +404,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 			}
 			
 			// store out
-			unsigned char shufALen, shufBLen;
+			unsigned int shufALen, shufBLen;
 # if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
 			if(use_isa >= ISA_LEVEL_AVX) {
 				shufALen = popcnt32(m1) + 8;
@@ -420,12 +421,12 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 			p += shufBLen;
 			col += shufALen + shufBLen;
 			
-			int ovrflowAmt = col - (line_size-1);
+			long ovrflowAmt = col - lineSizeSub1;
 			if(LIKELIHOOD(0.15 /*guess, using 128b lines*/, ovrflowAmt >= 0)) {
 # if defined(__POPCNT__)
 				if(use_isa >= ISA_LEVEL_AVX) {
 					// from experimentation, it doesn't seem like it's worth trying to branch here, i.e. it isn't worth trying to avoid a pmovmskb+shift+or by checking overflow amount
-					uint32_t eqMask = (_mm_movemask_epi8(shufMB) << shufALen) | _mm_movemask_epi8(shufMA);
+					uint32_t eqMask = ((unsigned)_mm_movemask_epi8(shufMB) << shufALen) | (unsigned)_mm_movemask_epi8(shufMA);
 					eqMask >>= shufBLen+shufALen - ovrflowAmt -1;
 					i -= ovrflowAmt - popcnt32(eqMask);
 					p -= ovrflowAmt - (eqMask & 1);
@@ -457,7 +458,6 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 						isEsc = (0xf0 == (tst&0xF0));
 						p += isEsc;
 						i -= 8 - ((tst>>8)&0xf) - isEsc;
-						//col = line_size-1 + isEsc; // doesn't need to be set, since it's never read again
 						if(isEsc) {
 							encode_eol_handle_post(es, i, p, col);
 							continue;
@@ -470,10 +470,10 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 			STOREU_XMM(p, data);
 			p += XMM_SIZE;
 			col += XMM_SIZE;
-			if(LIKELIHOOD(0.15, col >= line_size-1)) {
-				p -= col - (line_size-1);
-				i -= col - (line_size-1);
-				//col = line_size-1; // doesn't need to be set, since it's never read again
+			long ovrflowAmt = col - lineSizeSub1;
+			if(LIKELIHOOD(0.15, ovrflowAmt >= 0)) {
+				p -= ovrflowAmt;
+				i -= ovrflowAmt;
 				encode_eol_handle_pre<use_isa>(es, i, p, col);
 			}
 		}

@@ -60,7 +60,7 @@ static void encoder_avx2_lut() {
 	}
 }
 
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col) {
+static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col) {
 	uint8_t c = es[i++];
 	if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
 		*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
@@ -80,37 +80,36 @@ struct TShufMix {
 #pragma pack()
 
 static const uint32_t ALIGN_TO(32, _maskMix_eol_table[4*32]) = {
+	// first row is an AND mask, rest is PSHUFB table
 	0xff0000ff, 0x00000000, 0, 0,    0x2a0a0d2a, 0x00000000, 0, 0,
-	0x0000ff00, 0x000000ff, 0, 0,    0x0a0d6a3d, 0x0000002a, 0, 0,
-	0x000000ff, 0x000000ff, 0, 0,    0x3d0a0d2a, 0x0000006a, 0, 0,
-	0x0000ff00, 0x0000ff00, 0, 0,    0x0a0d6a3d, 0x00006a3d, 0, 0
+	
+	0xffff00ff, 0xffffff01, 0, 0,    0x0a0d6a3d, 0x0000002a, 0, 0,
+	0xffffff00, 0xffffff01, 0, 0,    0x3d0a0d2a, 0x0000006a, 0, 0,
+	0xffff00ff, 0xffff01ff, 0, 0,    0x0a0d6a3d, 0x00006a3d, 0, 0
 };
 static struct TShufMix* maskMixEOL = (struct TShufMix*)_maskMix_eol_table;
 
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col) {
-	// TODO: consider using broadcast instead
-	__m128i lineChars = _mm_cvtsi32_si128(*(uint16_t*)(es+i)); // 01xxxxxx
-	lineChars = _mm_shuffle_epi8(lineChars, _mm_set1_epi64x(0x0000010101010000ULL));
+static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col) {
+	__m128i lineChars = _mm_set1_epi16(*(uint16_t*)(es+i)); // unfortunately, _mm_broadcastw_epi16 requires __m128i argument
 	unsigned testChars = _mm_movemask_epi8(_mm_cmpeq_epi8(
 		lineChars,
 		_mm_set_epi16(
-			// 0 0     1 1     1 1     0 0     0 0     1 1     1 1     0 0
-			//xxxx    xx .    \0\r    \0\r    \n =    \n =    \t\s    \t\s
-			0xdfdf, 0xdf04, 0xd6e3, 0xd6e3, 0xe013, 0xe013, 0xdff6, 0xdff6
+			//xxxx     .xx    \0\0    \r\r    \n\n     = =    \t\t    \s\s
+			0xdfdf, 0x04df, 0xd6d6, 0xe3e3, 0xe0e0, 0x1313, 0xdfdf, 0xf6f6
 		)
 	));
 	if(testChars) {
-		unsigned esc1stChar = (testChars & 0x03c3) != 0;
-		unsigned esc2ndChar = (testChars & 0x1c3c) != 0;
+		unsigned esc1stChar = (testChars & 0x5555) != 0;
+		unsigned esc2ndChar = (testChars & 0xaaaa) != 0;
 		unsigned lut = esc1stChar + esc2ndChar*2;
-		lineChars = _mm_and_si128(lineChars, _mm_load_si128(&(maskMixEOL[lut].shuf)));
+		lineChars = _mm_shuffle_epi8(lineChars, _mm_load_si128(&(maskMixEOL[lut].shuf)));
 		lineChars = _mm_add_epi8(lineChars, _mm_load_si128(&(maskMixEOL[lut].mix)));
 		_mm_storel_epi64((__m128i*)p, lineChars);
 		col = 1 + esc2ndChar;
 		p += 4 + esc1stChar + esc2ndChar;
 	} else {
-		lineChars = _mm_and_si128(lineChars, _mm_load_si128(&(maskMixEOL[0].shuf)));
-		lineChars = _mm_add_epi8(lineChars, _mm_load_si128(&(maskMixEOL[0].mix)));
+		lineChars = _mm_and_si128(lineChars, _mm_cvtsi32_si128(0xff0000ff));
+		lineChars = _mm_add_epi8(lineChars, _mm_cvtsi32_si128(0x2a0a0d2a));
 		*(int*)p = _mm_cvtsi128_si32(lineChars);
 		col = 1;
 		p += 4;
@@ -124,7 +123,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
-	int col = *colOffset;
+	long col = *colOffset;
+	long lineSizeSub1 = line_size - 1;
 	
 	// offset position to enable simpler loop condition checking
 	const int INPUT_OFFSET = YMM_SIZE + 2 -1; // extra 2 chars for EOL handling, -1 to change <= to <
@@ -142,8 +142,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 			col = 1;
 		}
 	}
-	if(LIKELIHOOD(0.001, col >= line_size-1)) {
-		if(col == line_size-1)
+	if(LIKELIHOOD(0.001, col >= lineSizeSub1)) {
+		if(col == lineSizeSub1)
 			encode_eol_handle_pre(es, i, p, col);
 		else
 			encode_eol_handle_post(es, i, p, col);
@@ -163,6 +163,18 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				data, _mm256_set1_epi8(0x70)
 			))
 		);
+		/* this AVX512 idea has one less instruction, but is slower on Skylake-X, probably due to masked compares being very slow? maybe it'll be faster on some later processor?
+		__m256i cmp = _mm256_mask_shuffle_epi8(
+			_mm256_cmpeq_epi8(oData, _mm256_set1_epi8('='-42)),
+			_mm256_cmplt_epu8_mask(data, _mm256_set1_epi8(16)),
+			_mm256_set_epi8(
+				//  \r     \n                   \0
+				0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1,
+				0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
+			),
+			data
+		);
+		*/
 		
 		uint32_t mask = _mm256_movemask_epi8(cmp);
 		// unlike the SSE (128-bit) encoder, the probability of at least one escaped character in a vector is much higher here, which causes the branch to be relatively unpredictable, resulting in poor performance
@@ -221,12 +233,12 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				p += shufALen;
 				_mm256_mask_compressstoreu_epi8(p, compactMask2, data2);
 				p += shufBLen;
-				int bytes = shufALen + shufBLen;
+				long bytes = shufALen + shufBLen;
 # endif
 				
 				col += bytes;
 				
-				int ovrflowAmt = col - (line_size-1);
+				long ovrflowAmt = col - lineSizeSub1;
 				if(LIKELIHOOD(0.3, ovrflowAmt >= 0)) {
 # ifdef PLATFORM_AMD64
 					uint64_t eqMask = _pext_u64(0x5555555555555555, compactMask);
@@ -249,8 +261,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 #endif
 			{
 				
-				int m1 = mask & 0xffff;
-				int m2 = (mask >> 11) & 0x1fffe0;
+				unsigned int m1 = mask & 0xffff;
+				unsigned int m2 = (mask >> 11) & 0x1fffe0;
 				unsigned char shuf1Len = popcnt32(m1) + 16;
 				unsigned char shuf2Len = popcnt32(m2) + 16;
 				
@@ -284,12 +296,12 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				p += shuf2Len;
 				col += shuf1Len + shuf2Len;
 				
-				int ovrflowAmt = col - (line_size-1);
+				long ovrflowAmt = col - lineSizeSub1;
 				if(LIKELIHOOD(0.3, ovrflowAmt >= 0)) {
 					// we overflowed - find correct position to revert back to
 					// this is perhaps sub-optimal on 32-bit, but who still uses that with AVX2?
-					uint64_t eqMask1 = _mm256_movemask_epi8(shufMA);
-					uint64_t eqMask2 = _mm256_movemask_epi8(shufMB);
+					uint64_t eqMask1 = (uint32_t)_mm256_movemask_epi8(shufMA);
+					uint64_t eqMask2 = (uint32_t)_mm256_movemask_epi8(shufMB);
 					uint64_t eqMask = eqMask1 | (eqMask2 << shuf1Len);
 					
 					eqMask >>= shuf1Len + shuf2Len - ovrflowAmt -1;
@@ -347,7 +359,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 			p += YMM_SIZE + processed;
 			col += YMM_SIZE + processed;
 			
-			int ovrflowAmt = col - (line_size-1);
+			long ovrflowAmt = col - lineSizeSub1;
 			if(LIKELIHOOD(0.3, ovrflowAmt >= 0)) {
 				if(ovrflowAmt-1 == bitIndex) {
 					// this is an escape character, so line will need to overflow
