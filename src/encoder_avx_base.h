@@ -72,16 +72,50 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RE
 		col = 1;
 	}
 }
+
+#pragma pack(16)
+struct TShufMix {
+	__m128i shuf, mix;
+};
+#pragma pack()
+
+static const uint32_t ALIGN_TO(32, _maskMix_eol_table[4*32]) = {
+	0xff0000ff, 0x00000000, 0, 0,    0x2a0a0d2a, 0x00000000, 0, 0,
+	0x0000ff00, 0x000000ff, 0, 0,    0x0a0d6a3d, 0x0000002a, 0, 0,
+	0x000000ff, 0x000000ff, 0, 0,    0x3d0a0d2a, 0x0000006a, 0, 0,
+	0x0000ff00, 0x0000ff00, 0, 0,    0x0a0d6a3d, 0x00006a3d, 0, 0
+};
+static struct TShufMix* maskMixEOL = (struct TShufMix*)_maskMix_eol_table;
+
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col) {
-	uint8_t c = es[i++];
-	if (LIKELIHOOD(0.0234, escapedLUT[c] && c != '.'-42)) {
-		*(uint16_t*)p = escapedLUT[c];
-		p += 2;
+	// TODO: consider using broadcast instead
+	__m128i lineChars = _mm_cvtsi32_si128(*(uint16_t*)(es+i)); // 01xxxxxx
+	lineChars = _mm_shuffle_epi8(lineChars, _mm_set1_epi64x(0x0000010101010000ULL));
+	unsigned testChars = _mm_movemask_epi8(_mm_cmpeq_epi8(
+		lineChars,
+		_mm_set_epi16(
+			// 0 0     1 1     1 1     0 0     0 0     1 1     1 1     0 0
+			//xxxx    xx .    \0\r    \0\r    \n =    \n =    \t\s    \t\s
+			0xdfdf, 0xdf04, 0xd6e3, 0xd6e3, 0xe013, 0xe013, 0xdff6, 0xdff6
+		)
+	));
+	if(testChars) {
+		unsigned esc1stChar = (testChars & 0x03c3) != 0;
+		unsigned esc2ndChar = (testChars & 0x1c3c) != 0;
+		unsigned lut = esc1stChar + esc2ndChar*2;
+		lineChars = _mm_and_si128(lineChars, _mm_load_si128(&(maskMixEOL[lut].shuf)));
+		lineChars = _mm_add_epi8(lineChars, _mm_load_si128(&(maskMixEOL[lut].mix)));
+		_mm_storel_epi64((__m128i*)p, lineChars);
+		col = 1 + esc2ndChar;
+		p += 4 + esc1stChar + esc2ndChar;
 	} else {
-		*(p++) = c + 42;
+		lineChars = _mm_and_si128(lineChars, _mm_load_si128(&(maskMixEOL[0].shuf)));
+		lineChars = _mm_add_epi8(lineChars, _mm_load_si128(&(maskMixEOL[0].mix)));
+		*(int*)p = _mm_cvtsi128_si32(lineChars);
+		col = 1;
+		p += 4;
 	}
-	
-	encode_eol_handle_post(es, i, p, col);
+	i += 2;
 }
 
 template<enum YEncDecIsaLevel use_isa>

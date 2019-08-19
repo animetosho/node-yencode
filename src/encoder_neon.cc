@@ -137,10 +137,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 				p -= ovrflowAmt;
 				if(ovrflowAmt == shufBLen) {
 					i -= 8;
-					encode_eol_handle_pre(es, i, p, col);
-				} else if(ovrflowAmt == 0) {
-					encode_eol_handle_pre(es, i, p, col);
-				} else {
+				} else if(ovrflowAmt != 0) {
 					int isEsc;
 					uint16_t tst;
 					int midPointOffset = ovrflowAmt - shufBLen +1;
@@ -154,11 +151,12 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 					p += isEsc;
 					i -= 8 - ((tst>>8)&0xf) - isEsc;
 					//col = line_size-1 + isEsc; // doesn't need to be set, since it's never read again
-					if(isEsc)
+					if(isEsc) {
 						encode_eol_handle_post(es, i, p, col);
-					else
-						encode_eol_handle_pre(es, i, p, col);
+						continue;
+					}
 				}
+				encode_eol_handle_pre(es, i, p, col);
 			}
 		} else {
 			vst1q_u8(p, data);
