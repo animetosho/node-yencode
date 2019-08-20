@@ -279,15 +279,15 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			}
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
-				unsigned long tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				unsigned long tmp = eqFixLUT[(maskEq&0xff) & ~(uint64_t)escFirst];
 				uint64_t maskEq2 = tmp;
 				for(int j=8; j<64; j+=8) {
-					tmp = eqFixLUT[((maskEq>>j)&0xff) & ~(tmp>>7)];
+					tmp = eqFixLUT[((maskEq>>j)&0xff) & ~(uint64_t)(tmp>>7)];
 					maskEq2 |= (uint64_t)tmp<<j;
 				}
 				maskEq = maskEq2;
 				
-				mask &= ~escFirst;
+				mask &= ~(uint64_t)escFirst;
 				escFirst = tmp>>7;
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq <<= 1;

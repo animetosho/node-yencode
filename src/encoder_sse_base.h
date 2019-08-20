@@ -162,9 +162,9 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	unsigned testChars = _mm_movemask_epi8(_mm_cmpeq_epi8(
 		lineChars,
 		_mm_set_epi16(
-			// 0 0     1 1     1 1     0 0     0 0     1 1     1 1     0 0
-			//xxxx    xx .    \0\r    \0\r    \n =    \n =    \t\s    \t\s
-			0xdfdf, 0xdf04, 0xd6e3, 0xd6e3, 0xe013, 0xe013, 0xdff6, 0xdff6
+			//  0 0      1 1      1 1      0 0      0 0      1 1      1 1      0 0
+			// xxxx     xx .     \0\r     \0\r     \n =     \n =     \t\s     \t\s
+			-0x2021, -0x20FC, -0x291D, -0x291D, -0x1FED, -0x1FED, -0x200A, -0x200A
 		)
 	));
 	if(testChars) {
@@ -445,7 +445,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 						int isEsc;
 						uint16_t tst;
 						int midPointOffset = ovrflowAmt - shufBLen +1;
-						if(ovrflowAmt > shufBLen) {
+						if(ovrflowAmt > (long)shufBLen) {
 							// `shufALen - midPointOffset` expands to `shufALen + shufBLen - ovrflowAmt -1`
 							// since `shufALen + shufBLen` > ovrflowAmt is implied (i.e. you can't overflow more than you've added)
 							// ...the expression cannot underflow, and cannot exceed 14

@@ -94,8 +94,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	unsigned testChars = _mm_movemask_epi8(_mm_cmpeq_epi8(
 		lineChars,
 		_mm_set_epi16(
-			//xxxx     .xx    \0\0    \r\r    \n\n     = =    \t\t    \s\s
-			0xdfdf, 0x04df, 0xd6d6, 0xe3e3, 0xe0e0, 0x1313, 0xdfdf, 0xf6f6
+			// xxxx      .xx     \0\0     \r\r     \n\n      = =     \t\t     \s\s
+			-0x2021,  0x04df, -0x292A, -0x1C1D, -0x1F20,  0x1313, -0x2021, -0x090A
 		)
 	));
 	if(testChars) {
