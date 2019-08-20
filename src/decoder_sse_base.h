@@ -42,7 +42,7 @@ static const __m128i* unshuf_mask_bsr_table = (const __m128i*)_unshuf_mask_bsr_t
 #endif
 
 static HEDLEY_ALWAYS_INLINE __m128i sse2_compact_vect(uint32_t mask, __m128i data) {
-	do {
+	while(mask) {
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 		// lzcnt is always at least as fast as bsr, so prefer it if it's available
 		unsigned long bitIndex = _lzcnt_u32(mask);
@@ -57,7 +57,7 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_compact_vect(uint32_t mask, __m128i dat
 			_mm_and_si128(mergeMask, data),
 			_mm_andnot_si128(mergeMask, _mm_srli_si128(data, 1))
 		);
-	} while(mask);
+	}
 	return data;
 }
 
@@ -350,15 +350,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				maskEq = maskEq2;
 				
 				mask &= ~escFirst;
-				if(use_isa < ISA_LEVEL_SSSE3 && !mask) {
-					// SSE2 code assumes at least one bit is set, so if the invalid sequence caused this to no longer be the case, bail
-					STOREU_XMM(p, dataA);
-					STOREU_XMM(p+XMM_SIZE, dataB);
-					p += XMM_SIZE*2;
-					escFirst = 0;
-					yencOffset = _mm_set1_epi8(-42);
-					continue;
-				}
 				escFirst = (maskEq >> 31);
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq <<= 1;
@@ -426,7 +417,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 #endif
 						cmpEqB = _mm_or_si128(
 							_mm_slli_si128(cmpEqB, 1),
-							_mm_srli_si128(cmpA, 15)
+							_mm_srli_si128(cmpEqA, 15)
 						);
 					dataB = _mm_add_epi8(
 						dataB,

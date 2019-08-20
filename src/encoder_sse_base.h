@@ -94,7 +94,7 @@ static const __m128i* expand_maskmix_table = (const __m128i*)_expand_maskmix_tab
 #ifdef _MSC_VER
 # include <intrin.h>
 # include <ammintrin.h>
-# define _BSR_VAR(var, src) var; _BitScanReverse(&var, src)
+# define _BSR_VAR(var, src) var; _BitScanReverse((unsigned long*)&var, src)
 #else
 # include <x86intrin.h>
 # define _BSR_VAR(var, src) var = _bit_scan_reverse(src)
@@ -356,11 +356,11 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 					// shortcut for common case of only 1 bit set
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 					// lzcnt is faster than bsf on AMD
-					unsigned long bitIndex = _lzcnt_u32(mask);
+					long bitIndex = _lzcnt_u32(mask);
 					__m128i mergeMask = _mm_load_si128(expand_maskmix_lzc_table + bitIndex*2);
 					__m128i mixVals = _mm_load_si128(expand_maskmix_lzc_table + bitIndex*2 + 1);
 #else
-					unsigned long _BSR_VAR(bitIndex, mask);
+					long _BSR_VAR(bitIndex, mask);
 					__m128i mergeMask = _mm_load_si128(expand_maskmix_table + bitIndex*2);
 					__m128i mixVals = _mm_load_si128(expand_maskmix_table + bitIndex*2 + 1);
 #endif
@@ -386,13 +386,13 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 #else
 						bitIndex = 15-bitIndex;
 #endif
-						if(ovrflowAmt-1 == (long)bitIndex) {
+						if(ovrflowAmt-1 == bitIndex) {
 							// this is an escape character, so line will need to overflow
 							p -= ovrflowAmt - 1;
 							i -= ovrflowAmt - 1;
 							encode_eol_handle_post(es, i, p, col);
 						} else {
-							int overflowedPastEsc = (unsigned int)(ovrflowAmt-1) > (unsigned int)bitIndex;
+							int overflowedPastEsc = (ovrflowAmt-1) > bitIndex;
 							p -= ovrflowAmt;
 							i -= ovrflowAmt - overflowedPastEsc;
 							encode_eol_handle_pre<use_isa>(es, i, p, col);

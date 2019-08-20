@@ -318,7 +318,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				}
 			}
 		} else {
-			intptr_t bitIndex = _lzcnt_u32(mask);
+			long bitIndex = _lzcnt_u32(mask);
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
 				data = _mm256_mask_expand_epi8(
