@@ -6,6 +6,25 @@
 
 uint8x16_t ALIGN_TO(16, shufLUT[256]);
 
+#if defined(_MSC_VER) && !defined(__aarch64__)
+# include <armintr.h>
+# define UADD8 _arm_uadd8
+#elif defined(__ARM_FEATURE_SIMD32)
+# if defined(__GNUC__) && !defined(__clang__)
+// from https://stackoverflow.com/questions/19034275/rvct-to-arm-gcc-porting-uadd8
+__attribute__( ( always_inline ) ) static __inline__ uint32_t _UADD8(uint32_t op1, uint32_t op2)
+{
+  uint32_t result;
+  __asm__ ("uadd8 %0, %1, %2" : "=r" (result) : "r" (op1), "r" (op2) );
+  return(result);
+}
+#  define UADD8 _UADD8
+# else
+#  include <arm_acle.h>
+#  define UADD8 __uadd8
+# endif
+#endif
+
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col) {
 	uint8_t c = es[i++];
 	if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
@@ -19,15 +38,42 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RE
 	}
 }
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col) {
-	uint8_t c = es[i++];
+	uint8_t c = es[i], c2 = es[i+1];
 	if (LIKELIHOOD(0.0234, escapedLUT[c] && c != '.'-42)) {
 		*(uint16_t*)p = escapedLUT[c];
 		p += 2;
-	} else {
+		if (LIKELIHOOD(0.0273, escapedLUT[c2]!=0)) {
+			*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c2]);
+			p += 4;
+			col = 2;
+		} else {
+			*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c2+42), 0);
+			p += 3;
+			col = 1;
+		}
+	}
+	else if (LIKELIHOOD(0.0273, escapedLUT[c2]!=0)) {
 		*(p++) = c + 42;
+		*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c2]);
+		p += 4;
+		col = 2;
+	} else {
+		uint32_t data = *(uint16_t*)(es+i);
+		data = data | (data<<16);
+		data &= 0xff0000ff;
+#ifdef UADD8
+		data = UADD8(data, 0x2a0a0d2a);
+#else
+		data += 0x2a00002a;
+		data &= 0xff0000ff;
+		data |= 0x000a0d00;
+#endif
+		*(uint32_t*)p = data;
+		col = 1;
+		p += 4;
 	}
 	
-	encode_eol_handle_post(es, i, p, col);
+	i += 2;
 }
 
 
@@ -98,9 +144,9 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 		cmpPackedHalf = vpadd_u8(cmpPackedHalf, cmpPackedHalf);
 		uint32_t mask2 = vget_lane_u32(vreinterpret_u32_u8(cmpPackedHalf), 0);
 		if(LIKELIHOOD(0.2227, mask2 != 0)) {
-			mask2 += (mask2 & 0xff00ff00) >> 8;
+			mask2 += mask2 >> 8;
 			uint8_t m1 = (mask2 & 0xff);
-			uint8_t m2 = ((mask2 & 0xff0000) >> 16);
+			uint8_t m2 = ((mask2 >> 16) & 0xff);
 #endif
 			
 			// perform lookup for shuffle mask
