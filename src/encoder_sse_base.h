@@ -109,6 +109,9 @@ static const __m128i* expand_maskmix_table = (const __m128i*)_expand_maskmix_tab
 # include <intrin.h>
 # include <ammintrin.h>
 # define _BSR_VAR(var, src) var; _BitScanReverse((unsigned long*)&var, src)
+#elif defined(__GNUC__)
+// have seen Clang not like _bit_scan_reverse
+# define _BSR_VAR(var, src) var = (31^__builtin_clz(src))
 #else
 # include <x86intrin.h>
 # define _BSR_VAR(var, src) var = _bit_scan_reverse(src)
@@ -342,7 +345,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 						bitIndex = bitIndex-16;
 #else
-						bitIndex = 15-bitIndex;
+						bitIndex = 15^bitIndex;
 #endif
 						if(ovrflowAmt-1 == bitIndex) {
 							// this is an escape character, so line will need to overflow

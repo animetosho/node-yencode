@@ -209,11 +209,9 @@ enum YEncDecIsaLevel {
 
 #ifdef __GNUC__
 # if __GNUC__ >= 9
-#  define LIKELIHOOD(p, c) (__builtin_expect_with_probability(!!(c), 1, p))
-# elif defined(__clang__) && __clang_major__ >= 4 // may be available on earlier Clang, but can't find docs
-#  define LIKELIHOOD(p, c) (p>0.3 && p<0.7 ? __builtin_unpredictable(!!(c)) : __builtin_expect(!!(c), (p >= 0.5)))
+#  define LIKELIHOOD(p, c) (HEDLEY_PREDICT(!!(c), 1, p))
 # else
-#  define LIKELIHOOD(p, c) (p>0.3 && p<0.7 ? !!(c) : __builtin_expect(!!(c), (p >= 0.5)))
+#  define LIKELIHOOD(p, c) (p>0.3 && p<0.7 ? HEDLEY_UNPREDICTABLE(!!(c)) : __builtin_expect(!!(c), (p >= 0.5)))
 # endif
 #else
 # define LIKELIHOOD(p, c) (c)
