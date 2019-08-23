@@ -41,6 +41,25 @@ static const int8_t ALIGN_TO(64, _expand_mergemix_table[33*32*2]) = {
 static const __m256i* expand_mergemix_table = (const __m256i*)_expand_mergemix_table;
 
 
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
+static uint32_t expandLUT[65536]; // biggish 256KB table (but still smaller than the 2MB table)
+static void encoder_avx_vbmi2_lut() {
+	for(int i=0; i<65536; i++) {
+		int k = i;
+		uint32_t expand = ~0;
+		int p = 0;
+		for(int j=0; j<16; j++) {
+			if(k & 1) {
+				expand ^= 1<<(j+p);
+				p++;
+			}
+			k >>= 1;
+		}
+		expandLUT[i] = expand;
+	}
+}
+#endif
+
 static __m256i ALIGN_TO(32, shufExpandLUT[65536]); // huge 2MB table
 static void encoder_avx2_lut() {
 	for(int i=0; i<65536; i++) {
@@ -59,6 +78,7 @@ static void encoder_avx2_lut() {
 			res[16+p] = 0x40; // arbitrary value (top bit cannot be set)
 	}
 }
+
 
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col) {
 	uint8_t c = es[i++];
@@ -187,90 +207,33 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 #endif
 		// likelihood of >1 bit set: 1-((63/64)^32 + (63/64)^31 * (1/64) * 32C1)
 		if (LIKELIHOOD(0.089, !onlyOneOrNoneBitSet)) {
+			unsigned int m1 = mask & 0xffff;
+			unsigned int m2;
+			__m256i data1, data2;
+			__m256i shufMA, shufMB; // not set in VBMI2 path
 			
-#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && defined(__BMI2__) && 0
+			data = _mm256_add_epi8(data, _mm256_and_si256(cmp, _mm256_set1_epi8(64)));
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
-				data = _mm256_mask_add_epi8(data, mask, data, _mm256_set1_epi8(64));
+				m2 = mask >> 16;
 				
-				// expand compactMask
-# ifdef PLATFORM_AMD64
-				uint64_t compactMask = _pdep_u64(mask, 0x5555555555555555); // could also use pclmul
-				compactMask |= 0xaaaaaaaaaaaaaaaa; // set all high bits to keep them
-# else
-				uint32_t compactMask1 = _pdep_u32(mask, 0x55555555);
-				uint32_t compactMask2 = _pdep_u32(mask>>16, 0x55555555);
-				compactMask1 |= 0xaaaaaaaa;
-				compactMask2 |= 0xaaaaaaaa;
-# endif
+				/* alternative no-LUT strategy
+				uint64_t expandMask = _pdep_u64(mask, 0x5555555555555555); // expand bits
+				expandMask = _pext_u64(~expandMask, expandMask|0xaaaaaaaaaaaaaaaa);
+				*/
 				
-# if 0
-				// uses 512b instructions, which may be more efficient if CPU doesn't hard throttle on these (like SKX does, and also switches CPU to 512b port mode)
-				__m512i paddedData = _mm512_permutexvar_epi64(_mm512_set_epi64(
-					3,3, 2,2, 1,1, 0,0
-				), _mm512_castsi256_si512(data));
-				paddedData = _mm512_unpacklo_epi8(_mm512_set1_epi8('='), paddedData);
-#  ifndef PLATFORM_AMD64
-				__mmask64 compactMask = (((uint64_t)compactMask2) << 32) | compactMask1;
-				unsigned int shufALen = popcnt32(mask & 0xffff) + 16; // needed for overflow handling
-#  endif
-				_mm512_mask_compressstoreu_epi8(p, compactMask, paddedData);
-				
-				unsigned int bytes = popcnt32(mask) + 32;
-				p += bytes;
-				
-# else
-				__m256i dataForUnpack = _mm256_permute4x64_epi64(data, 0xD8); // swap middle 64-bit qwords
-				__m256i data1 = _mm256_unpacklo_epi8(_mm256_set1_epi8('='), dataForUnpack);
-				__m256i data2 = _mm256_unpackhi_epi8(_mm256_set1_epi8('='), dataForUnpack);
-				
-				unsigned int shufALen = popcnt32(mask & 0xffff) + 16;
-				unsigned int shufBLen = popcnt32(mask & 0xffff0000) + 16;
-#  ifdef PLATFORM_AMD64
-				uint32_t compactMask1 = compactMask & 0xffffffff;
-				uint32_t compactMask2 = compactMask >> 32;
-#  endif
-				_mm256_mask_compressstoreu_epi8(p, compactMask1, data1);
-				p += shufALen;
-				_mm256_mask_compressstoreu_epi8(p, compactMask2, data2);
-				p += shufBLen;
-				long bytes = shufALen + shufBLen;
-# endif
-				
-				col += bytes;
-				
-				long ovrflowAmt = col - lineSizeSub1;
-				if(LIKELIHOOD(0.3, ovrflowAmt >= 0)) {
-# ifdef PLATFORM_AMD64
-					uint64_t eqMask = _pext_u64(0x5555555555555555, compactMask);
-					eqMask >>= bytes - ovrflowAmt -1;
-					i -= ovrflowAmt - (unsigned int)_mm_popcnt_u64(eqMask);
-# else
-					uint64_t eqMask1 = _pext_u32(0x55555555, compactMask1);
-					uint64_t eqMask2 = _pext_u32(0x55555555, compactMask2);
-					uint64_t eqMask = (eqMask2 << shufALen) | eqMask1;
-					eqMask >>= bytes - ovrflowAmt -1;
-					i -= ovrflowAmt - popcnt32(eqMask & 0xffffffff) - popcnt32(eqMask >> 32);
-# endif
-					p -= ovrflowAmt - (eqMask & 1);
-					if(LIKELIHOOD(0.02, eqMask & 1))
-						encode_eol_handle_post(es, i, p, col);
-					else
-						encode_eol_handle_pre(es, i, p, col);
-				}
+				data1 = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), expandLUT[m1], data);
+				data2 = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), expandLUT[m2], _mm256_castsi128_si256(
+					_mm256_extracti128_si256(data, 1)
+				));
 			} else
 #endif
 			{
-				
-				unsigned int m1 = mask & 0xffff;
-				unsigned int m2 = (mask >> 11) & 0x1fffe0;
-				unsigned char shuf1Len = popcnt32(m1) + 16;
-				unsigned char shuf2Len = popcnt32(m2) + 16;
-				
-				data = _mm256_add_epi8(data, _mm256_and_si256(cmp, _mm256_set1_epi8(64)));
+				m2 = (mask >> 11) & 0x1fffe0;
 				
 				// duplicate halves
-				__m256i data1 = _mm256_inserti128_si256(data, _mm256_castsi256_si128(data), 1);
-				__m256i data2 = _mm256_permute4x64_epi64(data, 0xee);
+				data1 = _mm256_inserti128_si256(data, _mm256_castsi256_si128(data), 1);
+				data2 = _mm256_permute4x64_epi64(data, 0xee);
 				
 				__m256i shufMA = _mm256_load_si256(shufExpandLUT + m1);
 				__m256i shufMB = _mm256_load_si256((__m256i*)((char*)shufExpandLUT + m2));
@@ -289,33 +252,44 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				// add in escaped chars
 				data1 = _mm256_or_si256(data1, shufMixMA);
 				data2 = _mm256_or_si256(data2, shufMixMB);
-				
-				_mm256_storeu_si256((__m256i*)p, data1);
-				p += shuf1Len;
-				_mm256_storeu_si256((__m256i*)p, data2);
-				p += shuf2Len;
-				col += shuf1Len + shuf2Len;
-				
-				long ovrflowAmt = col - lineSizeSub1;
-				if(LIKELIHOOD(0.3, ovrflowAmt >= 0)) {
-					// we overflowed - find correct position to revert back to
-					// this is perhaps sub-optimal on 32-bit, but who still uses that with AVX2?
-					uint64_t eqMask1 = (uint32_t)_mm256_movemask_epi8(shufMA);
-					uint64_t eqMask2 = (uint32_t)_mm256_movemask_epi8(shufMB);
-					uint64_t eqMask = eqMask1 | (eqMask2 << shuf1Len);
-					
-					eqMask >>= shuf1Len + shuf2Len - ovrflowAmt -1;
-#ifdef PLATFORM_AMD64
-					i -= ovrflowAmt - (unsigned int)_mm_popcnt_u64(eqMask);
-#else
-					i -= ovrflowAmt - popcnt32(eqMask & 0xffffffff) - popcnt32(eqMask >> 32);
+			}
+			
+			unsigned char shuf1Len = popcnt32(m1) + 16;
+			unsigned char shuf2Len = popcnt32(m2) + 16;
+			_mm256_storeu_si256((__m256i*)p, data1);
+			p += shuf1Len;
+			_mm256_storeu_si256((__m256i*)p, data2);
+			p += shuf2Len;
+			col += shuf1Len + shuf2Len;
+			
+			long ovrflowAmt = col - lineSizeSub1;
+			if(LIKELIHOOD(0.3, ovrflowAmt >= 0)) {
+				// we overflowed - find correct position to revert back to
+				// this is perhaps sub-optimal on 32-bit, but who still uses that with AVX2?
+				uint64_t eqMask1, eqMask2;
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
+				if(use_isa >= ISA_LEVEL_VBMI2) {
+					eqMask1 = ~expandLUT[m1];
+					eqMask2 = ~expandLUT[m2];
+				} else
 #endif
-					p -= ovrflowAmt - (eqMask & 1);
-					if(LIKELIHOOD(0.02, eqMask & 1))
-						encode_eol_handle_post(es, i, p, col);
-					else
-						encode_eol_handle_pre(es, i, p, col);
+				{
+					eqMask1 = (uint32_t)_mm256_movemask_epi8(shufMA);
+					eqMask2 = (uint32_t)_mm256_movemask_epi8(shufMB);
 				}
+				uint64_t eqMask = eqMask1 | (eqMask2 << shuf1Len);
+				
+				eqMask >>= shuf1Len + shuf2Len - ovrflowAmt -1;
+#ifdef PLATFORM_AMD64
+				i -= ovrflowAmt - (unsigned int)_mm_popcnt_u64(eqMask);
+#else
+				i -= ovrflowAmt - popcnt32(eqMask & 0xffffffff) - popcnt32(eqMask >> 32);
+#endif
+				p -= ovrflowAmt - (eqMask & 1);
+				if(LIKELIHOOD(0.02, eqMask & 1))
+					encode_eol_handle_post(es, i, p, col);
+				else
+					encode_eol_handle_pre(es, i, p, col);
 			}
 		} else {
 			long bitIndex = _lzcnt_u32(mask);

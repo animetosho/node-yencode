@@ -453,7 +453,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 					p -= popcnt32(mask & 0xffff);
 					_mm_mask_compressstoreu_epi8(p+XMM_SIZE, (__mmask16)(~(mask>>16)), dataB);
 #  endif
-					p += XMM_SIZE*2 - popcnt32(mask>>16);
+					p -= popcnt32(mask>>16);
+					p += XMM_SIZE*2;
 				} else
 # endif
 				{
