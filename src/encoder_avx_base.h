@@ -80,16 +80,16 @@ static void encoder_avx2_lut() {
 }
 
 
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col) {
+static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
 	uint8_t c = es[i++];
 	if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
 		*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 		p += 4;
-		col = 2;
+		col = 1+lineSizeOffset;
 	} else {
 		*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
 		p += 3;
-		col = 1;
+		col = lineSizeOffset;
 	}
 }
 
@@ -109,7 +109,7 @@ static const uint32_t ALIGN_TO(32, _maskMix_eol_table[4*32]) = {
 };
 static struct TShufMix* maskMixEOL = (struct TShufMix*)_maskMix_eol_table;
 
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col) {
+static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
 	__m128i lineChars = _mm_set1_epi16(*(uint16_t*)(es+i)); // unfortunately, _mm_broadcastw_epi16 requires __m128i argument
 	unsigned testChars = _mm_movemask_epi8(_mm_cmpeq_epi8(
 		lineChars,
@@ -125,13 +125,13 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		lineChars = _mm_shuffle_epi8(lineChars, _mm_load_si128(&(maskMixEOL[lut].shuf)));
 		lineChars = _mm_add_epi8(lineChars, _mm_load_si128(&(maskMixEOL[lut].mix)));
 		_mm_storel_epi64((__m128i*)p, lineChars);
-		col = 1 + esc2ndChar;
+		col = lineSizeOffset + esc2ndChar;
 		p += 4 + esc1stChar + esc2ndChar;
 	} else {
 		lineChars = _mm_and_si128(lineChars, _mm_cvtsi32_si128(0xff0000ff));
 		lineChars = _mm_add_epi8(lineChars, _mm_cvtsi32_si128(0x2a0a0d2a));
 		*(int*)p = _mm_cvtsi128_si32(lineChars);
-		col = 1;
+		col = lineSizeOffset;
 		p += 4;
 	}
 	i += 2;
@@ -143,30 +143,30 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
-	long col = *colOffset;
-	long lineSizeSub1 = line_size - 1;
+	long lineSizeOffset = -line_size +2; // line size excluding first/last char
+	long col = *colOffset + lineSizeOffset -1;
 	
 	// offset position to enable simpler loop condition checking
 	const int INPUT_OFFSET = YMM_SIZE + 2 -1; // extra 2 chars for EOL handling, -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
-	if (LIKELIHOOD(0.999, col == 0)) {
+	if (LIKELIHOOD(0.999, col == lineSizeOffset-1)) {
 		uint8_t c = es[i++];
 		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
 			*(uint16_t*)p = escapedLUT[c];
 			p += 2;
-			col = 2;
+			col += 2;
 		} else {
 			*(p++) = c + 42;
-			col = 1;
+			col += 1;
 		}
 	}
-	if(LIKELIHOOD(0.001, col >= lineSizeSub1)) {
-		if(col == lineSizeSub1)
-			encode_eol_handle_pre(es, i, p, col);
+	if(LIKELIHOOD(0.001, col >= 0)) {
+		if(col == 0)
+			encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 		else
-			encode_eol_handle_post(es, i, p, col);
+			encode_eol_handle_post(es, i, p, col, lineSizeOffset);
 	}
 	while(i < 0) {
 		__m256i oData = _mm256_loadu_si256((__m256i *)(es + i));
@@ -262,8 +262,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 			p += shuf2Len;
 			col += shuf1Len + shuf2Len;
 			
-			long ovrflowAmt = col - lineSizeSub1;
-			if(LIKELIHOOD(0.3, ovrflowAmt >= 0)) {
+			if(LIKELIHOOD(0.3, col >= 0)) {
 				// we overflowed - find correct position to revert back to
 				// this is perhaps sub-optimal on 32-bit, but who still uses that with AVX2?
 				uint64_t eqMask1, eqMask2;
@@ -279,17 +278,19 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				}
 				uint64_t eqMask = eqMask1 | (eqMask2 << shuf1Len);
 				
-				eqMask >>= shuf1Len + shuf2Len - ovrflowAmt -1;
+				eqMask >>= shuf1Len + shuf2Len - col -1;
+				i -= col;
 #ifdef PLATFORM_AMD64
-				i -= ovrflowAmt - (unsigned int)_mm_popcnt_u64(eqMask);
+				i += (unsigned int)_mm_popcnt_u64(eqMask);
 #else
-				i -= ovrflowAmt - popcnt32(eqMask & 0xffffffff) - popcnt32(eqMask >> 32);
+				i += popcnt32(eqMask & 0xffffffff) + popcnt32(eqMask >> 32);
 #endif
-				p -= ovrflowAmt - (eqMask & 1);
-				if(LIKELIHOOD(0.02, eqMask & 1))
-					encode_eol_handle_post(es, i, p, col);
-				else
-					encode_eol_handle_pre(es, i, p, col);
+				p -= col;
+				if(LIKELIHOOD(0.02, eqMask & 1)) {
+					p++;
+					encode_eol_handle_post(es, i, p, col, lineSizeOffset);
+				} else
+					encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 			}
 		} else {
 			long bitIndex = _lzcnt_u32(mask);
@@ -333,18 +334,17 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 			p += YMM_SIZE + processed;
 			col += YMM_SIZE + processed;
 			
-			long ovrflowAmt = col - lineSizeSub1;
-			if(LIKELIHOOD(0.3, ovrflowAmt >= 0)) {
-				if(ovrflowAmt-1 == bitIndex) {
+			if(LIKELIHOOD(0.3, col >= 0)) {
+				if(col-1 == bitIndex) {
 					// this is an escape character, so line will need to overflow
-					p -= ovrflowAmt - 1;
-					i -= ovrflowAmt - 1;
-					encode_eol_handle_post(es, i, p, col);
+					p -= col - 1;
+					i -= col - 1;
+					encode_eol_handle_post(es, i, p, col, lineSizeOffset);
 				} else {
-					int overflowedPastEsc = (ovrflowAmt-1) > bitIndex;
-					p -= ovrflowAmt;
-					i -= ovrflowAmt - overflowedPastEsc;
-					encode_eol_handle_pre(es, i, p, col);
+					int overflowedPastEsc = (col-1) > bitIndex;
+					p -= col;
+					i -= col - overflowedPastEsc;
+					encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 				}
 			}
 		}
@@ -352,7 +352,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 	
 	_mm256_zeroupper();
 	
-	*colOffset = col;
+	*colOffset = col - lineSizeOffset +1;
 	dest = p;
 	len = -(i - INPUT_OFFSET);
 }

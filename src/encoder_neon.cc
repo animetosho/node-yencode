@@ -25,19 +25,19 @@ __attribute__( ( always_inline ) ) static __inline__ uint32_t _UADD8(uint32_t op
 # endif
 #endif
 
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col) {
+static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col, int lineSizeOffset) {
 	uint8_t c = es[i++];
 	if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
 		*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 		p += 4;
-		col = 2;
+		col = 1+lineSizeOffset;
 	} else {
 		*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
 		p += 3;
-		col = 1;
+		col = lineSizeOffset;
 	}
 }
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col) {
+static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col, int lineSizeOffset) {
 	uint8_t c = es[i], c2 = es[i+1];
 	if (LIKELIHOOD(0.0234, escapedLUT[c] && c != '.'-42)) {
 		*(uint16_t*)p = escapedLUT[c];
@@ -45,18 +45,18 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		if (LIKELIHOOD(0.0273, escapedLUT[c2]!=0)) {
 			*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c2]);
 			p += 4;
-			col = 2;
+			col = 1+lineSizeOffset;
 		} else {
 			*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c2+42), 0);
 			p += 3;
-			col = 1;
+			col = lineSizeOffset;
 		}
 	}
 	else if (LIKELIHOOD(0.0273, escapedLUT[c2]!=0)) {
 		*(p++) = c + 42;
 		*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c2]);
 		p += 4;
-		col = 2;
+		col = 1+lineSizeOffset;
 	} else {
 		uint32_t data = *(uint16_t*)(es+i);
 		data = data | (data<<16);
@@ -69,7 +69,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		data |= 0x000a0d00;
 #endif
 		*(uint32_t*)p = data;
-		col = 1;
+		col = lineSizeOffset;
 		p += 4;
 	}
 	
@@ -82,30 +82,30 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
-	int col = *colOffset;
-	int lineSizeSub1 = line_size - 1;
+	int lineSizeOffset = -line_size +2; // line size excluding first/last char
+	int col = *colOffset + lineSizeOffset -1;
 	
 	// offset position to enable simpler loop condition checking
 	const int INPUT_OFFSET = sizeof(uint8x16_t) + 2 -1; // extra 2 chars for EOL handling, -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
-	if (LIKELIHOOD(0.999, col == 0)) {
+	if (LIKELIHOOD(0.999, col == lineSizeOffset -1)) {
 		uint8_t c = es[i++];
 		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
 			*(uint16_t*)p = escapedLUT[c];
 			p += 2;
-			col = 2;
+			col += 2;
 		} else {
 			*(p++) = c + 42;
-			col = 1;
+			col += 1;
 		}
 	}
-	if(LIKELIHOOD(0.001, col >= lineSizeSub1)) {
-		if(col == lineSizeSub1)
-			encode_eol_handle_pre(es, i, p, col);
+	if(LIKELIHOOD(0.001, col >= 0)) {
+		if(col == 0)
+			encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 		else
-			encode_eol_handle_post(es, i, p, col);
+			encode_eol_handle_post(es, i, p, col, lineSizeOffset);
 	}
 	while(i < 0) {
 		uint8x16_t oData = vld1q_u8(es + i);
@@ -178,46 +178,44 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 			p += shufBLen;
 			col += shufALen + shufBLen;
 			
-			long ovrflowAmt = col - lineSizeSub1;
-			if(LIKELIHOOD(0.15, ovrflowAmt >= 0)) {
+			if(LIKELIHOOD(0.15, col >= 0)) {
 				// we overflowed - find correct position to revert back to
-				p -= ovrflowAmt;
-				if(ovrflowAmt == shufBLen) {
+				p -= col;
+				if(col == shufBLen) {
 					i -= 8;
-				} else if(ovrflowAmt != 0) {
-					int isEsc;
+				} else if(col != 0) {
 					uint16_t tst;
-					int midPointOffset = ovrflowAmt - shufBLen +1;
-					if(ovrflowAmt > shufBLen) {
+					int midPointOffset = col - shufBLen +1;
+					if(col > shufBLen) {
 						tst = *(uint16_t*)((char*)(shufLUT + m1) + shufALen - midPointOffset);
-						i -= 8;
+						i -= 16;
 					} else {
 						tst = *(uint16_t*)((char*)(shufLUT + m2) - midPointOffset);
+						i -= 8;
 					}
-					isEsc = (0xf0 == (tst&0xF0));
-					p += isEsc;
-					i -= 8 - ((tst>>8)&0xf) - isEsc;
-					if(isEsc) {
-						encode_eol_handle_post(es, i, p, col);
+					i += (tst >> 8) & 0xf;
+					if(tst & 0xf0) {
+						p++;
+						i++;
+						encode_eol_handle_post(es, i, p, col, lineSizeOffset);
 						continue;
 					}
 				}
-				encode_eol_handle_pre(es, i, p, col);
+				encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 			}
 		} else {
 			vst1q_u8(p, data);
 			p += sizeof(uint8x16_t);
 			col += sizeof(uint8x16_t);
-			long ovrflowAmt = col - lineSizeSub1;
-			if(ovrflowAmt >= 0) {
-				p -= ovrflowAmt;
-				i -= ovrflowAmt;
-				encode_eol_handle_pre(es, i, p, col);
+			if(col >= 0) {
+				p -= col;
+				i -= col;
+				encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 			}
 		}
 	}
 	
-	*colOffset = col;
+	*colOffset = col - lineSizeOffset +1;
 	dest = p;
 	len = -(i - INPUT_OFFSET);
 }
