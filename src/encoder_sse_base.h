@@ -165,26 +165,37 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	__m128i lineChars = _mm_cvtsi32_si128(*(uint32_t*)(es+i)); // only bottom 2 bytes are used, despite the 4 byte read
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
 	if(use_isa >= ISA_LEVEL_SSSE3)
-		lineChars = _mm_shuffle_epi8(lineChars, _mm_set1_epi64x(0x0000010101010000ULL));
+		lineChars = _mm_shuffle_epi8(lineChars, _mm_set_epi32(
+			0x01010000, 0x01010000, 0x00000101, 0x01010000
+		));
 	else
 #endif
 	{
 		lineChars = _mm_unpacklo_epi8(lineChars, lineChars); // 0011xxxx
-		lineChars = _mm_shufflelo_epi16(lineChars, _MM_SHUFFLE(0,1,1,0)); // 00111100
-		lineChars = _mm_unpacklo_epi64(lineChars, lineChars); // duplicate to upper half
+		lineChars = _mm_shuffle_epi32(lineChars, 0); // 00110011 00110011
 	}
-	// pattern is now 00111100 00111100
+	// pattern is now 00111100 00110011 (SSSE3) OR 00110011 00110011 (SSE2)
 	unsigned testChars = _mm_movemask_epi8(_mm_cmpeq_epi8(
 		lineChars,
 		_mm_set_epi16(
-			//  0 0      1 1      1 1      0 0      0 0      1 1      1 1      0 0
-			// xxxx     xx .     \0\r     \0\r     \n =     \n =     \t\s     \t\s
-			-0x2021, -0x20FC, -0x291D, -0x291D, -0x1FED, -0x1FED, -0x200A, -0x200A
+			//  1 1      0 0      1 1      0 0      ? ?      ? ?      1 1      0 0
+			// xx .     xxxx     \0\r     \0\r     \n =     \n =     \t\s     \t\s
+			-0x20FC, -0x2021, -0x291D, -0x291D, -0x1FED, -0x1FED, -0x200A, -0x200A
 		)
 	));
 	if(testChars) {
-		unsigned esc1stChar = (testChars & 0x03c3) != 0;
-		unsigned esc2ndChar = (testChars & 0x1c3c) != 0;
+		unsigned esc1stChar, esc2ndChar;
+#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
+		if(use_isa >= ISA_LEVEL_SSSE3) {
+			esc1stChar = (testChars & 0x03c3) != 0;
+			esc2ndChar = (testChars & 0x4c3c) != 0;
+		} else
+#endif
+		{
+			esc1stChar = (testChars & 0x0333) != 0;
+			esc2ndChar = (testChars & 0x4ccc) != 0;
+			lineChars = _mm_shufflelo_epi16(lineChars, _MM_SHUFFLE(0,1,1,0)); // 00111100
+		}
 		unsigned lut = esc1stChar + esc2ndChar*2;
 		lineChars = _mm_and_si128(lineChars, _mm_load_si128(&(maskMixEOL[lut].shuf)));
 		lineChars = _mm_add_epi8(lineChars, _mm_load_si128(&(maskMixEOL[lut].mix)));
