@@ -46,13 +46,13 @@ static uint32_t expandLUT[65536]; // biggish 256KB table (but still smaller than
 static void encoder_avx_vbmi2_lut() {
 	for(int i=0; i<65536; i++) {
 		int k = i;
-		uint32_t expand = ~0;
+		uint32_t expand = 0;
 		int p = 0;
 		for(int j=0; j<16; j++) {
 			if(k & 1) {
-				expand ^= 1<<(j+p);
 				p++;
 			}
+			expand |= 1<<(j+p);
 			k >>= 1;
 		}
 		expandLUT[i] = expand;
@@ -268,8 +268,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				uint64_t eqMask1, eqMask2;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
-					eqMask1 = ~expandLUT[m1];
-					eqMask2 = ~expandLUT[m2];
+					eqMask1 = expandLUT[m1];
+					eqMask2 = expandLUT[m2];
 				} else
 #endif
 				{
@@ -279,18 +279,29 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				uint64_t eqMask = eqMask1 | (eqMask2 << shuf1Len);
 				
 				eqMask >>= shuf1Len + shuf2Len - col -1;
-				i -= col;
+				unsigned int bitCount;
 #ifdef PLATFORM_AMD64
-				i += (unsigned int)_mm_popcnt_u64(eqMask);
+				bitCount = (unsigned int)_mm_popcnt_u64(eqMask);
 #else
-				i += popcnt32(eqMask & 0xffffffff) + popcnt32(eqMask >> 32);
+				bitCount = popcnt32(eqMask & 0xffffffff) + popcnt32(eqMask >> 32);
 #endif
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
+				if(use_isa >= ISA_LEVEL_VBMI2) {
+					i++;
+					i -= bitCount;
+				} else
+#endif
+				{
+					i -= col;
+					i += bitCount;
+				}
 				p -= col;
-				if(LIKELIHOOD(0.02, eqMask & 1)) {
+				if(LIKELIHOOD(0.98, (eqMask & 1) == (use_isa >= ISA_LEVEL_VBMI2))) {
+					encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
+				} else {
 					p++;
 					encode_eol_handle_post(es, i, p, col, lineSizeOffset);
-				} else
-					encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
+				}
 			}
 		} else {
 			long bitIndex = _lzcnt_u32(mask);

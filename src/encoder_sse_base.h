@@ -29,14 +29,14 @@ static void encoder_sse_lut() {
 	for(int i=0; i<256; i++) {
 		int k = i;
 		uint8_t res[16];
-		uint16_t expand = ~0;
+		uint16_t expand = 0;
 		int p = 0;
 		for(int j=0; j<8; j++) {
 			if(k & 1) {
 				res[j+p] = 0xf0 + j;
-				expand ^= 1<<(j+p);
 				p++;
 			}
+			expand |= 1<<(j+p);
 			res[j+p] = j;
 			k >>= 1;
 		}
@@ -393,15 +393,17 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 			if(LIKELIHOOD(0.15 /*guess, using 128b lines*/, col >= 0)) {
 				uint32_t eqMask;
 				// from experimentation, it doesn't seem like it's worth trying to branch here, i.e. it isn't worth trying to avoid a pmovmskb+shift+or by checking overflow amount
-				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3)
-					eqMask = ((expandLUT[m2] ^ 0xffff) << shufALen) | (expandLUT[m1] ^ 0xffff);
-				else
+				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
+					eqMask = (expandLUT[m2] << shufALen) | expandLUT[m1];
+				} else {
 					eqMask = ((unsigned)_mm_movemask_epi8(shufMB) << shufALen) | (unsigned)_mm_movemask_epi8(shufMA);
+				}
 				eqMask >>= shufBLen+shufALen - col -1;
-				i -= col;
+				
+				unsigned int bitCount;
 #if defined(__POPCNT__)
 				if(use_isa >= ISA_LEVEL_AVX)
-					i += popcnt32(eqMask);
+					bitCount = popcnt32(eqMask);
 				else
 #endif
 				{
@@ -409,14 +411,22 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 					cnt += BitsSetTable256[(eqMask>>8) & 0xff];
 					cnt += BitsSetTable256[(eqMask>>16) & 0xff];
 					cnt += BitsSetTable256[(eqMask>>24) & 0xff];
-					i += cnt;
+					bitCount = cnt;
+				}
+				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
+					i++;
+					i -= bitCount;
+				} else {
+					i -= col;
+					i += bitCount;
 				}
 				p -= col;
-				if(eqMask & 1) {
+				if((eqMask & 1) == (use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3)) {
+					encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
+				} else {
 					p++;
 					encode_eol_handle_post(es, i, p, col, lineSizeOffset);
-				} else
-					encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
+				}
 			}
 		} else {
 			STOREU_XMM(p, data);
