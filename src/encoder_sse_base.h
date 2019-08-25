@@ -164,7 +164,7 @@ static struct TShufMix* maskMixEOL = (struct TShufMix*)_maskMix_eol_table;
 template<enum YEncDecIsaLevel use_isa>
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
 	// load 2 bytes & broadcast
-	__m128i lineChars = _mm_cvtsi32_si128(*(uint16_t*)(es+i)); // 01xxxxxx
+	__m128i lineChars = _mm_cvtsi32_si128(*(uint32_t*)(es+i)); // only bottom 2 bytes are used, despite the 4 byte read
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
 	if(use_isa >= ISA_LEVEL_SSSE3)
 		lineChars = _mm_shuffle_epi8(lineChars, _mm_set1_epi64x(0x0000010101010000ULL));
@@ -214,7 +214,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 	long col = *colOffset + lineSizeOffset -1;
 	
 	// offset position to enable simpler loop condition checking
-	const int INPUT_OFFSET = XMM_SIZE + 2 -1; // extra 2 chars for EOL handling, -1 to change <= to <
+	const int INPUT_OFFSET = XMM_SIZE + 4 -1; // extra 4 chars for EOL handling (a 32-bit read is performed), -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
