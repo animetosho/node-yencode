@@ -405,11 +405,11 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 				else
 #endif
 				{
-					i += BitsSetTable256[eqMask & 0xff];
-					i += BitsSetTable256[(eqMask>>8) & 0xff];
-					uint32_t eqMaskH = eqMask >> 16;
-					i += BitsSetTable256[eqMaskH & 0xff];
-					i += BitsSetTable256[(eqMaskH>>8) & 0xff];
+					unsigned char cnt = BitsSetTable256[eqMask & 0xff];
+					cnt += BitsSetTable256[(eqMask>>8) & 0xff];
+					cnt += BitsSetTable256[(eqMask>>16) & 0xff];
+					cnt += BitsSetTable256[(eqMask>>24) & 0xff];
+					i += cnt;
 				}
 				p -= col;
 				if(eqMask & 1) {
