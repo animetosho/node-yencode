@@ -38,6 +38,7 @@ static const __m128i* unshuf_mask_bsr_table = (const __m128i*)_unshuf_mask_bsr_t
 # define _BSR_VAR(var, src) var; _BitScanReverse(&var, src)
 #elif defined(__GNUC__)
 // have seen Clang not like _bit_scan_reverse
+# include <x86intrin.h> // for lzcnt
 # define _BSR_VAR(var, src) var = (31^__builtin_clz(src))
 #else
 # include <x86intrin.h>

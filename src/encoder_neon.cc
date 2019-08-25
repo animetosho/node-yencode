@@ -5,6 +5,7 @@
 #include "encoder_common.h"
 
 uint8x16_t ALIGN_TO(16, shufLUT[256]);
+static uint16_t expandLUT[256];
 
 #if defined(_MSC_VER) && !defined(__aarch64__)
 # include <armintr.h>
@@ -180,28 +181,25 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 			
 			if(LIKELIHOOD(0.15, col >= 0)) {
 				// we overflowed - find correct position to revert back to
+				uint32_t eqMask = (expandLUT[m2] << shufALen) | expandLUT[m1];
+				eqMask >>= shufBLen+shufALen - col -1;
+				i -= col;
+				
+				// count bits in eqMask; this VCNT approach seems to be about as fast as a 8-bit LUT on Cortex A53
+				uint32x2_t vCnt;
+				vCnt = vset_lane_u32(eqMask, vCnt, 0);
+				vCnt = vreinterpret_u32_u8(vcnt_u8(vreinterpret_u8_u32(vCnt)));
+				uint32_t cnt = vget_lane_u32(vCnt, 0);
+				cnt += cnt >> 16;
+				cnt += cnt >> 8;
+				i += cnt & 0xff;
+				
 				p -= col;
-				if(col == shufBLen) {
-					i -= 8;
-				} else if(col != 0) {
-					uint16_t tst;
-					int midPointOffset = col - shufBLen +1;
-					if(col > shufBLen) {
-						tst = *(uint16_t*)((char*)(shufLUT + m1) + shufALen - midPointOffset);
-						i -= 16;
-					} else {
-						tst = *(uint16_t*)((char*)(shufLUT + m2) - midPointOffset);
-						i -= 8;
-					}
-					i += (tst >> 8) & 0xf;
-					if(tst & 0xf0) {
-						p++;
-						i++;
-						encode_eol_handle_post(es, i, p, col, lineSizeOffset);
-						continue;
-					}
-				}
-				encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
+				if(eqMask & 1) {
+					p++;
+					encode_eol_handle_post(es, i, p, col, lineSizeOffset);
+				} else
+					encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 			}
 		} else {
 			vst1q_u8(p, data);
@@ -225,11 +223,13 @@ void encoder_neon_init() {
 	// generate shuf LUT
 	for(int i=0; i<256; i++) {
 		int k = i;
+		uint16_t expand = 0;
 		uint8_t res[16];
 		int p = 0;
 		for(int j=0; j<8; j++) {
 			if(k & 1) {
 				res[j+p] = 0xf0 + j;
+				expand |= 1<<(j+p);
 				p++;
 			}
 			res[j+p] = j;
@@ -240,6 +240,8 @@ void encoder_neon_init() {
 		
 		uint8x16_t shuf = vld1q_u8(res);
 		vst1q_u8((uint8_t*)(shufLUT + i), shuf);
+		
+		expandLUT[i] = expand;
 	}
 }
 #else

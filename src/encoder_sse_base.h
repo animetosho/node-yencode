@@ -5,24 +5,18 @@
 #include "encoder.h"
 #include "encoder_common.h"
 
-#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
+static const unsigned char BitsSetTable256[256] = 
+{
+#   define B2(n) n+0,     n+1,     n+1,     n+2
+#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+    B6(0), B6(1), B6(1), B6(2)
+#undef B2
+#undef B4
+#undef B6
+};
+
 static uint16_t expandLUT[256];
-static void encoder_sse_vbmi2_lut() {
-	for(int i=0; i<256; i++) {
-		int k = i;
-		uint16_t expand = ~0;
-		int p = 0;
-		for(int j=0; j<8; j++) {
-			if(k & 1) {
-				expand ^= 1<<(j+p);
-				p++;
-			}
-			k >>= 1;
-		}
-		expandLUT[i] = expand;
-	}
-}
-#endif
 
 #pragma pack(16)
 struct TShufMix {
@@ -35,10 +29,12 @@ static void encoder_sse_lut() {
 	for(int i=0; i<256; i++) {
 		int k = i;
 		uint8_t res[16];
+		uint16_t expand = ~0;
 		int p = 0;
 		for(int j=0; j<8; j++) {
 			if(k & 1) {
 				res[j+p] = 0xf0 + j;
+				expand ^= 1<<(j+p);
 				p++;
 			}
 			res[j+p] = j;
@@ -49,6 +45,7 @@ static void encoder_sse_lut() {
 		
 		__m128i shuf = _mm_loadu_si128((__m128i*)res);
 		_mm_store_si128(&(shufMixLUT[i].shuf), shuf);
+		expandLUT[i] = expand;
 		
 		// calculate add mask for mixing escape chars in
 		__m128i maskEsc = _mm_cmpeq_epi8(_mm_and_si128(shuf, _mm_set1_epi8(-16)), _mm_set1_epi8(-16)); // -16 == 0xf0
@@ -111,6 +108,7 @@ static const __m128i* expand_maskmix_table = (const __m128i*)_expand_maskmix_tab
 # define _BSR_VAR(var, src) var; _BitScanReverse((unsigned long*)&var, src)
 #elif defined(__GNUC__)
 // have seen Clang not like _bit_scan_reverse
+# include <x86intrin.h> // for lzcnt
 # define _BSR_VAR(var, src) var = (31^__builtin_clz(src))
 #else
 # include <x86intrin.h>
@@ -273,7 +271,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 		if (LIKELIHOOD(0.2227, mask != 0)) { // seems to always be faster than _mm_test_all_zeros, possibly because http://stackoverflow.com/questions/34155897/simd-sse-how-to-check-that-all-vector-elements-are-non-zero#comment-62475316
 			uint8_t m1 = mask & 0xFF;
 			uint8_t m2 = mask >> 8;
-			__m128i shufMA, shufMB;
+			__m128i shufMA, shufMB; // only used for SSSE3 path
 			__m128i data2;
 			
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && defined(__POPCNT__)
@@ -382,56 +380,32 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 			col += shufALen + shufBLen;
 			
 			if(LIKELIHOOD(0.15 /*guess, using 128b lines*/, col >= 0)) {
+				uint32_t eqMask;
+				// from experimentation, it doesn't seem like it's worth trying to branch here, i.e. it isn't worth trying to avoid a pmovmskb+shift+or by checking overflow amount
+				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3)
+					eqMask = ((expandLUT[m2] ^ 0xffff) << shufALen) | (expandLUT[m1] ^ 0xffff);
+				else
+					eqMask = ((unsigned)_mm_movemask_epi8(shufMB) << shufALen) | (unsigned)_mm_movemask_epi8(shufMA);
+				eqMask >>= shufBLen+shufALen - col -1;
+				i -= col;
 #if defined(__POPCNT__)
-				if(use_isa >= ISA_LEVEL_AVX) {
-					uint32_t eqMask;
-					// from experimentation, it doesn't seem like it's worth trying to branch here, i.e. it isn't worth trying to avoid a pmovmskb+shift+or by checking overflow amount
-# if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
-					if(use_isa >= ISA_LEVEL_VBMI2)
-						eqMask = ((expandLUT[m2] ^ 0xffff) << shufALen) | (expandLUT[m1] ^ 0xffff);
-					else
-# endif
-						eqMask = ((unsigned)_mm_movemask_epi8(shufMB) << shufALen) | (unsigned)_mm_movemask_epi8(shufMA);
-					eqMask >>= shufBLen+shufALen - col -1;
-					i -= col;
+				if(use_isa >= ISA_LEVEL_AVX)
 					i += popcnt32(eqMask);
-					p -= col;
-					if(eqMask & 1) {
-						p++;
-						encode_eol_handle_post(es, i, p, col, lineSizeOffset);
-					} else
-						encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
-				} else
+				else
 #endif
 				{
-					// we overflowed - find correct position to revert back to
-					p -= col;
-					if(col == shufBLen) {
-						i -= 8;
-					} else if(col != 0) {
-						uint16_t tst;
-						long midPointOffset = col - shufBLen +1;
-						if(col > (long)shufBLen) {
-							// `shufALen - midPointOffset` expands to `shufALen + shufBLen - ovrflowAmt -1`
-							// since `shufALen + shufBLen` > ovrflowAmt is implied (i.e. you can't overflow more than you've added)
-							// ...the expression cannot underflow, and cannot exceed 14
-							tst = *(uint16_t*)((char*)(&(shufMixLUT[m1].shuf)) + shufALen - midPointOffset);
-							i -= 16;
-						} else { // i.e. ovrflowAmt < shufBLen (== case handled above)
-							// -14 <= midPointOffset <= 0, should be true here
-							tst = *(uint16_t*)((char*)(&(shufMixLUT[m2].shuf)) - midPointOffset);
-							i -= 8;
-						}
-						i += ((tst>>8)&0xf);
-						if(tst & 0xf0) {
-							p++;
-							i++;
-							encode_eol_handle_post(es, i, p, col, lineSizeOffset);
-							continue;
-						}
-					}
-					encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
+					i += BitsSetTable256[eqMask & 0xff];
+					i += BitsSetTable256[(eqMask>>8) & 0xff];
+					uint32_t eqMaskH = eqMask >> 16;
+					i += BitsSetTable256[eqMaskH & 0xff];
+					i += BitsSetTable256[(eqMaskH>>8) & 0xff];
 				}
+				p -= col;
+				if(eqMask & 1) {
+					p++;
+					encode_eol_handle_post(es, i, p, col, lineSizeOffset);
+				} else
+					encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
 			}
 		} else {
 			STOREU_XMM(p, data);
