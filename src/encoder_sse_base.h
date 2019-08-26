@@ -163,6 +163,7 @@ template<enum YEncDecIsaLevel use_isa>
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
 	// load 2 bytes & broadcast
 	__m128i lineChars = _mm_cvtsi32_si128(*(uint32_t*)(es+i)); // only bottom 2 bytes are used, despite the 4 byte read
+	__m128i lineChars1;
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
 	if(use_isa >= ISA_LEVEL_SSSE3)
 		lineChars = _mm_shuffle_epi8(lineChars, _mm_set_epi32(
@@ -171,8 +172,9 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	else
 #endif
 	{
-		lineChars = _mm_unpacklo_epi8(lineChars, lineChars); // 0011xxxx
-		lineChars = _mm_shuffle_epi32(lineChars, 0); // 00110011 00110011
+		// assign to temp since we don't care about the upper 8 bytes other than for pcmpeqb, and pshufd is a non-destructive; this effectively allows the compiler to avoid a move
+		lineChars1 = _mm_unpacklo_epi8(lineChars, lineChars); // 0011xxxx
+		lineChars = _mm_shuffle_epi32(lineChars1, 0); // 00110011 00110011
 	}
 	// pattern is now 00111100 00110011 (SSSE3) OR 00110011 00110011 (SSE2)
 	unsigned testChars = _mm_movemask_epi8(_mm_cmpeq_epi8(
@@ -194,7 +196,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		{
 			esc1stChar = (testChars & 0x0333) != 0;
 			esc2ndChar = (testChars & 0x4ccc) != 0;
-			lineChars = _mm_shufflelo_epi16(lineChars, _MM_SHUFFLE(0,1,1,0)); // 00111100
+			lineChars = _mm_shufflelo_epi16(lineChars1, _MM_SHUFFLE(0,1,1,0)); // 00111100
 		}
 		unsigned lut = esc1stChar + esc2ndChar*2;
 		lineChars = _mm_and_si128(lineChars, _mm_load_si128(&(maskMixEOL[lut].shuf)));
@@ -203,6 +205,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		col = lineSizeOffset + esc2ndChar;
 		p += 4 + esc1stChar + esc2ndChar;
 	} else {
+		if(use_isa < ISA_LEVEL_SSSE3)
+			lineChars = lineChars1;
 		lineChars = _mm_and_si128(lineChars, _mm_cvtsi32_si128(0xff0000ff));
 		lineChars = _mm_add_epi8(lineChars, _mm_cvtsi32_si128(0x2a0a0d2a));
 		*(int*)p = _mm_cvtsi128_si32(lineChars);
