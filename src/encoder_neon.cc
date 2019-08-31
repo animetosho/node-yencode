@@ -109,13 +109,14 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 			encode_eol_handle_post(es, i, p, col, lineSizeOffset);
 	}
 	while(i < 0) {
-		uint8x16_t oData = vld1q_u8(es + i);
-		uint8x16_t data = vaddq_u8(oData, vdupq_n_u8(42));
+		uint8x16_t data = vld1q_u8(es + i);
 		i += sizeof(uint8x16_t);
 		// search for special chars
 #ifdef __aarch64__
+		uint8x16_t cmpEq = vceqq_u8(data, vdupq_n_u8('='-42));
+		data = vaddq_u8(data, vdupq_n_u8(42));
 		uint8x16_t cmp = vqtbx1q_u8(
-			vceqq_u8(oData, vdupq_n_u8('='-42)),
+			cmpEq,
 			//            \0                    \n      \r
 			(uint8x16_t){255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
 			data
@@ -123,12 +124,12 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 #else
 		uint8x16_t cmp = vorrq_u8(
 			vorrq_u8(
-				vceqq_u8(data, vdupq_n_u8(0)),
-				vceqq_u8(oData, vdupq_n_u8('='-42))
+				vceqq_u8(data, vdupq_n_u8(-42)),
+				vceqq_u8(data, vdupq_n_u8('='-42))
 			),
 			vorrq_u8(
-				vceqq_u8(oData, vdupq_n_u8('\r'-42)),
-				vceqq_u8(oData, vdupq_n_u8('\n'-42))
+				vceqq_u8(data, vdupq_n_u8('\r'-42)),
+				vceqq_u8(data, vdupq_n_u8('\n'-42))
 			)
 		);
 #endif
@@ -154,16 +155,18 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 			uint8x16_t shufMA = vld1q_u8((uint8_t*)(shufLUT + m1));
 			uint8x16_t shufMB = vld1q_u8((uint8_t*)(shufLUT + m2));
 			
-			data = vaddq_u8(data, vandq_u8(cmp, vdupq_n_u8(64)));
-			
 			// expand halves
 #ifdef __aarch64__
+			data = vaddq_u8(data, vandq_u8(cmp, vdupq_n_u8(64)));
+			
 			// second mask processes on second half, so add to the offsets
 			shufMB = vorrq_u8(shufMB, vdupq_n_u8(8));
 			
 			uint8x16_t data2 = vqtbx1q_u8(vdupq_n_u8('='), data, shufMB);
 			data = vqtbx1q_u8(vdupq_n_u8('='), data, shufMA);
 #else
+			data = vsubq_u8(data, vbslq_u8(cmp, vdupq_n_u8(-64-42), vdupq_n_u8(-42)));
+			
 			uint8x16_t data2 = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_low_u8(shufMB)),
 			                               vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_high_u8(shufMB)));
 			data = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_low_u8(data), vget_low_u8(shufMA)),
@@ -202,6 +205,9 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 					encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 			}
 		} else {
+#ifndef __aarch64__
+			data = vsubq_u8(data, vdupq_n_u8(-42));
+#endif
 			vst1q_u8(p, data);
 			p += sizeof(uint8x16_t);
 			col += sizeof(uint8x16_t);

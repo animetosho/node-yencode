@@ -24,6 +24,7 @@ struct TShufMix {
 };
 #pragma pack()
 static struct TShufMix ALIGN_TO(32, shufMixLUT[256]);
+static __m128i ALIGN_TO(16, mixLUT[256]);
 
 static void encoder_sse_lut() {
 	for(int i=0; i<256; i++) {
@@ -53,13 +54,17 @@ static void encoder_sse_lut() {
 		addMask = _mm_or_si128(addMask, _mm_and_si128(maskEsc, _mm_set1_epi8('=')));
 		
 		_mm_store_si128(&(shufMixLUT[i].mix), addMask);
+		_mm_store_si128(mixLUT + i, _mm_add_epi8(
+			addMask,
+			_mm_andnot_si128(maskEsc, _mm_set1_epi8(42))
+		));
 	}
 }
 
 // for SSE2 expanding
 #define _X2(n,k) n>k?-1:0
 #define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), _X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15)
-#define _Y2(n, m) '='*(n==m) + 64*(n==m-1)
+#define _Y2(n, m) n==m ? '=' : 42+64*(n==m-1)
 #define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
 	_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15)
 #define _XY(n) _X(n), _Y(n)
@@ -250,7 +255,10 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 	}
 	while(i < 0) {
 		__m128i oData = _mm_loadu_si128((__m128i *)(es + i)); // probably not worth the effort to align
-		__m128i data = _mm_add_epi8(oData, _mm_set1_epi8(42));
+		__m128i data = oData;
+		if(use_isa >= ISA_LEVEL_SSSE3)
+			data = _mm_add_epi8(oData, _mm_set1_epi8(42));
+		
 		i += XMM_SIZE;
 		// search for special chars
 		__m128i cmp;
@@ -271,7 +279,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 		{
 			cmp = _mm_or_si128(
 				_mm_or_si128(
-					_mm_cmpeq_epi8(data, _mm_setzero_si128()),
+					_mm_cmpeq_epi8(oData, _mm_set1_epi8(-42)),
 					_mm_cmpeq_epi8(oData, _mm_set1_epi8('\n'-42))
 				),
 				_mm_or_si128(
@@ -322,8 +330,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 					data2 = sse2_expand_bytes(m2, _mm_srli_si128(data, 8));
 					data = sse2_expand_bytes(m1, data);
 					// add in escaped chars
-					__m128i shufMixMA = _mm_load_si128(&(shufMixLUT[m1].mix));
-					__m128i shufMixMB = _mm_load_si128(&(shufMixLUT[m2].mix));
+					__m128i shufMixMA = _mm_load_si128(mixLUT + m1);
+					__m128i shufMixMB = _mm_load_si128(mixLUT + m2);
 					data = _mm_add_epi8(data, shufMixMA);
 					data2 = _mm_add_epi8(data2, shufMixMB);
 				} else {
@@ -433,6 +441,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 				}
 			}
 		} else {
+			if(use_isa < ISA_LEVEL_SSSE3)
+				data = _mm_sub_epi8(oData, _mm_set1_epi8(-42));
 			STOREU_XMM(p, data);
 			p += XMM_SIZE;
 			col += XMM_SIZE;
