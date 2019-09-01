@@ -1,11 +1,16 @@
 {
   "target_defaults": {
+    "variables": {
+      "enable_native_tuning%": 1
+    },
     "conditions": [
       ['target_arch=="ia32"', {
         "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
       }],
-      ['OS!="win"', {
-        "variables": {"supports_native%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/common.h -march=native 2>/dev/null || true)"},
+      ['OS!="win" and enable_native_tuning!=0', {
+        "variables": {
+          "supports_native%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/common.h -march=native 2>/dev/null || true)"
+        },
         "conditions": [
           ['supports_native!=""', {
             "cflags": ["-march=native"],
@@ -17,6 +22,21 @@
           }]
         ]
       }],
+      ['OS!="win" and target_arch in "ia32 x64" and enable_native_tuning==0', {
+        "variables": {
+          "supports_avx2_nosplit%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/common.h -mavx2 -mno-avx256-split-unaligned-load -mno-avx256-split-unaligned-store 2>/dev/null || true)"
+        },
+        "conditions": [
+          ['supports_avx2_nosplit!=""', {
+            "cflags": ["-mno-avx256-split-unaligned-load", "-mno-avx256-split-unaligned-store"],
+            "cxxflags": ["-mno-avx256-split-unaligned-load", "-mno-avx256-split-unaligned-store"],
+            "xcode_settings": {
+              "OTHER_CFLAGS": ["-mno-avx256-split-unaligned-load", "-mno-avx256-split-unaligned-store"],
+              "OTHER_CXXFLAGS": ["-mno-avx256-split-unaligned-load", "-mno-avx256-split-unaligned-store"],
+            }
+          }]
+        ]
+      }]
     ],
     "defines": ["YENC_ENABLE_AVX256=0"],
     "cflags": ["-Wno-unused-function"],
