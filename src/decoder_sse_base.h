@@ -202,8 +202,15 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 					{
 						match1NlA = _mm_and_si128(match1LfA, cmpCrA);
 						match1NlB = _mm_and_si128(match1LfB, cmpCrB);
-						match2NlDotA = _mm_and_si128(match2DotA, match1NlA);
-						match2NlDotB = _mm_and_si128(match2DotB, match1NlB);
+						// recompute match2Dot to avoid some register spills, though compiler may not oblige
+						match2NlDotA = _mm_and_si128(
+							_mm_cmpeq_epi8(_mm_set1_epi8('.'), _mm_loadu_si128((__m128i*)(src+i+2))),
+							match1NlA
+						);
+						match2NlDotB = _mm_and_si128(
+							_mm_cmpeq_epi8(_mm_set1_epi8('.'), _mm_loadu_si128((__m128i*)(src+i+2) + 1)),
+							match1NlB
+						);
 					}
 					if(searchEnd) {
 						__m128i tmpData3A = _mm_loadu_si128((__m128i*)(src+i+3));
@@ -300,19 +307,21 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						_mm_loadu_si128((__m128i*)(src+i+3) + 1)
 					);
 					__m128i partialEndFound;
+					__m128i match3EqYA, match3EqYB;
 #ifdef __AVX512VL__
-					if(use_isa >= ISA_LEVEL_AVX3)
+					if(use_isa >= ISA_LEVEL_AVX3) {
+						match3EqYA = _mm_and_si128(match2EqA, match3YA);
 						partialEndFound = _mm_ternarylogic_epi32(
-							_mm_and_si128(match2EqA, match3YA),
-							match2EqB, match3YB,
+							match3EqYA, match2EqB, match3YB,
 							0xf8
 						);
-					else
+					} else
 #endif
-						partialEndFound = _mm_or_si128(
-							_mm_and_si128(match2EqA, match3YA),
-							_mm_and_si128(match2EqB, match3YB)
-						);
+					{
+						match3EqYA = _mm_and_si128(match2EqA, match3YA);
+						match3EqYB = _mm_and_si128(match2EqB, match3YB);
+						partialEndFound = _mm_or_si128(match3EqYA, match3EqYB);
+					}
 					if(LIKELIHOOD(0.001, _mm_movemask_epi8(partialEndFound))) {
 						// if the rare case of '=y' is found, do a more precise check
 						__m128i endFound;
@@ -328,20 +337,20 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 #ifdef __AVX512VL__
 						if(use_isa >= ISA_LEVEL_AVX3)
 							endFound = _mm_ternarylogic_epi32(
-								_mm_ternarylogic_epi32(match3YB, match2EqB, _mm_and_si128(match1LfB, cmpCrB), 0x80),
-								_mm_ternarylogic_epi32(match3YA, match2EqA, match1LfA, 0x80),
-								cmpCrA,
-								0xf8
+								_mm_ternarylogic_epi32(match3YB, match2EqB, match1LfB, 0x80), // match \n=y for B
+								_mm_ternarylogic_epi32(match3EqYA, match1LfA, cmpCrA, 0x80), // match \r\n=y for A
+								cmpCrB,
+								0xec // (B & cmpCrB) | A
 							);
 						else
 #endif
 							endFound = _mm_or_si128(
 								_mm_and_si128(
-									_mm_and_si128(match2EqA, match3YA),
+									match3EqYA,
 									_mm_and_si128(match1LfA, cmpCrA)
 								),
 								_mm_and_si128(
-									_mm_and_si128(match2EqB, match3YB),
+									match3EqYB,
 									_mm_and_si128(match1LfB, cmpCrB)
 								)
 							);

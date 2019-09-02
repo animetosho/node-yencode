@@ -76,7 +76,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 		),
 		cmpB = vqtbx1q_u8(
 			cmpEqB,
-			//                                \n      \r
 			(uint8x16_t){0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
 			dataB
 		);
@@ -159,14 +158,16 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #ifdef __aarch64__
 				uint8x16_t cmpCrA = vceqq_u8(dataA, vdupq_n_u8('\r'));
 				uint8x16_t cmpCrB = vceqq_u8(dataB, vdupq_n_u8('\r'));
+# define NEXT_DATA(n) vextq_u8(dataB, nextData, n)
+#else
+// on ARMv7, prefer loading over VEXT to avoid holding onto nextData reference; this reduces register spills. Shouldn't be an issue on ARMv8 due to 32x 128-bit registers
+# define NEXT_DATA(n) vld1q_u8(src+i + n+sizeof(uint8x16_t))
 #endif
-				uint8x16_t match2EqA, match3YA, match2DotA;
-				uint8x16_t match2EqB, match3YB, match2DotB;
+				uint8x16_t match2EqA, match2DotA;
+				uint8x16_t match2EqB, match2DotB;
 				if(searchEnd) {
 					match2EqA = vextq_u8(cmpEqA, cmpEqB, 2);
 					match2EqB = vceqq_u8(tmpData2, vdupq_n_u8('='));
-					match3YA  = vceqq_u8(vextq_u8(dataA, dataB, 3), vdupq_n_u8('y'));
-					match3YB  = vceqq_u8(vextq_u8(dataB, nextData, 3), vdupq_n_u8('y'));
 				}
 				if(isRaw) {
 					match2DotA = vceqq_u8(vextq_u8(dataA, dataB, 2), vdupq_n_u8('.'));
@@ -181,26 +182,33 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 					uint8x16_t match1LfA = vceqq_u8(vextq_u8(dataA, dataB, 1), vdupq_n_u8('\n'));
 					uint8x16_t match1LfB;
 					if(searchEnd)
-						match1LfB = vceqq_u8(vextq_u8(dataB, nextData, 1), vdupq_n_u8('\n'));
+						match1LfB = vceqq_u8(NEXT_DATA(1), vdupq_n_u8('\n'));
 					else
 						match1LfB = vceqq_u8(vld1q_u8(src+i + 1+sizeof(uint8x16_t)), vdupq_n_u8('\n'));
 					uint8x16_t match1NlA = vandq_u8(match1LfA, cmpCrA);
 					uint8x16_t match1NlB = vandq_u8(match1LfB, cmpCrB);
 					// merge matches of \r\n with those for .
+#ifdef __aarch64__
 					uint8x16_t match2NlDotA = vandq_u8(match2DotA, match1NlA);
 					uint8x16_t match2NlDotB = vandq_u8(match2DotB, match1NlB);
+#else
+					// try to get compiler to recompute match2Dot to avoid register spilling above
+					uint8x16_t match2NlDotA = vandq_u8(vceqq_u8(vextq_u8(dataA, dataB, 2), vdupq_n_u8('.')), match1NlA);
+					uint8x16_t match2NlDotB = vandq_u8(vceqq_u8(NEXT_DATA(2), vdupq_n_u8('.')), match1NlB);
+#endif
 					if(searchEnd) {
-						uint8x16_t tmpData4 = vextq_u8(dataB, nextData, 4);
+						uint8x16_t tmpData3 = NEXT_DATA(3);
+						uint8x16_t tmpData4 = NEXT_DATA(4);
 						// match instances of \r\n.\r\n and \r\n.=y
 						uint8x16_t match3CrA = vextq_u8(cmpCrA, cmpCrB, 3);
-						uint8x16_t match3CrB = vceqq_u8(vextq_u8(dataB, nextData, 3), vdupq_n_u8('\r'));
+						uint8x16_t match3CrB = vceqq_u8(tmpData3, vdupq_n_u8('\r'));
 						uint8x16_t match4LfA = vextq_u8(match1LfA, match1LfB, 3);
 						uint8x16_t match4LfB = vceqq_u8(tmpData4, vdupq_n_u8('\n'));
 						uint8x16_t match4EqYA = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(vextq_u8(dataA, dataB, 4)), vdupq_n_u16(0x793d))); // =y
 						uint8x16_t match4EqYB = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d))); // =y
 						
-						uint8x16_t match3EqYA = vandq_u8(match2EqA, match3YA);
-						uint8x16_t match3EqYB = vandq_u8(match2EqB, match3YB);
+						uint8x16_t match3EqYA = vandq_u8(match2EqA, vceqq_u8(vextq_u8(dataA, dataB, 3), vdupq_n_u8('y')));
+						uint8x16_t match3EqYB = vandq_u8(match2EqB, vceqq_u8(tmpData3, vdupq_n_u8('y')));
 						match4EqYA = vreinterpretq_u8_u16(vshlq_n_u16(vreinterpretq_u16_u8(match4EqYA), 8));
 						match4EqYB = vreinterpretq_u8_u16(vshlq_n_u16(vreinterpretq_u16_u8(match4EqYB), 8));
 						// merge \r\n and =y matches for tmpData4
@@ -264,26 +272,23 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 					), vget_high_u8(lfCompare));
 #endif
 				} else if(searchEnd) {
+					uint8x16_t match3EqYA = vandq_u8(match2EqA, vceqq_u8(vextq_u8(dataA, dataB, 3), vdupq_n_u8('y')));
+					uint8x16_t match3EqYB = vandq_u8(match2EqB, vceqq_u8(NEXT_DATA(3), vdupq_n_u8('y')));
 					if(LIKELIHOOD(0.001, neon_vect_is_nonzero(vorrq_u8(
-						vandq_u8(match2EqA, match3YA),
-						vandq_u8(match2EqB, match3YB)
+						match3EqYA, match3EqYB
 					)))) {
 						uint8x16_t match1LfA = vceqq_u8(vextq_u8(dataA, dataB, 1), vdupq_n_u8('\n'));
-						uint8x16_t match1LfB = vceqq_u8(vextq_u8(dataB, nextData, 1), vdupq_n_u8('\n'));
+						uint8x16_t match1LfB = vceqq_u8(NEXT_DATA(1), vdupq_n_u8('\n'));
 						uint8x16_t matchEnd = vorrq_u8(
-							vandq_u8(
-								vandq_u8(match2EqA, match3YA),
-								vandq_u8(match1LfA, cmpCrA)
-							), vandq_u8(
-								vandq_u8(match2EqB, match3YB),
-								vandq_u8(match1LfB, cmpCrB)
-							)
+							vandq_u8(match3EqYA, vandq_u8(match1LfA, cmpCrA)),
+							vandq_u8(match3EqYB, vandq_u8(match1LfB, cmpCrB))
 						);
 						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(matchEnd))) {
 							len += i;
 							break;
 						}
 					}
+#undef NEXT_DATA
 					if(isRaw)
 #ifdef __aarch64__
 						nextMask = 0;

@@ -75,19 +75,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			if((isRaw || searchEnd) && LIKELIHOOD(0.3, mask != maskEq)) {
 				__m256i tmpData2A = _mm256_loadu_si256((__m256i *)(src+i+2));
 				__m256i tmpData2B = _mm256_loadu_si256((__m256i *)(src+i+2) + 1);
-				__m256i match2EqA, match3YA, match2DotA;
-				__m256i match2EqB, match3YB, match2DotB;
+				__m256i match2EqA, match2DotA;
+				__m256i match2EqB, match2DotB;
 				if(searchEnd) {
 					match2EqA = _mm256_cmpeq_epi8(_mm256_set1_epi8('='), tmpData2A);
 					match2EqB = _mm256_cmpeq_epi8(_mm256_set1_epi8('='), tmpData2B);
-					match3YA  = _mm256_cmpeq_epi8(
-						_mm256_set1_epi8('y'),
-						_mm256_loadu_si256((__m256i *)(src+i+3))
-					);
-					match3YB  = _mm256_cmpeq_epi8(
-						_mm256_set1_epi8('y'),
-						_mm256_loadu_si256((__m256i *)(src+i+3) + 1)
-					);
 				}
 				
 				__m256i partialKillDotFound;
@@ -132,8 +124,14 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 					{
 						match1NlA = _mm256_and_si256(match1LfA, cmpCrA);
 						match1NlB = _mm256_and_si256(match1LfB, cmpCrB);
-						match2NlDotA = _mm256_and_si256(match2DotA, match1NlA);
-						match2NlDotB = _mm256_and_si256(match2DotB, match1NlB);
+						match2NlDotA = _mm256_and_si256(
+							_mm256_cmpeq_epi8(_mm256_set1_epi8('.'), _mm256_loadu_si256((__m256i *)(src+i+2))), // match2DotA
+							match1NlA
+						);
+						match2NlDotB = _mm256_and_si256(
+							_mm256_cmpeq_epi8(_mm256_set1_epi8('.'), _mm256_loadu_si256((__m256i *)(src+i+2) + 1)), // match2DotB
+							match1NlB
+						);
 					}
 					if(searchEnd) {
 						__m256i tmpData4A = _mm256_loadu_si256((__m256i *)(src+i+4));
@@ -153,8 +151,14 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 						__m256i match4EqYB = _mm256_cmpeq_epi16(tmpData4B, _mm256_set1_epi16(0x793d)); // =y
 						
 						__m256i matchEnd;
-						__m256i match3EqYA = _mm256_and_si256(match2EqA, match3YA);
-						__m256i match3EqYB = _mm256_and_si256(match2EqB, match3YB);
+						__m256i match3EqYA = _mm256_and_si256(match2EqA, _mm256_cmpeq_epi8(
+							_mm256_set1_epi8('y'),
+							_mm256_loadu_si256((__m256i *)(src+i+3))
+						));
+						__m256i match3EqYB = _mm256_and_si256(match2EqB, _mm256_cmpeq_epi8(
+							_mm256_set1_epi8('y'),
+							_mm256_loadu_si256((__m256i *)(src+i+3) + 1)
+						));
 #ifdef __AVX512VL__
 						if(use_isa >= ISA_LEVEL_AVX3) {
 							// match \r\n=y
@@ -223,20 +227,28 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				}
 				else if(searchEnd) {
 					__m256i partialEndFound;
-					
+					__m256i match3YA = _mm256_cmpeq_epi8(
+						_mm256_set1_epi8('y'),
+						_mm256_loadu_si256((__m256i *)(src+i+3))
+					);
+					__m256i match3YB = _mm256_cmpeq_epi8(
+						_mm256_set1_epi8('y'),
+						_mm256_loadu_si256((__m256i *)(src+i+3) + 1)
+					);
+					__m256i match3EqYA, match3EqYB;
 #ifdef __AVX512VL__
-					if(use_isa >= ISA_LEVEL_AVX3)
+					if(use_isa >= ISA_LEVEL_AVX3) {
+						match3EqYA = _mm256_and_si256(match2EqA, match3YA);
 						partialEndFound = _mm256_ternarylogic_epi32(
-							_mm256_and_si256(match2EqA, match3YA),
-							match2EqB, match3YB,
-							0xf8
+							match3EqYA, match2EqB, match3YB, 0xf8
 						);
-					else
+					} else
 #endif
-						partialEndFound = _mm256_or_si256(
-							_mm256_and_si256(match2EqA, match3YA),
-							_mm256_and_si256(match2EqB, match3YB)
-						);
+					{
+						match3EqYA = _mm256_and_si256(match2EqA, match3YA);
+						match3EqYB = _mm256_and_si256(match2EqB, match3YB);
+						partialEndFound = _mm256_or_si256(match3EqYA, match3EqYB);
+					}
 					if(LIKELIHOOD(0.002, _mm256_movemask_epi8(partialEndFound))) {
 						__m256i endNotFound;
 						__m256i match1LfA = _mm256_cmpeq_epi8(
@@ -250,20 +262,20 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 #ifdef __AVX512VL__
 						if(use_isa >= ISA_LEVEL_AVX3)
 							endNotFound = _mm256_ternarylogic_epi32(
-								_mm256_ternarylogic_epi32(match3YB, match2EqB, _mm256_and_si256(match1LfB, cmpCrB), 0x80),
-								_mm256_ternarylogic_epi32(match3YA, match2EqA, match1LfA, 0x80),
-								cmpCrA,
-								0xf8
+								_mm256_ternarylogic_epi32(match3YB, match2EqB, match1LfB, 0x80), // match \n=y for B
+								_mm256_ternarylogic_epi32(match3EqYA, match1LfA, cmpCrA, 0x80), // match \r\n=y for A
+								cmpCrB,
+								0xec // (B & cmpCrB) | A
 							);
 						else
 #endif
 							endNotFound = _mm256_or_si256(
 								_mm256_and_si256(
-									_mm256_and_si256(match2EqA, match3YA),
+									match3EqYA,
 									_mm256_and_si256(match1LfA, cmpCrA)
 								),
 								_mm256_and_si256(
-									_mm256_and_si256(match2EqB, match3YB),
+									match3EqYB,
 									_mm256_and_si256(match1LfB, cmpCrB)
 								)
 							);
