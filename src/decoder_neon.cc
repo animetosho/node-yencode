@@ -6,6 +6,20 @@
 #endif
 #include "decoder_common.h"
 
+#define _X3(n, k) ((((n) & (1<<k)) ? 150ULL : 214ULL) << (k*8))
+#define _X2(n) \
+	_X3(n, 0) | _X3(n, 1) | _X3(n, 2) | _X3(n, 3) | _X3(n, 4) | _X3(n, 5) | _X3(n, 6) | _X3(n, 7)
+#define _X(n) _X2(n+0), _X2(n+1), _X2(n+2), _X2(n+3), _X2(n+4), _X2(n+5), _X2(n+6), _X2(n+7), \
+	_X2(n+8), _X2(n+9), _X2(n+10), _X2(n+11), _X2(n+12), _X2(n+13), _X2(n+14), _X2(n+15)
+static uint64_t ALIGN_TO(8, eqAddLUT[256]) = {
+	_X(0), _X(16), _X(32), _X(48), _X(64), _X(80), _X(96), _X(112),
+	_X(128), _X(144), _X(160), _X(176), _X(192), _X(208), _X(224), _X(240)
+};
+#undef _X3
+#undef _X2
+#undef _X
+
+
 static uint16_t neon_movemask(uint8x16_t in) {
 	uint8x16_t mask = vandq_u8(in, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 # if defined(__aarch64__)
@@ -86,8 +100,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #endif
 		
 		
-		uint8x16_t oDataA = vsubq_u8(dataA, yencOffset);
-		uint8x16_t oDataB = vsubq_u8(dataB, vdupq_n_u8(42));
 		
 #ifdef __aarch64__
 		if (LIKELIHOOD(0.42 /*guess*/, neon_vect_is_nonzero(vorrq_u8(cmpA, cmpB))) || (isRaw && LIKELIHOOD(0.001, nextMask!=0))) {
@@ -298,22 +310,21 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				}
 				maskEq = maskEq2;
 				
-				mask &= ~escFirst;
-				escFirst = tmp>>7;
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
-				maskEq <<= 1;
+				maskEq = (maskEq<<1) | escFirst;
 				mask &= ~maskEq;
+				escFirst = tmp>>7;
 				
 				// unescape chars following `=`
-				oDataA = vaddq_u8(
-					oDataA,
+				dataA = vaddq_u8(
+					dataA,
 					vcombine_u8(
 						vld1_u8((uint8_t*)(eqAddLUT + (maskEq&0xff))),
 						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>8)&0xff)))
 					)
 				);
-				oDataB = vaddq_u8(
-					oDataB,
+				dataB = vaddq_u8(
+					dataB,
 					vcombine_u8(
 						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>16)&0xff))),
 						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>24)&0xff)))
@@ -324,18 +335,20 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				// this code path is a shortened version of above; it's here because it's faster, and what we'll be dealing with most of the time
 				escFirst = (maskEq >> 31);
 				
-				oDataA = vaddq_u8(
-					oDataA,
-					vandq_u8(
+				dataA = vsubq_u8(
+					dataA,
+					vbslq_u8(
 						vextq_u8(vdupq_n_u8(0), cmpEqA, 15),
-						vdupq_n_u8(-64)
+						vdupq_n_u8(64+42),
+						yencOffset
 					)
 				);
-				oDataB = vaddq_u8(
-					oDataB,
-					vandq_u8(
+				dataB = vsubq_u8(
+					dataB,
+					vbslq_u8(
 						vextq_u8(cmpEqA, cmpEqB, 15),
-						vdupq_n_u8(-64)
+						vdupq_n_u8(64+42),
+						vdupq_n_u8(42)
 					)
 				);
 			}
@@ -344,13 +357,13 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			// all that's left is to 'compress' the data (skip over masked chars)
 #ifdef __aarch64__
 			vst1q_u8(p, vqtbl1q_u8(
-				oDataA,
+				dataA,
 				vld1q_u8((uint8_t*)(unshufLUTBig + (mask&0x7fff)))
 			));
 			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
 			mask >>= 16;
 			vst1q_u8(p, vqtbl1q_u8(
-				oDataB,
+				dataB,
 				vld1q_u8((uint8_t*)(unshufLUTBig + (mask&0x7fff)))
 			));
 			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[mask >> 8];
@@ -360,25 +373,25 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #  define unshufLUT unshufLUTBig
 # endif
 			vst1_u8(p, vtbl1_u8(
-				vget_low_u8(oDataA),
+				vget_low_u8(dataA),
 				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
 			));
 			p += BitsSetTable256inv[mask & 0xff];
 			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
-				vget_high_u8(oDataA),
+				vget_high_u8(dataA),
 				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
 			));
 			p += BitsSetTable256inv[mask & 0xff];
 			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
-				vget_low_u8(oDataB),
+				vget_low_u8(dataB),
 				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
 			));
 			p += BitsSetTable256inv[mask & 0xff];
 			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
-				vget_high_u8(oDataB),
+				vget_high_u8(dataB),
 				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
 			));
 			p += BitsSetTable256inv[mask & 0xff];
@@ -389,8 +402,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #endif
 			
 		} else {
-			vst1q_u8(p, oDataA);
-			vst1q_u8(p+sizeof(uint8x16_t), oDataB);
+			dataA = vsubq_u8(dataA, yencOffset);
+			dataB = vsubq_u8(dataB, vdupq_n_u8(42));
+			vst1q_u8(p, dataA);
+			vst1q_u8(p+sizeof(uint8x16_t), dataB);
 			p += sizeof(uint8x16_t)*2;
 			escFirst = 0;
 #ifdef __aarch64__

@@ -478,7 +478,6 @@ int do_decode_simd(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HED
 }
 
 static uint8_t eqFixLUT[256];
-static uint64_t ALIGN_TO(8, eqAddLUT[256]);
 #ifdef YENC_DEC_USE_THINTABLE
 static uint64_t ALIGN_TO(8, unshufLUT[256]);
 #else
@@ -490,7 +489,6 @@ static struct { char bytes[16]; } ALIGN_TO(16, unshufLUTBig[32768]);
 static inline void decoder_init_lut() {
 	for(int i=0; i<256; i++) {
 		int k = i;
-		uint8_t* res;
 		int p = 0;
 		
 		// fix LUT
@@ -505,16 +503,8 @@ static inline void decoder_init_lut() {
 		}
 		eqFixLUT[i] = p;
 		
-		// sub LUT
-		res = (uint8_t*)(eqAddLUT + i);
-		k = i;
-		for(int j=0; j<8; j++) {
-			res[j] = (k & 1) ? 192 /* == -64 */ : 0;
-			k >>= 1;
-		}
-		
 		#ifdef YENC_DEC_USE_THINTABLE
-		res = (uint8_t*)(unshufLUT + i);
+		uint8_t* res = (uint8_t*)(unshufLUT + i);
 		k = i;
 		p = 0;
 		for(int j=0; j<8; j++) {
