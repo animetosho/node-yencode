@@ -214,11 +214,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 						// merge \r\n and =y matches for tmpData4
 						uint8x16_t match4EndA = vorrq_u8(
 							vandq_u8(match3CrA, match4LfA),
-							vorrq_u8(match4EqYA, vreinterpretq_u8_u16(vshrq_n_u16(vreinterpretq_u16_u8(match3EqYA), 8)))
+							vreinterpretq_u8_u16(vsriq_n_u16(vreinterpretq_u16_u8(match4EqYA), vreinterpretq_u16_u8(match3EqYA), 8))
 						);
 						uint8x16_t match4EndB = vorrq_u8(
 							vandq_u8(match3CrB, match4LfB),
-							vorrq_u8(match4EqYB, vreinterpretq_u8_u16(vshrq_n_u16(vreinterpretq_u16_u8(match3EqYB), 8)))
+							vreinterpretq_u8_u16(vsriq_n_u16(vreinterpretq_u16_u8(match4EqYB), vreinterpretq_u16_u8(match3EqYB), 8))
 						);
 						// merge with \r\n.
 						match4EndA = vandq_u8(match4EndA, match2NlDotA);

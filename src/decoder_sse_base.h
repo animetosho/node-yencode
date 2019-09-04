@@ -233,8 +233,17 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 							// match \r\n=y
 							__m128i match3EndA = _mm_ternarylogic_epi32(match1LfA, cmpCrA, match3EqYA, 0x80); // match3EqY & match1Nl
 							__m128i match3EndB = _mm_ternarylogic_epi32(match1LfB, cmpCrB, match3EqYB, 0x80);
-							__m128i match34EqYA = _mm_ternarylogic_epi32(match4EqYA, _mm_srli_epi16(match3EqYA, 8), _mm_set1_epi16(-256), 0xEC); // (match4EqY & 0xff00) | (match3EqY >> 8)
-							__m128i match34EqYB = _mm_ternarylogic_epi32(match4EqYB, _mm_srli_epi16(match3EqYB, 8), _mm_set1_epi16(-256), 0xEC);
+							__m128i match34EqYA, match34EqYB;
+# ifdef __AVX512VBMI2__
+							if(use_isa >= ISA_LEVEL_VBMI2) {
+								match34EqYA = _mm_shrdi_epi16(match3EqYA, match4EqYA, 8);
+								match34EqYB = _mm_shrdi_epi16(match3EqYB, match4EqYB, 8);
+							} else
+# endif
+							{
+								match34EqYA = _mm_ternarylogic_epi32(match4EqYA, _mm_srli_epi16(match3EqYA, 8), _mm_set1_epi16(-0xff), 0xEC); // (match4EqY & 0xff00) | (match3EqY >> 8)
+								match34EqYB = _mm_ternarylogic_epi32(match4EqYB, _mm_srli_epi16(match3EqYB, 8), _mm_set1_epi16(-0xff), 0xEC);
+							}
 							// merge \r\n and =y matches for tmpData4
 							__m128i match4EndA = _mm_ternarylogic_epi32(match34EqYA, match3CrA, match4LfA, 0xF8); // (match3Cr & match4Lf) | match34EqY
 							__m128i match4EndB = _mm_ternarylogic_epi32(match34EqYB, match3CrB, match4LfB, 0xF8);
