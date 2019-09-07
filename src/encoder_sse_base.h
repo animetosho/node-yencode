@@ -25,6 +25,7 @@ struct TShufMix {
 #pragma pack()
 static struct TShufMix ALIGN_TO(32, shufMixLUT[256]);
 static __m128i ALIGN_TO(16, mixLUT[256]);
+static __m128i ALIGN_TO(16, nlMixLUT[256]);
 static struct TShufMix ALIGN_TO(32, nlShufMixLUT[256]);
 
 static void encoder_sse_lut() {
@@ -77,6 +78,13 @@ static void encoder_sse_lut() {
 		_mm_store_si128(mixLUT + i, _mm_add_epi8(
 			addMask,
 			_mm_andnot_si128(maskEsc, _mm_set1_epi8(42))
+		));
+		
+		__m128i mix = _mm_load_si128((__m128i*)nlMix);
+		__m128i plainChars = _mm_cmpeq_epi8(_mm_and_si128(mix, _mm_set1_epi8(255-64)), _mm_setzero_si128());
+		_mm_store_si128(nlMixLUT + i, _mm_add_epi8(
+			mix,
+			_mm_and_si128(plainChars, _mm_set1_epi8(42))
 		));
 	}
 }
@@ -302,7 +310,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 					);
 				}
 				
-				__m128i shufMixMA = _mm_load_si128(mixLUT + m1);
+				__m128i shufMixMA = _mm_load_si128(nlMixLUT + m1);
 				data1 = _mm_add_epi8(data1, shufMixMA);
 			}
 		}
@@ -361,8 +369,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			data = _mm_sub_epi8(oData, _mm_set1_epi8(-42));
 			__m128i mergeMask = _mm_set_epi32(0, 0, 0, 0xff);
 			data1 = _mm_or_si128(
-				_mm_and_si128(mergeMask, data1),
-				_mm_slli_si128(_mm_andnot_si128(mergeMask, data1), 2)
+				_mm_and_si128(mergeMask, data),
+				_mm_slli_si128(_mm_andnot_si128(mergeMask, data), 2)
 			);
 		}
 		data1 = _mm_or_si128(data1, _mm_cvtsi32_si128(0x0a0d00));
