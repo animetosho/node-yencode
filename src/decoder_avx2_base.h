@@ -77,6 +77,13 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				__m256i tmpData2B = _mm256_loadu_si256((__m256i *)(src+i+2) + 1);
 				__m256i match2EqA, match2DotA;
 				__m256i match2EqB, match2DotB;
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+				__mmask32 match2EqMaskA, match2EqMaskB;
+				if(use_isa >= ISA_LEVEL_AVX3 && searchEnd) {
+					match2EqMaskA = _mm256_cmpeq_epi8_mask(_mm256_set1_epi8('='), tmpData2A);
+					match2EqMaskB = _mm256_cmpeq_epi8_mask(_mm256_set1_epi8('='), tmpData2B);
+				} else
+#endif
 				if(searchEnd) {
 					match2EqA = _mm256_cmpeq_epi8(_mm256_set1_epi8('='), tmpData2A);
 					match2EqB = _mm256_cmpeq_epi8(_mm256_set1_epi8('='), tmpData2B);
@@ -151,29 +158,32 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 						__m256i match4EqYB = _mm256_cmpeq_epi16(tmpData4B, _mm256_set1_epi16(0x793d)); // =y
 						
 						__m256i matchEnd;
-						__m256i match3EqYA = _mm256_and_si256(match2EqA, _mm256_cmpeq_epi8(
-							_mm256_set1_epi8('y'),
-							_mm256_loadu_si256((__m256i *)(src+i+3))
-						));
-						__m256i match3EqYB = _mm256_and_si256(match2EqB, _mm256_cmpeq_epi8(
-							_mm256_set1_epi8('y'),
-							_mm256_loadu_si256((__m256i *)(src+i+3) + 1)
-						));
-#ifdef __AVX512VL__
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
 						if(use_isa >= ISA_LEVEL_AVX3) {
+							__mmask32 match3EqYMaskA = _mm256_mask_cmpeq_epi8_mask(
+								match2EqMaskA,
+								_mm256_set1_epi8('y'),
+								_mm256_loadu_si256((__m256i *)(src+i+3))
+							);
+							__mmask32 match3EqYMaskB = _mm256_mask_cmpeq_epi8_mask(
+								match2EqMaskB,
+								_mm256_set1_epi8('y'),
+								_mm256_loadu_si256((__m256i *)(src+i+3) + 1)
+							);
 							// match \r\n=y
-							__m256i match3EndA = _mm256_ternarylogic_epi32(match1LfA, cmpCrA, match3EqYA, 0x80); // match3EqY & match1Nl
-							__m256i match3EndB = _mm256_ternarylogic_epi32(match1LfB, cmpCrB, match3EqYB, 0x80);
+							__m256i match3EndA = _mm256_maskz_min_epu8(match3EqYMaskA, match1LfA, cmpCrA); // match3EqY & match1Nl
+							__m256i match3EndB = _mm256_maskz_min_epu8(match3EqYMaskB, match1LfB, cmpCrB);
 							__m256i match34EqYA, match34EqYB;
 # ifdef __AVX512VBMI2__
 							if(use_isa >= ISA_LEVEL_VBMI2) {
-								match34EqYA = _mm256_shrdi_epi16(match3EqYA, match4EqYA, 8);
-								match34EqYB = _mm256_shrdi_epi16(match3EqYB, match4EqYB, 8);
+								match34EqYA = _mm256_shrdi_epi16(_mm256_movm_epi8(match3EqYMaskA), match4EqYA, 8);
+								match34EqYB = _mm256_shrdi_epi16(_mm256_movm_epi8(match3EqYMaskB), match4EqYB, 8);
 							} else
 # endif
 							{
-								match34EqYA = _mm256_ternarylogic_epi32(match4EqYA, _mm256_srli_epi16(match3EqYA, 8), _mm256_set1_epi16(-0xff), 0xEC); // (match4EqY & 0xff00) | (match3EqY >> 8)
-								match34EqYB = _mm256_ternarylogic_epi32(match4EqYB, _mm256_srli_epi16(match3EqYB, 8), _mm256_set1_epi16(-0xff), 0xEC);
+								// (match4EqY & 0xff00) | (match3EqY >> 8)
+								match34EqYA = _mm256_mask_blend_epi8(match3EqYMaskA>>1, _mm256_and_si256(match4EqYA, _mm256_set1_epi16(-0xff)), _mm256_set1_epi8(-1));
+								match34EqYB = _mm256_mask_blend_epi8(match3EqYMaskB>>1, _mm256_and_si256(match4EqYB, _mm256_set1_epi16(-0xff)), _mm256_set1_epi8(-1));
 							}
 							// merge \r\n and =y matches for tmpData4
 							__m256i match4EndA = _mm256_ternarylogic_epi32(match34EqYA, match3CrA, match4LfA, 0xF8); // (match3Cr & match4Lf) | match34EqY
@@ -186,6 +196,14 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 						} else
 #endif
 						{
+							__m256i match3EqYA = _mm256_and_si256(match2EqA, _mm256_cmpeq_epi8(
+								_mm256_set1_epi8('y'),
+								_mm256_loadu_si256((__m256i *)(src+i+3))
+							));
+							__m256i match3EqYB = _mm256_and_si256(match2EqB, _mm256_cmpeq_epi8(
+								_mm256_set1_epi8('y'),
+								_mm256_loadu_si256((__m256i *)(src+i+3) + 1)
+							));
 							match4EqYA = _mm256_slli_epi16(match4EqYA, 8); // TODO: also consider using PBLENDVB here with shifted match3EqY instead
 							match4EqYB = _mm256_slli_epi16(match4EqYB, 8);
 							// merge \r\n and =y matches for tmpData4
@@ -235,50 +253,80 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 					}
 				}
 				else if(searchEnd) {
-					__m256i partialEndFound;
-					__m256i match3YA = _mm256_cmpeq_epi8(
-						_mm256_set1_epi8('y'),
-						_mm256_loadu_si256((__m256i *)(src+i+3))
-					);
-					__m256i match3YB = _mm256_cmpeq_epi8(
-						_mm256_set1_epi8('y'),
-						_mm256_loadu_si256((__m256i *)(src+i+3) + 1)
-					);
+					bool partialEndFound;
 					__m256i match3EqYA, match3EqYB;
-#ifdef __AVX512VL__
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+					__mmask32 match3EqYMaskA, match3EqYMaskB;
 					if(use_isa >= ISA_LEVEL_AVX3) {
-						match3EqYA = _mm256_and_si256(match2EqA, match3YA);
-						partialEndFound = _mm256_ternarylogic_epi32(
-							match3EqYA, match2EqB, match3YB, 0xf8
+						match3EqYMaskA = _mm256_mask_cmpeq_epi8_mask(
+							match2EqMaskA,
+							_mm256_set1_epi8('y'),
+							_mm256_loadu_si256((__m256i *)(src+i+3))
 						);
+						match3EqYMaskB = _mm256_mask_cmpeq_epi8_mask(
+							match2EqMaskB,
+							_mm256_set1_epi8('y'),
+							_mm256_loadu_si256((__m256i *)(src+i+3) + 1)
+						);
+# if defined(__GNUC__) && __GNUC__ >= 7
+						// GCC (ver 6-10(dev)) fails to optimize pure C version, but has this intrinsic; Clang >= 7 optimizes C version fine
+						partialEndFound = !_kortestz_mask32_u8(match3EqYMaskA, match3EqYMaskB);
+# else
+						partialEndFound = !(match3EqYMaskA | match3EqYMaskB);
+# endif
 					} else
 #endif
 					{
+						__m256i match3YA = _mm256_cmpeq_epi8(
+							_mm256_set1_epi8('y'),
+							_mm256_loadu_si256((__m256i *)(src+i+3))
+						);
+						__m256i match3YB = _mm256_cmpeq_epi8(
+							_mm256_set1_epi8('y'),
+							_mm256_loadu_si256((__m256i *)(src+i+3) + 1)
+						);
 						match3EqYA = _mm256_and_si256(match2EqA, match3YA);
 						match3EqYB = _mm256_and_si256(match2EqB, match3YB);
-						partialEndFound = _mm256_or_si256(match3EqYA, match3EqYB);
+						partialEndFound = _mm256_movemask_epi8(_mm256_or_si256(match3EqYA, match3EqYB));
 					}
-					if(LIKELIHOOD(0.002, _mm256_movemask_epi8(partialEndFound))) {
-						__m256i endNotFound;
-						__m256i match1LfA = _mm256_cmpeq_epi8(
-							_mm256_set1_epi8('\n'),
-							_mm256_loadu_si256((__m256i *)(src+i+1))
-						);
-						__m256i match1LfB = _mm256_cmpeq_epi8(
-							_mm256_set1_epi8('\n'),
-							_mm256_loadu_si256((__m256i *)(src+i+1) + 1)
-						);
-#ifdef __AVX512VL__
-						if(use_isa >= ISA_LEVEL_AVX3)
-							endNotFound = _mm256_ternarylogic_epi32(
-								_mm256_ternarylogic_epi32(match3YB, match2EqB, match1LfB, 0x80), // match \n=y for B
-								_mm256_ternarylogic_epi32(match3EqYA, match1LfA, cmpCrA, 0x80), // match \r\n=y for A
-								cmpCrB,
-								0xec // (B & cmpCrB) | A
+					if(LIKELIHOOD(0.002, partialEndFound)) {
+						bool endFound;
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+						if(use_isa >= ISA_LEVEL_AVX3) {
+							__mmask32 match3LfEqYMaskA = _mm256_mask_cmpeq_epi8_mask(
+								match3EqYMaskA,
+								_mm256_set1_epi8('\n'),
+								_mm256_loadu_si256((__m256i *)(src+i+1))
 							);
-						else
+							__mmask32 match3LfEqYMaskB = _mm256_mask_cmpeq_epi8_mask(
+								match3EqYMaskB,
+								_mm256_set1_epi8('\n'),
+								_mm256_loadu_si256((__m256i *)(src+i+1) + 1)
+							);
+							
+# if defined(__GNUC__) && __GNUC__ >= 7
+							endFound = !_kortestz_mask32_u8(
+								_mm256_mask_test_epi8_mask(match3LfEqYMaskA, cmpCrA, cmpCrA),
+								_mm256_mask_test_epi8_mask(match3LfEqYMaskB, cmpCrB, cmpCrB)
+							);
+# else
+							endFound = !(
+								_mm256_mask_test_epi8_mask(match3LfEqYMaskA, cmpCrA, cmpCrA) |
+								_mm256_mask_test_epi8_mask(match3LfEqYMaskB, cmpCrB, cmpCrB)
+							);
+# endif
+						} else
 #endif
-							endNotFound = _mm256_or_si256(
+						{
+							__m256i match1LfA = _mm256_cmpeq_epi8(
+								_mm256_set1_epi8('\n'),
+								_mm256_loadu_si256((__m256i *)(src+i+1))
+							);
+							__m256i match1LfB = _mm256_cmpeq_epi8(
+								_mm256_set1_epi8('\n'),
+								_mm256_loadu_si256((__m256i *)(src+i+1) + 1)
+							);
+							endFound = _mm256_movemask_epi8(_mm256_or_si256(
 								_mm256_and_si256(
 									match3EqYA,
 									_mm256_and_si256(match1LfA, cmpCrA)
@@ -287,8 +335,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 									match3EqYB,
 									_mm256_and_si256(match1LfB, cmpCrB)
 								)
-							);
-						if(_mm256_movemask_epi8(endNotFound)) {
+							));
+						}
+						if(endFound) {
 							len += i;
 							break;
 						}

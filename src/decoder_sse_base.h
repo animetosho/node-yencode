@@ -157,6 +157,13 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				__m128i match2EqA, match2DotA;
 				__m128i match2EqB, match2DotB;
 				
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+				__mmask16 match2EqMaskA, match2EqMaskB;
+				if(use_isa >= ISA_LEVEL_AVX3 && searchEnd) {
+					match2EqMaskA = _mm_cmpeq_epi8_mask(_mm_set1_epi8('='), tmpData2A);
+					match2EqMaskB = _mm_cmpeq_epi8_mask(_mm_set1_epi8('='), tmpData2B);
+				} else
+#endif
 				if(searchEnd) {
 #if defined(__SSSE3__) && !defined(__tune_btver1__)
 					if(!isRaw && use_isa >= ISA_LEVEL_SSSE3)
@@ -226,23 +233,28 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						__m128i match4EqYB = _mm_cmpeq_epi16(tmpData4B, _mm_set1_epi16(0x793d)); // =y
 						
 						__m128i matchEnd;
-						__m128i match3EqYA = _mm_and_si128(match2EqA, _mm_cmpeq_epi8(_mm_set1_epi8('y'), tmpData3A));
-						__m128i match3EqYB = _mm_and_si128(match2EqB, _mm_cmpeq_epi8(_mm_set1_epi8('y'), tmpData3B));
-#ifdef __AVX512VL__
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
 						if(use_isa >= ISA_LEVEL_AVX3) {
+							__mmask16 match3EqYMaskA = _mm_mask_cmpeq_epi8_mask(
+								match2EqMaskA, _mm_set1_epi8('y'), tmpData3A
+							);
+							__mmask16 match3EqYMaskB = _mm_mask_cmpeq_epi8_mask(
+								match2EqMaskB, _mm_set1_epi8('y'), tmpData3B
+							);
 							// match \r\n=y
-							__m128i match3EndA = _mm_ternarylogic_epi32(match1LfA, cmpCrA, match3EqYA, 0x80); // match3EqY & match1Nl
-							__m128i match3EndB = _mm_ternarylogic_epi32(match1LfB, cmpCrB, match3EqYB, 0x80);
+							__m128i match3EndA = _mm_maskz_min_epu8(match3EqYMaskA, match1LfA, cmpCrA); // match3EqY & match1Nl
+							__m128i match3EndB = _mm_maskz_min_epu8(match3EqYMaskB, match1LfB, cmpCrB);
 							__m128i match34EqYA, match34EqYB;
 # ifdef __AVX512VBMI2__
 							if(use_isa >= ISA_LEVEL_VBMI2) {
-								match34EqYA = _mm_shrdi_epi16(match3EqYA, match4EqYA, 8);
-								match34EqYB = _mm_shrdi_epi16(match3EqYB, match4EqYB, 8);
+								match34EqYA = _mm_shrdi_epi16(_mm_movm_epi8(match3EqYMaskA), match4EqYA, 8);
+								match34EqYB = _mm_shrdi_epi16(_mm_movm_epi8(match3EqYMaskB), match4EqYB, 8);
 							} else
 # endif
 							{
-								match34EqYA = _mm_ternarylogic_epi32(match4EqYA, _mm_srli_epi16(match3EqYA, 8), _mm_set1_epi16(-0xff), 0xEC); // (match4EqY & 0xff00) | (match3EqY >> 8)
-								match34EqYB = _mm_ternarylogic_epi32(match4EqYB, _mm_srli_epi16(match3EqYB, 8), _mm_set1_epi16(-0xff), 0xEC);
+								// (match4EqY & 0xff00) | (match3EqY >> 8)
+								match34EqYA = _mm_mask_blend_epi8(match3EqYMaskA>>1, _mm_and_si128(match4EqYA, _mm_set1_epi16(-0xff)), _mm_set1_epi8(-1));
+								match34EqYB = _mm_mask_blend_epi8(match3EqYMaskB>>1, _mm_and_si128(match4EqYB, _mm_set1_epi16(-0xff)), _mm_set1_epi8(-1));
 							}
 							// merge \r\n and =y matches for tmpData4
 							__m128i match4EndA = _mm_ternarylogic_epi32(match34EqYA, match3CrA, match4LfA, 0xF8); // (match3Cr & match4Lf) | match34EqY
@@ -255,6 +267,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						} else
 #endif
 						{
+							__m128i match3EqYA = _mm_and_si128(match2EqA, _mm_cmpeq_epi8(_mm_set1_epi8('y'), tmpData3A));
+							__m128i match3EqYB = _mm_and_si128(match2EqB, _mm_cmpeq_epi8(_mm_set1_epi8('y'), tmpData3B));
 							match4EqYA = _mm_slli_epi16(match4EqYA, 8); // TODO: also consider using PBLENDVB here with shifted match3EqY instead
 							match4EqYB = _mm_slli_epi16(match4EqYB, 8);
 							// merge \r\n and =y matches for tmpData4
@@ -307,53 +321,82 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 					}
 				}
 				else if(searchEnd) {
-					__m128i match3YA = _mm_cmpeq_epi8(
-						_mm_set1_epi8('y'),
-						_mm_loadu_si128((__m128i*)(src+i+3))
-					);
-					__m128i match3YB = _mm_cmpeq_epi8(
-						_mm_set1_epi8('y'),
-						_mm_loadu_si128((__m128i*)(src+i+3) + 1)
-					);
-					__m128i partialEndFound;
+					bool partialEndFound;
 					__m128i match3EqYA, match3EqYB;
-#ifdef __AVX512VL__
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+					__mmask16 match3EqYMaskA, match3EqYMaskB;
 					if(use_isa >= ISA_LEVEL_AVX3) {
-						match3EqYA = _mm_and_si128(match2EqA, match3YA);
-						partialEndFound = _mm_ternarylogic_epi32(
-							match3EqYA, match2EqB, match3YB,
-							0xf8
+						match3EqYMaskA = _mm_mask_cmpeq_epi8_mask(
+							match2EqMaskA,
+							_mm_set1_epi8('y'),
+							_mm_loadu_si128((__m128i*)(src+i+3))
 						);
+						match3EqYMaskB = _mm_mask_cmpeq_epi8_mask(
+							match2EqMaskB,
+							_mm_set1_epi8('y'),
+							_mm_loadu_si128((__m128i*)(src+i+3) + 1)
+						);
+# if defined(__GNUC__) && __GNUC__ >= 7
+						// GCC (ver 6-10(dev)) fails to optimize pure C version, but has this intrinsic; Clang >= 7 optimizes C version fine
+						partialEndFound = !_kortestz_mask16_u8(match3EqYMaskA, match3EqYMaskB);
+# else
+						partialEndFound = !(match3EqYMaskA | match3EqYMaskB);
+# endif
 					} else
 #endif
 					{
+						__m128i match3YA = _mm_cmpeq_epi8(
+							_mm_set1_epi8('y'),
+							_mm_loadu_si128((__m128i*)(src+i+3))
+						);
+						__m128i match3YB = _mm_cmpeq_epi8(
+							_mm_set1_epi8('y'),
+							_mm_loadu_si128((__m128i*)(src+i+3) + 1)
+						);
 						match3EqYA = _mm_and_si128(match2EqA, match3YA);
 						match3EqYB = _mm_and_si128(match2EqB, match3YB);
-						partialEndFound = _mm_or_si128(match3EqYA, match3EqYB);
+						partialEndFound = _mm_movemask_epi8(_mm_or_si128(match3EqYA, match3EqYB));
 					}
-					if(LIKELIHOOD(0.001, _mm_movemask_epi8(partialEndFound))) {
+					if(LIKELIHOOD(0.001, partialEndFound)) {
 						// if the rare case of '=y' is found, do a more precise check
-						__m128i endFound;
-						__m128i match1LfA = _mm_cmpeq_epi8(
-							_mm_set1_epi8('\n'),
-							_mm_loadu_si128((__m128i*)(src+i+1))
-						);
-						__m128i match1LfB = _mm_cmpeq_epi8(
-							_mm_set1_epi8('\n'),
-							_mm_loadu_si128((__m128i*)(src+i+1) + 1)
-						);
+						bool endFound;
 						
-#ifdef __AVX512VL__
-						if(use_isa >= ISA_LEVEL_AVX3)
-							endFound = _mm_ternarylogic_epi32(
-								_mm_ternarylogic_epi32(match3YB, match2EqB, match1LfB, 0x80), // match \n=y for B
-								_mm_ternarylogic_epi32(match3EqYA, match1LfA, cmpCrA, 0x80), // match \r\n=y for A
-								cmpCrB,
-								0xec // (B & cmpCrB) | A
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+						if(use_isa >= ISA_LEVEL_AVX3) {
+							__mmask16 match3LfEqYMaskA = _mm_mask_cmpeq_epi8_mask(
+								match3EqYMaskA,
+								_mm_set1_epi8('\n'),
+								_mm_loadu_si128((__m128i*)(src+i+1))
 							);
-						else
+							__mmask16 match3LfEqYMaskB = _mm_mask_cmpeq_epi8_mask(
+								match3EqYMaskB,
+								_mm_set1_epi8('\n'),
+								_mm_loadu_si128((__m128i*)(src+i+1) + 1)
+							);
+							
+# if defined(__GNUC__) && __GNUC__ >= 7
+							endFound = !_kortestz_mask16_u8(
+								_mm_mask_test_epi8_mask(match3LfEqYMaskA, cmpCrA, cmpCrA),
+								_mm_mask_test_epi8_mask(match3LfEqYMaskB, cmpCrB, cmpCrB)
+							);
+# else
+							endFound = !(
+								_mm_mask_test_epi8_mask(match3LfEqYMaskA, cmpCrA, cmpCrA) |
+								_mm_mask_test_epi8_mask(match3LfEqYMaskB, cmpCrB, cmpCrB)
+							);
+# endif
+						} else
 #endif
-							endFound = _mm_or_si128(
+						{
+							__m128i match1LfA = _mm_cmpeq_epi8(
+								_mm_set1_epi8('\n'),
+								_mm_loadu_si128((__m128i*)(src+i+1))
+							);
+							__m128i match1LfB = _mm_cmpeq_epi8(
+								_mm_set1_epi8('\n'),
+								_mm_loadu_si128((__m128i*)(src+i+1) + 1)
+							);
+							endFound = _mm_movemask_epi8(_mm_or_si128(
 								_mm_and_si128(
 									match3EqYA,
 									_mm_and_si128(match1LfA, cmpCrA)
@@ -362,9 +405,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 									match3EqYB,
 									_mm_and_si128(match1LfB, cmpCrB)
 								)
-							);
+							));
+						}
 						
-						if(_mm_movemask_epi8(endFound)) {
+						if(endFound) {
 							len += i;
 							break;
 						}
