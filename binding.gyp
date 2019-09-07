@@ -38,7 +38,7 @@
         ]
       }]
     ],
-    "defines": ["YENC_ENABLE_AVX256=0"],
+    "defines": ["YENC_ENABLE_AVX256=1"],
     "cflags": ["-Wno-unused-function"],
     "cxxflags": ["-Wno-unused-function"],
     "xcode_settings": {
