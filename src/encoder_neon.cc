@@ -46,10 +46,16 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	data = vaddq_u8(oData, vdupq_n_u8(42));
 	uint8x16_t cmp = vqtbx1q_u8(
 		vceqq_u8(oData, vdupq_n_u8('='-42)),
-		//            \0                    \n      \r
-		(uint8x16_t){255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
+		//          \0                \t\n    \r
+		(uint8x16_t){3,0,0,0,0,0,0,0,0,2,3,0,0,3,0,0},
 		data
 	);
+	cmp = vorrq_u8(cmp, vqtbl1q_u8( // ORR+TBL seems to work better than TBX, maybe due to long TBL/X latency?
+		//          \s                           .  
+		(uint8x16_t){2,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0},
+		vaddq_u8(oData, vdupq_n_u8(42-32))
+	));
+	cmp = vcgtq_u8(cmp, (uint8x16_t){1,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2});
 #else
 	uint8x16_t cmp = vorrq_u8(
 		vorrq_u8(
@@ -61,9 +67,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			vceqq_u8(oData, vdupq_n_u8('\n'-42))
 		)
 	);
-#endif
+	
 	// dup low 2 bytes & compare
-	// TODO: test idea of EOR+TBX
 	uint8x8_t firstTwoChars = vreinterpret_u8_u16(vdup_lane_u16(vreinterpret_u16_u8(vget_low_u8(oData)), 0));
 	uint8x8_t cmpNl = vceq_u8(firstTwoChars, vreinterpret_u8_s8((int8x8_t){
 		' '-42,' '-42,'\t'-42,'\t'-42,'\r'-42,'.'-42,'='-42,'='-42
@@ -160,7 +165,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
 	int lineSizeOffset = -line_size +16; // line size plus vector length
-	long col = *colOffset - line_size +1;
+	int col = *colOffset - line_size +1;
 	
 	// offset position to enable simpler loop condition checking
 	const int INPUT_OFFSET = sizeof(uint8x16_t) + sizeof(uint8x16_t) -1; // extra chars for EOL handling, -1 to change <= to <
