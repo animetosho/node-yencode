@@ -276,6 +276,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 #endif
 			shufALen = BitsSetTable256plus8[m1] + 2;
 		
+		// TODO: is VBMI2 worthwhile here?
 #ifdef __SSSE3__
 		if(use_isa >= ISA_LEVEL_SSSE3) {
 			__m128i shufMA = _mm_load_si128(&(nlShufMixLUT[m1].shuf));
@@ -291,23 +292,20 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 				data1 = _mm_unpacklo_epi8(oData, oData); // 0011xxxx
 				data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(0,1,1,0)); // 00111100
 				
-				data1 = _mm_and_si128(data1, _mm_load_si128(&(maskMixEOL[mask & 3].shuf)));
-				data1 = _mm_add_epi8(data1, _mm_load_si128(&(maskMixEOL[mask & 3].mix)));
+				data1 = _mm_and_si128(data1, _mm_load_si128(&(maskMixEOL[m1 & 3].shuf)));
+				data1 = _mm_add_epi8(data1, _mm_load_si128(&(maskMixEOL[m1 & 3].mix)));
 			} else {
 				// regular expansion, except first byte
-				data1 = sse2_expand_bytes(mask & 0xfe, data);
+				data1 = sse2_expand_bytes(m1 & 0xfe, data);
 				// expand for newline
-				__m128i mergeMask = _mm_set_epi32(0, 0, 0, 0xff);
-				if(mask & 1) {
-					data1 = _mm_or_si128(
-						_mm_slli_si128(_mm_and_si128(mergeMask, data1), 1),
-						_mm_slli_si128(_mm_andnot_si128(mergeMask, data1), 3)
-					);
+				if(LIKELIHOOD(0.02, m1 & 1)) {
+					data1 = _mm_slli_si128(data1, 3);
+					data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(3,2,1,1));
+					data1 = _mm_and_si128(data1, _mm_set_epi32(-1, -1, -1, 0x0000ffff));
 				} else {
-					data1 = _mm_or_si128(
-						_mm_and_si128(mergeMask, data1),
-						_mm_slli_si128(_mm_andnot_si128(mergeMask, data1), 2)
-					);
+					data1 = _mm_slli_si128(data1, 2);
+					data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(3,2,1,1));
+					data1 = _mm_and_si128(data1, _mm_set_epi32(-1, -1, -1, 0xff0000ff));
 				}
 				
 				__m128i shufMixMA = _mm_load_si128(nlMixLUT + m1);
@@ -320,8 +318,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			// we'll just handle this by only dealing with the first 2 characters, and let main loop handle the rest
 			// at least one of the first 2 chars is guaranteed to need escaping
 			_mm_storel_epi64((__m128i*)p, data1);
-			col = lineSizeOffset + ((mask & 2)>>1);
-			p += 4 + (mask & 1) + ((mask & 2)>>1);
+			col = lineSizeOffset + ((m1 & 2)>>1);
+			p += 4 + (m1 & 1) + ((m1 & 2)>>1);
 			i += 2;
 			return;
 		}
@@ -355,7 +353,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		}
 		STOREU_XMM(p, data2);
 		p += shufBLen;
-		col = shufALen-2 + shufBLen -1 - (mask&1) + lineSizeOffset-1;
+		col = shufALen-2 + shufBLen -1 - (m1&1) + lineSizeOffset-1;
 	} else {
 		__m128i data1;
 #ifdef __SSSE3__
@@ -367,11 +365,9 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 #endif
 		{
 			data = _mm_sub_epi8(oData, _mm_set1_epi8(-42));
-			__m128i mergeMask = _mm_set_epi32(0, 0, 0, 0xff);
-			data1 = _mm_or_si128(
-				_mm_and_si128(mergeMask, data),
-				_mm_slli_si128(_mm_andnot_si128(mergeMask, data), 2)
-			);
+			data1 = _mm_slli_si128(data, 2);
+			data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(3,2,1,1));
+			data1 = _mm_and_si128(data1, _mm_set_epi32(-1, -1, -1, 0xff0000ff));
 		}
 		data1 = _mm_or_si128(data1, _mm_cvtsi32_si128(0x0a0d00));
 		STOREU_XMM(p, data1);
