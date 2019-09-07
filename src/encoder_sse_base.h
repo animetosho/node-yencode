@@ -25,30 +25,50 @@ struct TShufMix {
 #pragma pack()
 static struct TShufMix ALIGN_TO(32, shufMixLUT[256]);
 static __m128i ALIGN_TO(16, mixLUT[256]);
+static struct TShufMix ALIGN_TO(32, nlShufMixLUT[256]);
 
 static void encoder_sse_lut() {
 	for(int i=0; i<256; i++) {
 		int k = i;
-		uint8_t res[16];
+		uint8_t* res = (uint8_t*)(&(shufMixLUT[i].shuf));
+		uint8_t* nlShuf = (uint8_t*)(&(nlShufMixLUT[i].shuf));
+		uint8_t* nlMix  = (uint8_t*)(&(nlShufMixLUT[i].mix));
 		uint16_t expand = 0;
-		int p = 0;
+		int p = 0, pNl = 0;
 		for(int j=0; j<8; j++) {
 			if(k & 1) {
 				res[j+p] = 0xf0 + j;
 				p++;
+				if(j+pNl < 16) {
+					nlShuf[j+pNl] = 0xf0 + j;
+					nlMix[j+pNl] = '=';
+					pNl++;
+					if(j+pNl < 16) nlMix[j+pNl] = 64;
+				}
+			} else {
+				if(j+pNl < 16) nlMix[j+pNl] = 0;
 			}
 			expand |= 1<<(j+p);
 			res[j+p] = j;
+			if(j+pNl < 16) nlShuf[j+pNl] = j;
 			k >>= 1;
+			
+			if(j == 0) {
+				// insert newline
+				nlShuf[pNl+1] = 0xff;
+				nlShuf[pNl+2] = 0xff;
+				nlMix[pNl+1] = '\r';
+				nlMix[pNl+2] = '\n';
+				pNl += 2;
+			}
 		}
 		for(; p<8; p++)
 			res[8+p] = 8+p +0x40; // +0x40 is an arbitrary value to make debugging slightly easier?  the top bit cannot be set
 		
-		__m128i shuf = _mm_loadu_si128((__m128i*)res);
-		_mm_store_si128(&(shufMixLUT[i].shuf), shuf);
 		expandLUT[i] = expand;
 		
 		// calculate add mask for mixing escape chars in
+		__m128i shuf = _mm_load_si128((__m128i*)res);
 		__m128i maskEsc = _mm_cmpeq_epi8(_mm_and_si128(shuf, _mm_set1_epi8(-16)), _mm_set1_epi8(-16)); // -16 == 0xf0
 		__m128i addMask = _mm_and_si128(_mm_slli_si128(maskEsc, 1), _mm_set1_epi8(64));
 		addMask = _mm_or_si128(addMask, _mm_and_si128(maskEsc, _mm_set1_epi8('=')));
@@ -166,65 +186,201 @@ static struct TShufMix* maskMixEOL = (struct TShufMix*)_maskMix_eol_table;
 
 template<enum YEncDecIsaLevel use_isa>
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
-	// load 2 bytes & broadcast
-	__m128i lineChars = _mm_cvtsi32_si128(*(uint32_t*)(es+i)); // only bottom 2 bytes are used, despite the 4 byte read
-	__m128i lineChars1;
-#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
+	__m128i oData = _mm_loadu_si128((__m128i *)(es + i));
+	__m128i data = oData;
 	if(use_isa >= ISA_LEVEL_SSSE3)
-		lineChars = _mm_shuffle_epi8(lineChars, _mm_set_epi32(
-			0x01010000, 0x01010000, 0x00000101, 0x01010000
-		));
-	else
-#endif
-	{
-		// assign to temp since we don't care about the upper 8 bytes other than for pcmpeqb, and pshufd is a non-destructive; this effectively allows the compiler to avoid a move
-		lineChars1 = _mm_unpacklo_epi8(lineChars, lineChars); // 0011xxxx
-		lineChars = _mm_shuffle_epi32(lineChars1, 0); // 00110011 00110011
+		data = _mm_add_epi8(oData, _mm_set1_epi8(42));
+	// search for special chars
+	__m128i cmp;
+	
+	__m128i cmpNl;
+	if(use_isa < ISA_LEVEL_AVX3) {
+		// compares for newline special characters
+		cmpNl = _mm_or_si128(
+			_mm_cmpeq_epi8(oData, _mm_set_epi32(0x13131313,0x13131313,0x13131313,0x13130413)), // .
+			_mm_or_si128(
+				_mm_cmpeq_epi8(oData, _mm_set_epi32(0x13131313,0x13131313,0x13131313,0x1313DFDF)), // \t
+				_mm_cmpeq_epi8(oData, _mm_set_epi32(0x13131313,0x13131313,0x13131313,0x1313F6F6))  // \s
+			)
+		);
 	}
-	// pattern is now 00111100 00110011 (SSSE3) OR 00110011 00110011 (SSE2)
-	unsigned testChars = _mm_movemask_epi8(_mm_cmpeq_epi8(
-		lineChars,
-		_mm_set_epi16(
-			//  1 1      0 0      1 1      0 0      ? ?      ? ?      1 1      0 0
-			// xx .     xxxx     \0\r     \0\r     \n =     \n =     \t\s     \t\s
-			-0x20FC, -0x2021, -0x291D, -0x291D, -0x1FED, -0x1FED, -0x200A, -0x200A
-		)
-	));
-	if(testChars) {
-		unsigned esc1stChar, esc2ndChar;
+	
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
-		if(use_isa >= ISA_LEVEL_SSSE3) {
-			esc1stChar = (testChars & 0x03c3) != 0;
-			esc2ndChar = (testChars & 0x4c3c) != 0;
+	// use shuffle to replace 3x cmpeq + ors; ideally, avoid on CPUs with slow shuffle
+	if(use_isa >= ISA_LEVEL_SSSE3) {
+		cmp = _mm_shuffle_epi8(_mm_set_epi8(
+			//  \r     \n                   \0
+			0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
+		), _mm_adds_epu8(
+			data, _mm_set1_epi8(0x70)
+		));
+#ifdef __AVX512VL__
+		if(use_isa >= ISA_LEVEL_AVX3) {
+			cmp = _mm_ternarylogic_epi32(
+				cmp,
+				_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
+				_mm_ternarylogic_epi32(
+					_mm_cmpeq_epi8(oData, _mm_set_epi32(0x13131313,0x13131313,0x13131313,0x13130413)), // .
+					_mm_cmpeq_epi8(oData, _mm_set_epi32(0x13131313,0x13131313,0x13131313,0x1313DFDF)), // \t
+					_mm_cmpeq_epi8(oData, _mm_set_epi32(0x13131313,0x13131313,0x13131313,0x1313F6F6)), // \s
+					0xFE
+				),
+				0xFE
+			);
 		} else
 #endif
 		{
-			esc1stChar = (testChars & 0x0333) != 0;
-			esc2ndChar = (testChars & 0x4ccc) != 0;
-			lineChars = _mm_shufflelo_epi16(lineChars1, _MM_SHUFFLE(0,1,1,0)); // 00111100
+			cmp = _mm_or_si128(
+				cmp,
+				_mm_or_si128(
+					_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
+					cmpNl
+				)
+			);
 		}
-		unsigned lut = esc1stChar + esc2ndChar*2;
-		lineChars = _mm_and_si128(lineChars, _mm_load_si128(&(maskMixEOL[lut].shuf)));
-		lineChars = _mm_add_epi8(lineChars, _mm_load_si128(&(maskMixEOL[lut].mix)));
-		_mm_storel_epi64((__m128i*)p, lineChars);
-		col = lineSizeOffset + esc2ndChar;
-		p += 4 + esc1stChar + esc2ndChar;
-	} else {
-		if(use_isa < ISA_LEVEL_SSSE3)
-			lineChars = lineChars1;
-		lineChars = _mm_and_si128(lineChars, _mm_cvtsi32_si128(0xff0000ff));
-		lineChars = _mm_add_epi8(lineChars, _mm_cvtsi32_si128(0x2a0a0d2a));
-		*(int*)p = _mm_cvtsi128_si32(lineChars);
-		col = lineSizeOffset;
-		p += 4;
+	} else
+#endif
+	{
+		cmp = _mm_or_si128(
+			_mm_or_si128(
+				_mm_cmpeq_epi8(oData, _mm_set1_epi8(-42)),
+				_mm_cmpeq_epi8(oData, _mm_set1_epi8('\n'-42))
+			),
+			_mm_or_si128(
+				_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
+				_mm_cmpeq_epi8(oData, _mm_set1_epi8('\r'-42))
+			)
+		);
+		cmp = _mm_or_si128(cmpNl, cmp);
 	}
-	i += 2;
+	
+	unsigned int mask = _mm_movemask_epi8(cmp);
+	if (LIKELIHOOD(0.2227, mask != 0)) {
+		uint8_t m1 = mask & 0xFF;
+		uint8_t m2 = mask >> 8;
+		__m128i data1;
+		
+		unsigned int shufALen;
+#if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
+		if(use_isa >= ISA_LEVEL_AVX)
+			shufALen = popcnt32(m1) + 10;
+		else
+#endif
+			shufALen = BitsSetTable256plus8[m1] + 2;
+		
+#ifdef __SSSE3__
+		if(use_isa >= ISA_LEVEL_SSSE3) {
+			__m128i shufMA = _mm_load_si128(&(nlShufMixLUT[m1].shuf));
+			data1 = _mm_shuffle_epi8(data, shufMA);
+			// add in escaped chars
+			__m128i shufMixMA = _mm_load_si128(&(nlShufMixLUT[m1].mix));
+			data1 = _mm_add_epi8(data1, shufMixMA);
+		} else
+#endif
+		{
+			if(LIKELIHOOD(0.001, shufALen > XMM_SIZE)) {
+				// overflow case, only bother with first 2 chars
+				data1 = _mm_unpacklo_epi8(oData, oData); // 0011xxxx
+				data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(0,1,1,0)); // 00111100
+				
+				data1 = _mm_and_si128(data1, _mm_load_si128(&(maskMixEOL[mask & 3].shuf)));
+				data1 = _mm_add_epi8(data1, _mm_load_si128(&(maskMixEOL[mask & 3].mix)));
+			} else {
+				// regular expansion, except first byte
+				data1 = sse2_expand_bytes(mask & 0xfe, data);
+				// expand for newline
+				__m128i mergeMask = _mm_set_epi32(0, 0, 0, 0xff);
+				if(mask & 1) {
+					data1 = _mm_or_si128(
+						_mm_slli_si128(_mm_and_si128(mergeMask, data1), 1),
+						_mm_slli_si128(_mm_andnot_si128(mergeMask, data1), 3)
+					);
+				} else {
+					data1 = _mm_or_si128(
+						_mm_and_si128(mergeMask, data1),
+						_mm_slli_si128(_mm_andnot_si128(mergeMask, data1), 2)
+					);
+				}
+				
+				__m128i shufMixMA = _mm_load_si128(mixLUT + m1);
+				data1 = _mm_add_epi8(data1, shufMixMA);
+			}
+		}
+		
+		if(LIKELIHOOD(0.001, shufALen > XMM_SIZE)) {
+			// unlikely special case, which would cause vectors to be overflowed
+			// we'll just handle this by only dealing with the first 2 characters, and let main loop handle the rest
+			// at least one of the first 2 chars is guaranteed to need escaping
+			_mm_storel_epi64((__m128i*)p, data1);
+			col = lineSizeOffset + ((mask & 2)>>1);
+			p += 4 + (mask & 1) + ((mask & 2)>>1);
+			i += 2;
+			return;
+		}
+		
+		// store out
+		STOREU_XMM(p, data1);
+		p += shufALen;
+		
+		__m128i data2;
+		unsigned int shufBLen;
+#if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
+		if(use_isa >= ISA_LEVEL_AVX)
+			shufBLen = popcnt32(m2) + 8;
+		else
+#endif
+			shufBLen = BitsSetTable256plus8[m2];
+		
+#ifdef __SSSE3__
+		if(use_isa >= ISA_LEVEL_SSSE3) {
+			__m128i shufMB = _mm_load_si128(&(shufMixLUT[m2].shuf));
+			shufMB = _mm_or_si128(shufMB, _mm_set1_epi8(8));
+			data2 = _mm_shuffle_epi8(data, shufMB);
+			__m128i shufMixMB = _mm_load_si128(&(shufMixLUT[m2].mix));
+			data2 = _mm_add_epi8(data2, shufMixMB);
+		} else
+#endif
+		{
+			data2 = sse2_expand_bytes(m2, _mm_srli_si128(data, 8));
+			__m128i shufMixMB = _mm_load_si128(mixLUT + m2);
+			data2 = _mm_add_epi8(data2, shufMixMB);
+		}
+		STOREU_XMM(p, data2);
+		p += shufBLen;
+		col = shufALen-2 + shufBLen -1 - (mask&1) + lineSizeOffset-1;
+	} else {
+		__m128i data1;
+#ifdef __SSSE3__
+		if(use_isa >= ISA_LEVEL_SSSE3) {
+			data1 = _mm_shuffle_epi8(data, _mm_set_epi8(
+				13,12,11,10,9,8,7,6,5,4,3,2,1,-1,-1,0
+			));
+		} else
+#endif
+		{
+			data = _mm_sub_epi8(oData, _mm_set1_epi8(-42));
+			__m128i mergeMask = _mm_set_epi32(0, 0, 0, 0xff);
+			data1 = _mm_or_si128(
+				_mm_and_si128(mergeMask, data1),
+				_mm_slli_si128(_mm_andnot_si128(mergeMask, data1), 2)
+			);
+		}
+		data1 = _mm_or_si128(data1, _mm_cvtsi32_si128(0x0a0d00));
+		STOREU_XMM(p, data1);
+		*(uint16_t*)(p+XMM_SIZE) = _mm_extract_epi16(data, 7);
+		p += XMM_SIZE+2;
+		col = lineSizeOffset + 16-2;
+		
+	}
+	
+	i += XMM_SIZE;
+	// TODO: check col >= 0 if we want to support short lines
 }
 
 
 template<enum YEncDecIsaLevel use_isa>
 static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
-	if(len < 2 || line_size < 4) return;
+	if(len < XMM_SIZE*2 || line_size < XMM_SIZE*2) return;
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
@@ -232,7 +388,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 	long col = *colOffset + lineSizeOffset -1;
 	
 	// offset position to enable simpler loop condition checking
-	const int INPUT_OFFSET = XMM_SIZE + 4 -1; // extra 4 chars for EOL handling (a 32-bit read is performed), -1 to change <= to <
+	const int INPUT_OFFSET = XMM_SIZE + XMM_SIZE -1; // EOL handling performs a full 128b read, -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	

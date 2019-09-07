@@ -5,6 +5,7 @@
 #include "encoder_common.h"
 
 uint8x16_t ALIGN_TO(16, shufLUT[256]);
+uint8x16_t ALIGN_TO(16, nlShufLUT[256]);
 static uint16_t expandLUT[256];
 
 #if defined(_MSC_VER) && !defined(__aarch64__)
@@ -39,47 +40,122 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RE
 	}
 }
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col, int lineSizeOffset) {
-	uint8_t c = es[i], c2 = es[i+1];
-	if (LIKELIHOOD(0.0234, escapedLUT[c] && c != '.'-42)) {
-		*(uint16_t*)p = escapedLUT[c];
-		p += 2;
-		if (LIKELIHOOD(0.0273, escapedLUT[c2]!=0)) {
-			*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c2]);
-			p += 4;
-			col = 1+lineSizeOffset;
-		} else {
-			*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c2+42), 0);
-			p += 3;
-			col = lineSizeOffset;
-		}
-	}
-	else if (LIKELIHOOD(0.0273, escapedLUT[c2]!=0)) {
-		*(p++) = c + 42;
-		*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c2]);
-		p += 4;
-		col = 1+lineSizeOffset;
-	} else {
-		uint32_t data = *(uint16_t*)(es+i);
-		data = data | (data<<16);
-		data &= 0xff0000ff;
-#ifdef UADD8
-		data = UADD8(data, 0x2a0a0d2a);
+	uint8x16_t oData = vld1q_u8(es + i);
+	uint8x16_t data = oData;
+#ifdef __aarch64__
+	data = vaddq_u8(oData, vdupq_n_u8(42));
+	uint8x16_t cmp = vqtbx1q_u8(
+		vceqq_u8(oData, vdupq_n_u8('='-42)),
+		//            \0                    \n      \r
+		(uint8x16_t){255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
+		data
+	);
 #else
-		data += 0x2a00002a;
-		data &= 0xff0000ff;
-		data |= 0x000a0d00;
+	uint8x16_t cmp = vorrq_u8(
+		vorrq_u8(
+			vceqq_u8(oData, vdupq_n_u8(-42)),
+			vceqq_u8(oData, vdupq_n_u8('='-42))
+		),
+		vorrq_u8(
+			vceqq_u8(oData, vdupq_n_u8('\r'-42)),
+			vceqq_u8(oData, vdupq_n_u8('\n'-42))
+		)
+	);
 #endif
-		*(uint32_t*)p = data;
-		col = lineSizeOffset;
-		p += 4;
+	// dup low 2 bytes & compare
+	// TODO: test idea of EOR+TBX
+	uint8x8_t firstTwoChars = vreinterpret_u8_u16(vdup_lane_u16(vreinterpret_u16_u8(vget_low_u8(oData)), 0));
+	uint8x8_t cmpNl = vceq_u8(firstTwoChars, vreinterpret_u8_s8((int8x8_t){
+		' '-42,' '-42,'\t'-42,'\t'-42,'\r'-42,'.'-42,'='-42,'='-42
+	}));
+	// use padd to merge comparisons
+	uint16x4_t cmpNl2 = vreinterpret_u16_u8(cmpNl);
+	cmpNl2 = vpadd_u16(cmpNl2, vdup_n_u16(0));
+	cmpNl2 = vpadd_u16(cmpNl2, vdup_n_u16(0));
+	cmp = vcombine_u8(
+		vorr_u8(vget_low_u8(cmp), vreinterpret_u8_u16(cmpNl2)),
+		vget_high_u8(cmp)
+	);
+	
+	
+#ifdef __aarch64__
+	if (LIKELIHOOD(0.2227, vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(cmp))), 0)!=0)) {
+		uint8x16_t cmpPacked = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+		uint8_t m1 = vaddv_u8(vget_low_u8(cmpPacked));
+		uint8_t m2 = vaddv_u8(vget_high_u8(cmpPacked));
+#else
+	uint8x16_t cmpPacked = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+	uint8x8_t cmpPackedHalf = vpadd_u8(vget_low_u8(cmpPacked), vget_high_u8(cmpPacked));
+	cmpPackedHalf = vpadd_u8(cmpPackedHalf, cmpPackedHalf);
+	uint32_t mask2 = vget_lane_u32(vreinterpret_u32_u8(cmpPackedHalf), 0);
+	if(LIKELIHOOD(0.2227, mask2 != 0)) {
+		mask2 += mask2 >> 8;
+		uint8_t m1 = (mask2 & 0xff);
+		uint8_t m2 = ((mask2 >> 16) & 0xff);
+#endif
+		
+		uint8x16_t shufMA = vld1q_u8((uint8_t*)(nlShufLUT + m1));
+		uint8x16_t data1 = vqsubq_u8(shufMA, vdupq_n_u8(64));
+#ifdef __aarch64__
+		data = vaddq_u8(data, vandq_u8(cmp, vdupq_n_u8(64)));
+		data1 = vqtbx1q_u8(data1, data, shufMA);
+#else
+		data = vsubq_u8(data, vbslq_u8(cmp, vdupq_n_u8(-64-42), vdupq_n_u8(-42)));
+		data1 = vcombine_u8(vtbx1_u8(vget_low_u8(data1), vget_low_u8(data), vget_low_u8(shufMA)),
+		                              vtbx1_u8(vget_high_u8(data1), vget_low_u8(data), vget_high_u8(shufMA)));
+#endif
+		unsigned char shufALen = BitsSetTable256plus8[m1] +2;
+		if(LIKELIHOOD(0.001, shufALen > sizeof(uint8x16_t))) {
+			// unlikely special case, which would cause vectors to be overflowed
+			// we'll just handle this by only dealing with the first 2 characters, and let main loop handle the rest
+			// at least one of the first 2 chars is guaranteed to need escaping
+			vst1_u8(p, vget_low_u8(data1));
+			col = lineSizeOffset + ((m1 & 2)>>1);
+			p += 4 + (m1 & 1) + ((m1 & 2)>>1);
+			i += 2;
+			return;
+		}
+		
+		vst1q_u8(p, data1);
+		p += shufALen;
+		
+		uint8x16_t shufMB = vld1q_u8((uint8_t*)(shufLUT + m2));
+#ifdef __aarch64__
+		shufMB = vorrq_u8(shufMB, vdupq_n_u8(8));
+		uint8x16_t data2 = vqtbx1q_u8(vdupq_n_u8('='), data, shufMB);
+#else
+		uint8x16_t data2 = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_low_u8(shufMB)),
+		                               vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_high_u8(shufMB)));
+#endif
+		unsigned char shufBLen = BitsSetTable256plus8[m2];
+		vst1q_u8(p, data2);
+		p += shufBLen;
+		col = shufALen-2 + shufBLen -1 - (m1&1) + lineSizeOffset-1;
+	} else {
+		uint8x16_t data1;
+#ifdef __aarch64__
+		data1 = vqtbx1q_u8((uint8x16_t){0,'\r','\n',0,0,0,0,0,0,0,0,0,0,0,0,0}, data, (uint8x16_t){0,16,16,1,2,3,4,5,6,7,8,9,10,11,12,13});
+#else
+		data = vsubq_u8(data, vdupq_n_u8(-42));
+		data1 = vcombine_u8(
+			vtbx1_u8((uint8x8_t){0,'\r','\n',0,0,0,0,0}, vget_low_u8(data), (uint8x8_t){0,16,16,1,2,3,4,5}),
+			vext_u8(vget_low_u8(data), vget_high_u8(data), 6)
+		);
+#endif
+		vst1q_u8(p, data1);
+		p += sizeof(uint8x16_t);
+		*(uint16_t*)p = vgetq_lane_u16(vreinterpretq_u16_u8(data), 7);
+		p += 2;
+		col = lineSizeOffset + 16-2;
 	}
 	
-	i += 2;
+	i += sizeof(uint8x16_t);
+	// TODO: check col >= 0 if we want to support short lines
 }
 
 
 static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
-	if(len < 2 || line_size < 4) return;
+	if(len < sizeof(uint8x16_t)*2 || line_size < (int)sizeof(uint8x16_t)*2) return;
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
@@ -87,7 +163,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 	int col = *colOffset + lineSizeOffset -1;
 	
 	// offset position to enable simpler loop condition checking
-	const int INPUT_OFFSET = sizeof(uint8x16_t) + 2 -1; // extra 2 chars for EOL handling, -1 to change <= to <
+	const int INPUT_OFFSET = sizeof(uint8x16_t) + sizeof(uint8x16_t) -1; // extra chars for EOL handling, -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
@@ -230,22 +306,32 @@ void encoder_neon_init() {
 	for(int i=0; i<256; i++) {
 		int k = i;
 		uint16_t expand = 0;
-		uint8_t res[16];
-		int p = 0;
+		uint8_t* res = (uint8_t*)(shufLUT + i);
+		uint8_t* nlShuf = (uint8_t*)(nlShufLUT + i);
+		int p = 0, pNl = 0;
 		for(int j=0; j<8; j++) {
 			if(k & 1) {
 				res[j+p] = 0xf0 + j;
 				expand |= 1<<(j+p);
 				p++;
+				if(j+pNl < 16) {
+					nlShuf[j+pNl] = '='+64;
+					pNl++;
+				}
 			}
 			res[j+p] = j;
+			if(j+pNl < 16) nlShuf[j+pNl] = j;
 			k >>= 1;
+			
+			if(j == 0) {
+				// insert newline
+				nlShuf[pNl+1] = '\r'+64;
+				nlShuf[pNl+2] = '\n'+64;
+				pNl += 2;
+			}
 		}
 		for(; p<8; p++)
 			res[8+p] = 8+p +0x80; // +0x80 => 0 discarded entries; has no effect other than to ease debugging
-		
-		uint8x16_t shuf = vld1q_u8(res);
-		vst1q_u8((uint8_t*)(shufLUT + i), shuf);
 		
 		expandLUT[i] = expand;
 	}
