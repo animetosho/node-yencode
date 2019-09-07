@@ -527,7 +527,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 					_mm128_mask_compressstoreu_epi8(p, (__mmask16)(~mask), dataA);
 					p -= popcnt32(mask & 0xffff);
 					_mm128_mask_compressstoreu_epi8(p+XMM_SIZE, (__mmask16)(~(mask>>16)), dataB);
-					
+#  elif defined(__GNUC__) && __GNUC__ >= 7
+					_mm_mask_compressstoreu_epi8(p, _knot_mask16(mask), dataA);
+					p -= popcnt32(mask & 0xffff);
+					_mm_mask_compressstoreu_epi8(p+XMM_SIZE, _knot_mask16(mask>>16), dataB);
 #  else
 					_mm_mask_compressstoreu_epi8(p, (__mmask16)(~mask), dataA);
 					p -= popcnt32(mask & 0xffff);

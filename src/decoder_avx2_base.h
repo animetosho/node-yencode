@@ -474,14 +474,20 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			}
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
-# if defined(__AVX512VBMI2__) && defined(__AVX512VL__)
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
+# if defined(__GNUC__) && __GNUC__ >= 7
+				_mm256_mask_compressstoreu_epi8(p, _knot_mask32(mask), dataA);
+				p -= popcnt32(mask & 0xffffffff);
+				_mm256_mask_compressstoreu_epi8((p + XMM_SIZE*2), _knot_mask32(mask>>32), dataB);
+# else
 				_mm256_mask_compressstoreu_epi8(p, (__mmask32)(~mask), dataA);
 				p -= popcnt32(mask & 0xffffffff);
 				_mm256_mask_compressstoreu_epi8((p + XMM_SIZE*2), (__mmask32)(~(mask>>32)), dataB);
+# endif
 				p += XMM_SIZE*4 - popcnt32(mask >> 32);
 			} else
-# endif
+#endif
 			{
 				// lookup compress masks and shuffle
 				__m256i shuf = _mm256_inserti128_si256(
