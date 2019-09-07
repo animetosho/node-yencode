@@ -32,11 +32,11 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RE
 	if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
 		*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 		p += 4;
-		col = 1+lineSizeOffset;
+		col = 1+lineSizeOffset - 16+2;
 	} else {
 		*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
 		p += 3;
-		col = lineSizeOffset;
+		col = lineSizeOffset - 16+2;
 	}
 }
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col, int lineSizeOffset) {
@@ -110,7 +110,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			// we'll just handle this by only dealing with the first 2 characters, and let main loop handle the rest
 			// at least one of the first 2 chars is guaranteed to need escaping
 			vst1_u8(p, vget_low_u8(data1));
-			col = lineSizeOffset + ((m1 & 2)>>1);
+			col = lineSizeOffset + ((m1 & 2)>>1) - 16+2;
 			p += 4 + (m1 & 1) + ((m1 & 2)>>1);
 			i += 2;
 			return;
@@ -130,7 +130,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		unsigned char shufBLen = BitsSetTable256plus8[m2];
 		vst1q_u8(p, data2);
 		p += shufBLen;
-		col = shufALen-2 + shufBLen -1 - (m1&1) + lineSizeOffset-1;
+		col = shufALen-2 - (m1&1) + shufBLen + lineSizeOffset-16;
 	} else {
 		uint8x16_t data1;
 #ifdef __aarch64__
@@ -146,7 +146,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		p += sizeof(uint8x16_t);
 		*(uint16_t*)p = vgetq_lane_u16(vreinterpretq_u16_u8(data), 7);
 		p += 2;
-		col = lineSizeOffset + 16-2;
+		col = lineSizeOffset;
 	}
 	
 	i += sizeof(uint8x16_t);
@@ -159,15 +159,15 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
-	int lineSizeOffset = -line_size +2; // line size excluding first/last char
-	int col = *colOffset + lineSizeOffset -1;
+	int lineSizeOffset = -line_size +16; // line size plus vector length
+	long col = *colOffset - line_size +1;
 	
 	// offset position to enable simpler loop condition checking
 	const int INPUT_OFFSET = sizeof(uint8x16_t) + sizeof(uint8x16_t) -1; // extra chars for EOL handling, -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
-	if (LIKELIHOOD(0.999, col == lineSizeOffset -1)) {
+	if (LIKELIHOOD(0.999, col == -line_size+1)) {
 		uint8_t c = es[i++];
 		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
 			*(uint16_t*)p = escapedLUT[c];
@@ -295,7 +295,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 		}
 	}
 	
-	*colOffset = col - lineSizeOffset +1;
+	*colOffset = col + line_size -1;
 	dest = p;
 	len = -(i - INPUT_OFFSET);
 }

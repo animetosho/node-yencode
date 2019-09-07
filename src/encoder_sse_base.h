@@ -176,11 +176,11 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RE
 	if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
 		*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 		p += 4;
-		col = 1+lineSizeOffset;
+		col = 1+lineSizeOffset - 16+2;
 	} else {
 		*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
 		p += 3;
-		col = lineSizeOffset;
+		col = lineSizeOffset - 16+2;
 	}
 }
 
@@ -318,7 +318,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			// we'll just handle this by only dealing with the first 2 characters, and let main loop handle the rest
 			// at least one of the first 2 chars is guaranteed to need escaping
 			_mm_storel_epi64((__m128i*)p, data1);
-			col = lineSizeOffset + ((m1 & 2)>>1);
+			col = lineSizeOffset + ((m1 & 2)>>1) - 16+2;
 			p += 4 + (m1 & 1) + ((m1 & 2)>>1);
 			i += 2;
 			return;
@@ -353,7 +353,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		}
 		STOREU_XMM(p, data2);
 		p += shufBLen;
-		col = shufALen-2 + shufBLen -1 - (m1&1) + lineSizeOffset-1;
+		col = shufALen-2 - (m1&1) + shufBLen + lineSizeOffset-16;
 	} else {
 		__m128i data1;
 #ifdef __SSSE3__
@@ -373,7 +373,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		STOREU_XMM(p, data1);
 		*(uint16_t*)(p+XMM_SIZE) = _mm_extract_epi16(data, 7);
 		p += XMM_SIZE+2;
-		col = lineSizeOffset + 16-2;
+		col = lineSizeOffset;
 		
 	}
 	
@@ -388,15 +388,16 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
-	long lineSizeOffset = -line_size +2; // line size excluding first/last char
-	long col = *colOffset + lineSizeOffset -1;
+	long lineSizeOffset = -line_size +16; // line size plus vector length
+	//long col = *colOffset - line_size +1; // for some reason, this causes GCC-8 to spill an extra register, causing the main loop to run ~5% slower, so use the alternative version below
+	long col = *colOffset + lineSizeOffset - 15;
 	
 	// offset position to enable simpler loop condition checking
 	const int INPUT_OFFSET = XMM_SIZE + XMM_SIZE -1; // EOL handling performs a full 128b read, -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
-	if (LIKELIHOOD(0.999, col == lineSizeOffset -1)) {
+	if (LIKELIHOOD(0.999, col == -line_size+1)) {
 		uint8_t c = es[i++];
 		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
 			*(uint16_t*)p = escapedLUT[c];
@@ -614,7 +615,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 		}
 	}
 	
-	*colOffset = col - lineSizeOffset +1;
+	*colOffset = col + line_size -1;
 	dest = p;
 	len = -(i - INPUT_OFFSET);
 }
