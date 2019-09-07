@@ -168,8 +168,7 @@
       "target_name": "yencode_neon",
       "type": "static_library",
       "sources": [
-        "src/encoder_neon.cc",
-        "src/decoder_neon.cc"
+        "src/encoder_neon.cc"
       ],
       "conditions": [
         ['target_arch=="arm"', {
@@ -179,6 +178,11 @@
             "OTHER_CFLAGS": ["-mfpu=neon"],
             "OTHER_CXXFLAGS": ["-mfpu=neon"],
           }
+        }],
+        ['target_arch=="arm64"', {
+          "sources": ["src/decoder_neon64.cc"]
+        }, {
+          "sources": ["src/decoder_neon.cc"]
         }]
       ]
     },
