@@ -16,6 +16,26 @@ static const unsigned char BitsSetTable256[256] =
 #undef B6
 };
 
+#define _B1(n) _B(n), _B(n+1), _B(n+2), _B(n+3)
+#define _B2(n) _B1(n), _B1(n+4), _B1(n+8), _B1(n+12)
+#define _B3(n) _B2(n), _B2(n+16), _B2(n+32), _B2(n+48)
+#define _BX _B3(0), _B3(64), _B3(128), _B3(192)
+
+static const uint16_t eolCharMask[512] = {
+#define _B(n) ((n == 214+'\t' || n == 214+' ') ? 1 : 0)
+	_BX,
+#undef _B
+#define _B(n) ((n == 214+'\t' || n == 214+' ' || n == '.'-42) ? 2 : 0)
+	_BX
+#undef _B
+};
+
+#undef _B1
+#undef _B2
+#undef _B3
+#undef _BX
+
+
 static uint16_t expandLUT[256];
 
 #pragma pack(16)
@@ -198,53 +218,68 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	__m128i data = oData;
 	if(use_isa >= ISA_LEVEL_SSSE3)
 		data = _mm_add_epi8(oData, _mm_set1_epi8(42));
-	// search for special chars
 	__m128i cmp;
+	unsigned int mask;
 	
-	__m128i cmpNl;
-	if(use_isa < ISA_LEVEL_AVX3) {
-		// compares for newline special characters
-		cmpNl = _mm_or_si128(
-			_mm_cmpeq_epi8(oData, _mm_set_epi32(0x13131313,0x13131313,0x13131313,0x13130413)), // .
-			_mm_or_si128(
-				_mm_cmpeq_epi8(oData, _mm_set_epi32(0x13131313,0x13131313,0x13131313,0x1313DFDF)), // \t
-				_mm_cmpeq_epi8(oData, _mm_set_epi32(0x13131313,0x13131313,0x13131313,0x1313F6F6))  // \s
-			)
-		);
-	}
-	
+	// search for special chars
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
 	// use shuffle to replace 3x cmpeq + ors; ideally, avoid on CPUs with slow shuffle
 	if(use_isa >= ISA_LEVEL_SSSE3) {
-		cmp = _mm_shuffle_epi8(_mm_set_epi8(
-			//  \r     \n                   \0
-			0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
-		), _mm_adds_epu8(
-			data, _mm_set1_epi8(0x70)
-		));
 #ifdef __AVX512VL__
 		if(use_isa >= ISA_LEVEL_AVX3) {
+			/* // alternative idea, using shuffle+pack, seems to be slower
+			cmp = _mm_shuffle_epi8(_mm_set_epi8(
+				//  \r     \n\t                 \0
+				0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
+			), _mm_min_epu8(
+				data, _mm_set1_epi8(15)
+			));
 			cmp = _mm_ternarylogic_epi32(
 				cmp,
 				_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
-				_mm_ternarylogic_epi32(
-					_mm_cmpeq_epi8(oData, _mm_set_epi32(0x13131313,0x13131313,0x13131313,0x13130413)), // .
-					_mm_cmpeq_epi8(oData, _mm_set_epi32(0x13131313,0x13131313,0x13131313,0x1313DFDF)), // \t
-					_mm_cmpeq_epi8(oData, _mm_set_epi32(0x13131313,0x13131313,0x13131313,0x1313F6F6)), // \s
-					0xFE
-				),
+				_mm_cvtusepi32_epi8(_mm_cmpeq_epi8(
+					_mm_shuffle_epi8(oData, _mm_set_epi32(
+						-1,-1,0xff010101, 0xffff0000
+					)),
+					_mm_set_epi32(
+						//                         .\t\s       \t\s
+						0x13131313,0x13131313,0x1304DFF6,0x1313DFF6
+					)
+				)),
 				0xFE
 			);
+			*/
+			
+			cmp = _mm_shuffle_epi8(_mm_set_epi32(
+				//    \r       \n\t                    ..\0
+				0x1313d613,0x13d6e313,0x13131313,0x131304d6
+			), _mm_min_epu8(
+				data, _mm_set1_epi8(15)
+			));
+			cmp = _mm_or_si128(
+				_mm_cmpgt_epi8(_mm_set_epi32(0xe0e0e0e0,0xe0e0e0e0,0xe0e0e0e0,0xe0e0f6f6), cmp),
+				_mm_ternarylogic_epi32(
+					_mm_cmpeq_epi8(oData, _mm_set_epi32(0x1313d613,0x13d6e313,0x13131313,0x131304d6)), // .
+					_mm_cmpeq_epi8(oData, _mm_set_epi32(0xe0e0e0e0,0xe0e0e0e0,0xe0e0e0e0,0xe0e0f6f6)), // \s
+					_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
+					0xFE
+				)
+			);
+			mask = _mm_movemask_epi8(cmp);
 		} else
 #endif
 		{
-			cmp = _mm_or_si128(
-				cmp,
-				_mm_or_si128(
-					_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
-					cmpNl
-				)
-			);
+			cmp = _mm_shuffle_epi8(_mm_set_epi8(
+				//  \r     \n\t                 \0
+				0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
+			), _mm_min_epu8(
+				data, _mm_set1_epi8(15)
+			));
+			cmp = _mm_or_si128(cmp, _mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)));
+			mask = _mm_movemask_epi8(cmp);
+			uint16_t lineChars = *(uint16_t*)(es + i);
+			mask |= eolCharMask[lineChars & 0xff];
+			mask |= eolCharMask[256 + ((lineChars>>8) & 0xff)];
 		}
 	} else
 #endif
@@ -259,10 +294,13 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 				_mm_cmpeq_epi8(oData, _mm_set1_epi8('\r'-42))
 			)
 		);
-		cmp = _mm_or_si128(cmpNl, cmp);
+		mask = _mm_movemask_epi8(cmp);
+		
+		uint16_t lineChars = *(uint16_t*)(es + i);
+		mask |= eolCharMask[lineChars & 0xff];
+		mask |= eolCharMask[256 + ((lineChars>>8) & 0xff)];
 	}
 	
-	unsigned int mask = _mm_movemask_epi8(cmp);
 	if (LIKELIHOOD(0.2227, mask != 0)) {
 		uint8_t m1 = mask & 0xFF;
 		uint8_t m2 = mask >> 8;
@@ -353,7 +391,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		}
 		STOREU_XMM(p, data2);
 		p += shufBLen;
-		col = shufALen-2 - (m1&1) + shufBLen + lineSizeOffset-16;
+		col = (long)(shufALen - (m1&1) + shufBLen) + lineSizeOffset-16 -2;
 	} else {
 		__m128i data1;
 #ifdef __SSSE3__
@@ -431,8 +469,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 				_mm_shuffle_epi8(_mm_set_epi8(
 					//  \r     \n                   \0
 					0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
-				), _mm_adds_epu8(
-					data, _mm_set1_epi8(0x70)
+				), _mm_min_epu8(
+					data, _mm_set1_epi8(15)
 				))
 			);
 		} else
