@@ -197,16 +197,11 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 		*/
 		
 		uint32_t mask = _mm256_movemask_epi8(cmp);
+		unsigned int maskBits = popcnt32(mask);
 		// unlike the SSE (128-bit) encoder, the probability of at least one escaped character in a vector is much higher here, which causes the branch to be relatively unpredictable, resulting in poor performance
 		// because of this, we tilt the probability towards the fast path by process single-character escape cases there; this results in a speedup, despite the fast path being slower
-		int onlyOneOrNoneBitSet =
-#if defined(__tune_znver2__) || defined(__tune_znver1__)
-			_mm_popcnt_u32(mask) < 2;
-#else
-			(mask & (mask-1)) == 0;
-#endif
 		// likelihood of >1 bit set: 1-((63/64)^32 + (63/64)^31 * (1/64) * 32C1)
-		if (LIKELIHOOD(0.089, !onlyOneOrNoneBitSet)) {
+		if (LIKELIHOOD(0.089, maskBits > 1)) {
 			unsigned int m1 = mask & 0xffff;
 			unsigned int m2;
 			__m256i data1, data2;
@@ -255,12 +250,10 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 			}
 			
 			unsigned char shuf1Len = popcnt32(m1) + 16;
-			unsigned char shuf2Len = popcnt32(m2) + 16;
 			_mm256_storeu_si256((__m256i*)p, data1);
-			p += shuf1Len;
-			_mm256_storeu_si256((__m256i*)p, data2);
-			p += shuf2Len;
-			col += shuf1Len + shuf2Len;
+			_mm256_storeu_si256((__m256i*)(p + shuf1Len), data2);
+			p += maskBits+YMM_SIZE;
+			col += maskBits+YMM_SIZE;
 			
 			if(LIKELIHOOD(0.3, col >= 0)) {
 				// we overflowed - find correct position to revert back to
@@ -278,7 +271,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				}
 				uint64_t eqMask = eqMask1 | (eqMask2 << shuf1Len);
 				
-				eqMask >>= shuf1Len + shuf2Len - col -1;
+				eqMask >>= maskBits+YMM_SIZE - col -1;
 				unsigned int bitCount;
 #ifdef PLATFORM_AMD64
 				bitCount = (unsigned int)_mm_popcnt_u64(eqMask);
@@ -341,9 +334,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 			// store main + additional char
 			_mm256_storeu_si256((__m256i*)p, data);
 			p[YMM_SIZE] = es[i-1] + 42 + (64 & (mask>>(YMM_SIZE-1-6)));
-			unsigned int processed = popcnt32(mask);
-			p += YMM_SIZE + processed;
-			col += YMM_SIZE + processed;
+			p += maskBits+YMM_SIZE;
+			col += maskBits+YMM_SIZE;
 			
 			if(LIKELIHOOD(0.3, col >= 0)) {
 				if(col-1 == bitIndex) {
