@@ -232,21 +232,13 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				
 				shufMA = _mm256_load_si256(shufExpandLUT + m1);
 				shufMB = _mm256_load_si256((__m256i*)((char*)shufExpandLUT + m2));
+				
 				// expand
 				data1 = _mm256_shuffle_epi8(data1, shufMA);
 				data2 = _mm256_shuffle_epi8(data2, shufMB);
-				
-				// generate = vectors
-				__m256i shufMixMA = _mm256_subs_epu8(
-					shufMA, _mm256_set1_epi8(0x70)
-				);
-				__m256i shufMixMB = _mm256_subs_epu8(
-					shufMB, _mm256_set1_epi8(0x70)
-				);
-				
-				// add in escaped chars
-				data1 = _mm256_or_si256(data1, shufMixMA);
-				data2 = _mm256_or_si256(data2, shufMixMB);
+				// add in '='
+				data1 = _mm256_blendv_epi8(data1, _mm256_set1_epi8('='), shufMA);
+				data2 = _mm256_blendv_epi8(data2, _mm256_set1_epi8('='), shufMB);
 			}
 			
 			unsigned char shuf1Len = popcnt32(m1) + 16;
@@ -297,7 +289,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				}
 			}
 		} else {
-			long bitIndex = _lzcnt_u32(mask);
+			long bitIndex;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
 				data = _mm256_mask_expand_epi8(
@@ -313,6 +305,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 			} else
 #endif
 			{
+				bitIndex = _lzcnt_u32(mask);
 				__m256i mergeMask = _mm256_load_si256(expand_mergemix_table + bitIndex*2);
 				__m256i dataMasked = _mm256_andnot_si256(mergeMask, data);
 				// to deal with the pain of lane crossing, use shift + mask/blend
@@ -338,6 +331,11 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 			col += maskBits+YMM_SIZE;
 			
 			if(LIKELIHOOD(0.3, col >= 0)) {
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
+				if(use_isa >= ISA_LEVEL_VBMI2)
+					bitIndex = _lzcnt_u32(mask);
+#endif
+				
 				if(col-1 == bitIndex) {
 					// this is an escape character, so line will need to overflow
 					p -= col - 1;
