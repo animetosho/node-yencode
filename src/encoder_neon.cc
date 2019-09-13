@@ -27,18 +27,6 @@ __attribute__( ( always_inline ) ) static __inline__ uint32_t _UADD8(uint32_t op
 # endif
 #endif
 
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col, int lineSizeOffset) {
-	uint8_t c = es[i++];
-	if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
-		*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
-		p += 4;
-		col = 1+lineSizeOffset - 16+2;
-	} else {
-		*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
-		p += 3;
-		col = lineSizeOffset - 16+2;
-	}
-}
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col, int lineSizeOffset) {
 	uint8x16_t oData = vld1q_u8(es + i);
 	uint8x16_t data = oData;
@@ -81,6 +69,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		vorr_u8(vget_low_u8(cmp), vreinterpret_u8_u16(cmpNl2)),
 		vget_high_u8(cmp)
 	);
+#endif
 	
 	
 #ifdef __aarch64__
@@ -186,8 +175,18 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 	if(LIKELIHOOD(0.001, col >= 0)) {
 		if(col == 0)
 			encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
-		else
-			encode_eol_handle_post(es, i, p, col, lineSizeOffset);
+		else {
+			uint8_t c = es[i++];
+			if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
+				*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+				p += 4;
+				col = 2-line_size + 1;
+			} else {
+				*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+				p += 3;
+				col = 2-line_size;
+			}
+		}
 	}
 	while(i < 0) {
 		uint8x16_t data = vld1q_u8(es + i);
@@ -280,10 +279,10 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 				
 				p -= col;
 				if(eqMask & 1) {
-					p++;
-					encode_eol_handle_post(es, i, p, col, lineSizeOffset);
-				} else
-					encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
+					p--;
+					i--;
+				}
+				encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 			}
 		} else {
 #ifndef __aarch64__

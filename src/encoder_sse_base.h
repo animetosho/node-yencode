@@ -191,19 +191,6 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
 }
 
 
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
-	uint8_t c = es[i++];
-	if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
-		*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
-		p += 4;
-		col = 1+lineSizeOffset - 16+2;
-	} else {
-		*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
-		p += 3;
-		col = lineSizeOffset - 16+2;
-	}
-}
-
 static const uint32_t ALIGN_TO(32, _maskMix_eol_table[4*32]) = {
 	0xff0000ff, 0x00000000, 0, 0,    0x2a0a0d2a, 0x00000000, 0, 0,
 	0x0000ff00, 0x000000ff, 0, 0,    0x0a0d6a3d, 0x0000002a, 0, 0,
@@ -449,8 +436,18 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 	if(LIKELIHOOD(0.001, col >= 0)) {
 		if(col == 0)
 			encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
-		else
-			encode_eol_handle_post(es, i, p, col, lineSizeOffset);
+		else {
+			uint8_t c = es[i++];
+			if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
+				*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+				p += 4;
+				col = 2-line_size + 1;
+			} else {
+				*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+				p += 3;
+				col = 2-line_size;
+			}
+		}
 	}
 	while(i < 0) {
 		__m128i oData = _mm_loadu_si128((__m128i *)(es + i)); // probably not worth the effort to align
@@ -568,15 +565,14 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 #endif
 						if(col-1 == bitIndex) {
 							// this is an escape character, so line will need to overflow
-							p -= col - 1;
-							i -= col - 1;
-							encode_eol_handle_post(es, i, p, col, lineSizeOffset);
+							p -= col + 1;
+							i -= col;
 						} else {
 							int overflowedPastEsc = (col-1) > bitIndex;
 							p -= col;
 							i -= col - overflowedPastEsc;
-							encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
 						}
+						encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
 					}
 					continue;
 				}
@@ -632,12 +628,11 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 					i += bitCount;
 				}
 				p -= col;
-				if((eqMask & 1) == (use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3)) {
-					encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
-				} else {
-					p++;
-					encode_eol_handle_post(es, i, p, col, lineSizeOffset);
+				if((eqMask & 1) != (use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3)) {
+					p--;
+					i--;
 				}
+				encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
 			}
 		} else {
 			if(use_isa < ISA_LEVEL_SSSE3)

@@ -80,19 +80,6 @@ static void encoder_avx2_lut() {
 }
 
 
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_post(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
-	uint8_t c = es[i++];
-	if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
-		*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
-		p += 4;
-		col = 1+lineSizeOffset;
-	} else {
-		*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
-		p += 3;
-		col = lineSizeOffset;
-	}
-}
-
 #pragma pack(16)
 struct TShufMix {
 	__m128i shuf, mix;
@@ -165,8 +152,18 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 	if(LIKELIHOOD(0.001, col >= 0)) {
 		if(col == 0)
 			encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
-		else
-			encode_eol_handle_post(es, i, p, col, lineSizeOffset);
+		else {
+			uint8_t c = es[i++];
+			if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
+				*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+				p += 4;
+				col = 1+lineSizeOffset;
+			} else {
+				*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+				p += 3;
+				col = lineSizeOffset;
+			}
+		}
 	}
 	while(i < 0) {
 		__m256i oData = _mm256_loadu_si256((__m256i *)(es + i));
@@ -281,12 +278,11 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 					i += bitCount;
 				}
 				p -= col;
-				if(LIKELIHOOD(0.98, (eqMask & 1) == (use_isa >= ISA_LEVEL_VBMI2))) {
-					encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
-				} else {
-					p++;
-					encode_eol_handle_post(es, i, p, col, lineSizeOffset);
+				if(LIKELIHOOD(0.98, (eqMask & 1) != (use_isa >= ISA_LEVEL_VBMI2))) {
+					p--;
+					i--;
 				}
+				encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 			}
 		} else {
 			long bitIndex;
@@ -338,15 +334,14 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				
 				if(col-1 == bitIndex) {
 					// this is an escape character, so line will need to overflow
-					p -= col - 1;
-					i -= col - 1;
-					encode_eol_handle_post(es, i, p, col, lineSizeOffset);
+					p -= col + 1;
+					i -= col;
 				} else {
 					int overflowedPastEsc = (col-1) > bitIndex;
 					p -= col;
 					i -= col - overflowedPastEsc;
-					encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 				}
+				encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 			}
 		}
 	}
