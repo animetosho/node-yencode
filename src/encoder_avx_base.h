@@ -282,7 +282,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 					p--;
 					i--;
 				}
-				encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
+				goto _encode_eol_handle_pre;
 			}
 		} else {
 			long bitIndex;
@@ -341,6 +341,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 					p -= col;
 					i -= col - overflowedPastEsc;
 				}
+				
+				_encode_eol_handle_pre:
 				encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 			}
 		}

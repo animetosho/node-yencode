@@ -572,7 +572,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 							p -= col;
 							i -= col - overflowedPastEsc;
 						}
-						encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
+						goto _encode_eol_handle_pre;
 					}
 					continue;
 				}
@@ -632,7 +632,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 					p--;
 					i--;
 				}
-				encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
+				goto _encode_eol_handle_pre;
 			}
 		} else {
 			if(use_isa < ISA_LEVEL_SSSE3)
@@ -643,6 +643,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 			if(LIKELIHOOD(0.15, col >= 0)) {
 				p -= col;
 				i -= col;
+				
+				_encode_eol_handle_pre:
 				encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
 			}
 		}
