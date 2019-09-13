@@ -8,25 +8,6 @@ uint8x16_t ALIGN_TO(16, shufLUT[256]);
 uint8x16_t ALIGN_TO(16, nlShufLUT[256]);
 static uint16_t expandLUT[256];
 
-#if defined(_MSC_VER) && !defined(__aarch64__)
-# include <armintr.h>
-# define UADD8 _arm_uadd8
-#elif defined(__ARM_FEATURE_SIMD32)
-# if defined(__GNUC__) && !defined(__clang__)
-// from https://stackoverflow.com/questions/19034275/rvct-to-arm-gcc-porting-uadd8
-__attribute__( ( always_inline ) ) static __inline__ uint32_t _UADD8(uint32_t op1, uint32_t op2)
-{
-  uint32_t result;
-  __asm__ ("uadd8 %0, %1, %2" : "=r" (result) : "r" (op1), "r" (op2) );
-  return(result);
-}
-#  define UADD8 _UADD8
-# else
-#  include <arm_acle.h>
-#  define UADD8 __uadd8
-# endif
-#endif
-
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col, int lineSizeOffset) {
 	uint8x16_t oData = vld1q_u8(es + i);
 	uint8x16_t data = oData;
