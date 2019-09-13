@@ -522,7 +522,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 			} else
 #endif
 			{
-				if(mask & (mask-1)) {
+				if(HEDLEY_UNLIKELY(mask & (mask-1))) {
 					data2 = sse2_expand_bytes(m2, _mm_srli_si128(data, 8));
 					data = sse2_expand_bytes(m1, data);
 					// add in escaped chars
@@ -563,7 +563,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 #else
 						bitIndex = 15^bitIndex;
 #endif
-						if(col-1 == bitIndex) {
+						if(HEDLEY_UNLIKELY(col-1 == bitIndex)) {
 							// this is an escape character, so line will need to overflow
 							p -= col + 1;
 							i -= col;
@@ -628,7 +628,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 					i += bitCount;
 				}
 				p -= col;
-				if((eqMask & 1) != (use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3)) {
+				if(HEDLEY_UNLIKELY((eqMask & 1) != (use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3))) {
 					p--;
 					i--;
 				}

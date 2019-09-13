@@ -105,7 +105,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			-0x2021,  0x04df, -0x292A, -0x1C1D, -0x1F20,  0x1313, -0x2021, -0x090A
 		)
 	));
-	if(testChars) {
+	if(HEDLEY_UNLIKELY(testChars)) {
 		unsigned esc1stChar = (testChars & 0x5555) != 0;
 		unsigned esc2ndChar = (testChars & 0xaaaa) != 0;
 		unsigned lut = esc1stChar + esc2ndChar*2;
@@ -332,7 +332,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 					bitIndex = _lzcnt_u32(mask);
 #endif
 				
-				if(col-1 == bitIndex) {
+				if(HEDLEY_UNLIKELY(col-1 == bitIndex)) {
 					// this is an escape character, so line will need to overflow
 					p -= col + 1;
 					i -= col;

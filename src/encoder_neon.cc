@@ -278,7 +278,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 				i += cnt & 0xff;
 				
 				p -= col;
-				if(eqMask & 1) {
+				if(HEDLEY_UNLIKELY(eqMask & 1)) {
 					p--;
 					i--;
 				}
@@ -291,7 +291,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 			vst1q_u8(p, data);
 			p += sizeof(uint8x16_t);
 			col += sizeof(uint8x16_t);
-			if(col >= 0) {
+			if(HEDLEY_UNLIKELY(col >= 0)) {
 				p -= col;
 				i -= col;
 				encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
