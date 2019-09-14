@@ -41,7 +41,7 @@ static const int8_t ALIGN_TO(64, _expand_mergemix_table[33*32*2]) = {
 static const __m256i* expand_mergemix_table = (const __m256i*)_expand_mergemix_table;
 
 
-#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__)
 static uint32_t expandLUT[65536]; // biggish 256KB table (but still smaller than the 2MB table)
 static void encoder_avx_vbmi2_lut() {
 	for(int i=0; i<65536; i++) {

@@ -11,7 +11,7 @@
 	_X3(n, 0) | _X3(n, 1) | _X3(n, 2) | _X3(n, 3) | _X3(n, 4) | _X3(n, 5) | _X3(n, 6) | _X3(n, 7)
 #define _X(n) _X2(n+0), _X2(n+1), _X2(n+2), _X2(n+3), _X2(n+4), _X2(n+5), _X2(n+6), _X2(n+7), \
 	_X2(n+8), _X2(n+9), _X2(n+10), _X2(n+11), _X2(n+12), _X2(n+13), _X2(n+14), _X2(n+15)
-static uint64_t ALIGN_TO(8, eqAddLUT[256]) = {
+static const uint64_t ALIGN_TO(8, eqAddLUT[256]) = {
 	_X(0), _X(16), _X(32), _X(48), _X(64), _X(80), _X(96), _X(112),
 	_X(128), _X(144), _X(160), _X(176), _X(192), _X(208), _X(224), _X(240)
 };
@@ -119,6 +119,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #else
 		cmpA = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 		cmpB = vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+		// no vpaddq_u8 in ARMv7, so need extra 64-bit VPADD
 		uint8x8_t cmpPacked = vpadd_u8(
 			vpadd_u8(
 				vget_low_u8(cmpA), vget_high_u8(cmpA)
