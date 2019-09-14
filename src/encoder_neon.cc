@@ -244,7 +244,6 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 				// we overflowed - find correct position to revert back to
 				uint32_t eqMask = (expandLUT[m2] << shufALen) | expandLUT[m1];
 				eqMask >>= shufTotalLen - col -1;
-				i -= col;
 				
 				// count bits in eqMask; this VCNT approach seems to be about as fast as a 8-bit LUT on Cortex A53
 				uint32x2_t vCnt;
@@ -255,11 +254,9 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 				cnt += cnt >> 8;
 				i += cnt & 0xff;
 				
-				p -= col;
-				if(HEDLEY_UNLIKELY(eqMask & 1)) {
-					p--;
-					i--;
-				}
+				long revert = col + (eqMask & 1);
+				p -= revert;
+				i -= revert;
 				goto _encode_eol_handle_pre;
 			}
 		} else {

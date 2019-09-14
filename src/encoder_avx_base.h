@@ -270,18 +270,19 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 #endif
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
-					i++;
 					i -= bitCount;
+					p -= col;
+					if(LIKELIHOOD(0.98, (eqMask & 1) != 1))
+						p--;
+					else
+						i++;
 				} else
 #endif
 				{
-					i -= col;
 					i += bitCount;
-				}
-				p -= col;
-				if(LIKELIHOOD(0.98, (eqMask & 1) != (use_isa >= ISA_LEVEL_VBMI2))) {
-					p--;
-					i--;
+					long revert = col + (eqMask & 1);
+					p -= revert;
+					i -= revert;
 				}
 				goto _encode_eol_handle_pre;
 			}
@@ -338,13 +339,12 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				
 				if(HEDLEY_UNLIKELY(col-1 == bitIndex)) {
 					// this is an escape character, so line will need to overflow
-					p -= col + 1;
-					i -= col;
+					p--;
 				} else {
-					int overflowedPastEsc = (col-1) > bitIndex;
-					p -= col;
-					i -= col - overflowedPastEsc;
+					i += (col-1 > bitIndex);
 				}
+				i -= col;
+				p -= col;
 				
 				_encode_eol_handle_pre:
 				encode_eol_handle_pre(es, i, p, col, lineSizeOffset);

@@ -563,13 +563,12 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 #endif
 						if(HEDLEY_UNLIKELY(col-1 == bitIndex)) {
 							// this is an escape character, so line will need to overflow
-							p -= col + 1;
-							i -= col;
+							p--;
 						} else {
-							int overflowedPastEsc = (col-1) > bitIndex;
-							p -= col;
-							i -= col - overflowedPastEsc;
+							i += (col-1 > bitIndex);
 						}
+						p -= col;
+						i -= col;
 						goto _encode_eol_handle_pre;
 					}
 					continue;
@@ -618,16 +617,17 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 					bitCount = cnt;
 				}
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
-					i++;
 					i -= bitCount;
+					p -= col;
+					if(LIKELIHOOD(0.98, (eqMask & 1) != 1))
+						p--;
+					else
+						i++;
 				} else {
-					i -= col;
 					i += bitCount;
-				}
-				p -= col;
-				if(HEDLEY_UNLIKELY((eqMask & 1) != (use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3))) {
-					p--;
-					i--;
+					long revert = col + (eqMask & 1);
+					p -= revert;
+					i -= revert;
 				}
 				goto _encode_eol_handle_pre;
 			}
