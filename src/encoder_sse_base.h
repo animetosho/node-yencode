@@ -349,18 +349,14 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			return;
 		}
 		
-		// store out
-		STOREU_XMM(p, data1);
-		p += shufALen;
-		
 		__m128i data2;
-		unsigned int shufBLen;
+		unsigned int shufTotalLen;
 #if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
 		if(use_isa >= ISA_LEVEL_AVX)
-			shufBLen = popcnt32(m2) + 8;
+			shufTotalLen = popcnt32(mask) + 16;
 		else
 #endif
-			shufBLen = BitsSetTable256plus8[m2];
+			shufTotalLen = shufALen + BitsSetTable256plus8[m2];
 		
 #ifdef __SSSE3__
 		if(use_isa >= ISA_LEVEL_SSSE3) {
@@ -376,9 +372,11 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			__m128i shufMixMB = _mm_load_si128(mixLUT + m2);
 			data2 = _mm_add_epi8(data2, shufMixMB);
 		}
-		STOREU_XMM(p, data2);
-		p += shufBLen;
-		col = (long)(shufALen - (m1&1) + shufBLen) + lineSizeOffset-16 -2;
+		
+		STOREU_XMM(p, data1);
+		STOREU_XMM(p+shufALen, data2);
+		p += shufTotalLen;
+		col = (long)(shufTotalLen - (m1&1)) + lineSizeOffset-16 -2;
 	} else {
 		__m128i data1;
 #ifdef __SSSE3__
@@ -580,22 +578,21 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 			}
 			
 			// store out
-			unsigned int shufALen, shufBLen;
+			unsigned int shufALen, shufTotalLen;
 #if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
 			if(use_isa >= ISA_LEVEL_AVX) {
 				shufALen = popcnt32(m1) + 8;
-				shufBLen = popcnt32(m2) + 8;
+				shufTotalLen = popcnt32(mask) + 16;
 			} else
 #endif
 			{
 				shufALen = BitsSetTable256plus8[m1];
-				shufBLen = BitsSetTable256plus8[m2];
+				shufTotalLen = shufALen + BitsSetTable256plus8[m2];
 			}
 			STOREU_XMM(p, data);
-			p += shufALen;
-			STOREU_XMM(p, data2);
-			p += shufBLen;
-			col += shufALen + shufBLen;
+			STOREU_XMM(p+shufALen, data2);
+			p += shufTotalLen;
+			col += shufTotalLen;
 			
 			if(LIKELIHOOD(0.15 /*guess, using 128b lines*/, col >= 0)) {
 				uint32_t eqMask;
@@ -605,7 +602,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 				} else {
 					eqMask = ((unsigned)_mm_movemask_epi8(shufMB) << shufALen) | (unsigned)_mm_movemask_epi8(shufMA);
 				}
-				eqMask >>= shufBLen+shufALen - col -1;
+				eqMask >>= shufTotalLen - col -1;
 				
 				unsigned int bitCount;
 #if defined(__POPCNT__)

@@ -91,9 +91,6 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			return;
 		}
 		
-		vst1q_u8(p, data1);
-		p += shufALen;
-		
 		uint8x16_t shufMB = vld1q_u8((uint8_t*)(shufLUT + m2));
 #ifdef __aarch64__
 		shufMB = vorrq_u8(shufMB, vdupq_n_u8(8));
@@ -102,10 +99,11 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		uint8x16_t data2 = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_low_u8(shufMB)),
 		                               vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_high_u8(shufMB)));
 #endif
-		unsigned char shufBLen = BitsSetTable256plus8[m2];
-		vst1q_u8(p, data2);
-		p += shufBLen;
-		col = shufALen-2 - (m1&1) + shufBLen + lineSizeOffset-16;
+		unsigned char shufTotalLen = shufALen + BitsSetTable256plus8[m2];
+		vst1q_u8(p, data1);
+		vst1q_u8(p+shufALen, data2);
+		p += shufTotalLen;
+		col = shufTotalLen-2 - (m1&1) + lineSizeOffset-16;
 	} else {
 		uint8x16_t data1;
 #ifdef __aarch64__
@@ -236,17 +234,16 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 			
 			// store out
 			unsigned char shufALen = BitsSetTable256plus8[m1];
-			unsigned char shufBLen = BitsSetTable256plus8[m2];
+			unsigned char shufTotalLen = shufALen + BitsSetTable256plus8[m2];
 			vst1q_u8(p, data);
-			p += shufALen;
-			vst1q_u8(p, data2);
-			p += shufBLen;
-			col += shufALen + shufBLen;
+			vst1q_u8(p+shufALen, data2);
+			p += shufTotalLen;
+			col += shufTotalLen;
 			
 			if(LIKELIHOOD(0.15, col >= 0)) {
 				// we overflowed - find correct position to revert back to
 				uint32_t eqMask = (expandLUT[m2] << shufALen) | expandLUT[m1];
-				eqMask >>= shufBLen+shufALen - col -1;
+				eqMask >>= shufTotalLen - col -1;
 				i -= col;
 				
 				// count bits in eqMask; this VCNT approach seems to be about as fast as a 8-bit LUT on Cortex A53
