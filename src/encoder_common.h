@@ -1,16 +1,4 @@
 
-// popcnt table, but with +8 since it's what we do in the encoder
-static const unsigned char BitsSetTable256plus8[256] = 
-{
-#   define B2(n) n+8,     n+9,     n+9,     n+10
-#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
-#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
-    B6(0), B6(1), B6(1), B6(2)
-#undef B2
-#undef B4
-#undef B6
-};
-
 // lookup tables for scalar processing
 #define _B1(n) _B(n), _B(n+1), _B(n+2), _B(n+3)
 #define _B2(n) _B1(n), _B1(n+4), _B1(n+8), _B1(n+12)
@@ -50,7 +38,7 @@ static size_t do_encode_simd(int line_size, int* colOffset, const uint8_t* HEDLE
 	if(*colOffset < 0) *colOffset = 0; // sanity check
 	
 	kernel(line_size, colOffset, es, p, len);
-	
+		
 	// scalar loop to process remaining
 	long i = -(long)len;
 	if(*colOffset == 0 && i < 0) {

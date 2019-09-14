@@ -1,6 +1,20 @@
 
 #ifdef __AVX2__
 
+static struct {
+	#pragma pack(16)
+	struct { char bytes[16]; } ALIGN_TO(16, compact[32768]);
+	#pragma pack()
+	
+	uint8_t eqFix[256];
+	
+} lookups = {
+	/*compact*/ {},
+	/*eqFix*/ {}
+};
+
+
+
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	HEDLEY_ASSUME(_escFirst == 0 || _escFirst == 1);
@@ -349,10 +363,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			}
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
-				unsigned long tmp = eqFixLUT[(maskEq&0xff) & ~(uint64_t)escFirst];
+				unsigned long tmp = lookups.eqFix[(maskEq&0xff) & ~(uint64_t)escFirst];
 				uint64_t maskEq2 = tmp;
 				for(int j=8; j<64; j+=8) {
-					tmp = eqFixLUT[((maskEq>>j)&0xff) & ~(uint64_t)(tmp>>7)];
+					tmp = lookups.eqFix[((maskEq>>j)&0xff) & ~(uint64_t)(tmp>>7)];
 					maskEq2 |= (uint64_t)tmp<<j;
 				}
 				maskEq = maskEq2;
@@ -402,17 +416,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 					);
 					dataA = _mm256_add_epi8(dataA, _mm256_and_si256(vMaskEqA, _mm256_set1_epi8(-64)));
 					dataB = _mm256_add_epi8(dataB, _mm256_and_si256(vMaskEqB, _mm256_set1_epi8(-64)));
-					
-					/*
-					dataA = _mm256_add_epi8(dataA, _mm256_i32gather_epi64(
-						(long long int*)eqAddLUT, _mm_cvtepu8_epi32(_mm_cvtsi32_si128(maskEq)), 8
-					));
-					maskEq >>= 32;
-					dataB = _mm256_add_epi8(dataB, _mm256_i32gather_epi64(
-						(long long int*)eqAddLUT, _mm_cvtepu8_epi32(_mm_cvtsi32_si128(maskEq)), 8
-					));
-					*/
-					
 				}
 			} else {
 				escFirst = (maskEq >> 63);
@@ -491,8 +494,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			{
 				// lookup compress masks and shuffle
 				__m256i shuf = _mm256_inserti128_si256(
-					_mm256_castsi128_si256(_mm_load_si128((__m128i*)(unshufLUTBig + (mask & 0x7fff)))),
-					*(__m128i*)((char*)unshufLUTBig + ((mask >> 12) & 0x7fff0)),
+					_mm256_castsi128_si256(_mm_load_si128((__m128i*)(lookups.compact + (mask & 0x7fff)))),
+					*(__m128i*)((char*)lookups.compact + ((mask >> 12) & 0x7fff0)),
 					1
 				);
 				dataA = _mm256_shuffle_epi8(dataA, shuf);
@@ -506,8 +509,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				
 				mask >>= 28;
 				shuf = _mm256_inserti128_si256(
-					_mm256_castsi128_si256(_mm_load_si128((__m128i*)((char*)unshufLUTBig + (mask & 0x7fff0)))),
-					*(__m128i*)((char*)unshufLUTBig + ((mask >> 16) & 0x7fff0)),
+					_mm256_castsi128_si256(_mm_load_si128((__m128i*)((char*)lookups.compact + (mask & 0x7fff0)))),
+					*(__m128i*)((char*)lookups.compact + ((mask >> 16) & 0x7fff0)),
 					1
 				);
 				dataB = _mm256_shuffle_epi8(dataB, shuf);

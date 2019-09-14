@@ -5,55 +5,129 @@
 #include "encoder.h"
 #include "encoder_common.h"
 
-static const unsigned char BitsSetTable256[256] = 
-{
-#   define B2(n) n+0,     n+1,     n+1,     n+2
-#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
-#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
-    B6(0), B6(1), B6(1), B6(2)
-#undef B2
-#undef B4
-#undef B6
-};
 
-#define _B1(n) _B(n), _B(n+1), _B(n+2), _B(n+3)
-#define _B2(n) _B1(n), _B1(n+4), _B1(n+8), _B1(n+12)
-#define _B3(n) _B2(n), _B2(n+16), _B2(n+32), _B2(n+48)
-#define _BX _B3(0), _B3(64), _B3(128), _B3(192)
-
-static const uint16_t eolCharMask[512] = {
-#define _B(n) ((n == 214+'\t' || n == 214+' ') ? 1 : 0)
-	_BX,
-#undef _B
-#define _B(n) ((n == 214+'\t' || n == 214+' ' || n == '.'-42) ? 2 : 0)
-	_BX
-#undef _B
-};
-
-#undef _B1
-#undef _B2
-#undef _B3
-#undef _BX
-
-
-static uint16_t expandLUT[256];
 
 #pragma pack(16)
 struct TShufMix {
 	__m128i shuf, mix;
 };
 #pragma pack()
-static struct TShufMix ALIGN_TO(32, shufMixLUT[256]);
-static __m128i ALIGN_TO(16, mixLUT[256]);
-static __m128i ALIGN_TO(16, nlMixLUT[256]);
-static struct TShufMix ALIGN_TO(32, nlShufMixLUT[256]);
+
+static struct {
+	struct TShufMix ALIGN_TO(32, shufMix[256]);
+	struct TShufMix ALIGN_TO(32, nlShufMix[256]);
+	__m128i ALIGN_TO(16, mix[256]);
+	__m128i ALIGN_TO(16, nlMix[256]);
+	const unsigned char BitsSetTable256[256];
+	const unsigned char BitsSetTable256plus8[256];
+	const uint16_t eolCharMask[512];
+	uint16_t expandMask[256];
+	
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
+	const int8_t ALIGN_TO(16, expand_maskmix_lzc[32*2*16]);
+#else
+	const int8_t ALIGN_TO(16, expand_maskmix_bsr[16*2*16]);
+#endif
+	
+	const uint32_t ALIGN_TO(32, maskMixEOL[4*8]);
+} lookups = {
+	// shuf/mix lookups
+	{}, {}, {}, {},
+	/*BitsSetTable256*/ {
+		#   define B2(n) n+0,     n+1,     n+1,     n+2
+		#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+		#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+		    B6(0), B6(1), B6(1), B6(2)
+		#undef B2
+		#undef B4
+		#undef B6
+	},
+	/*BitsSetTable256plus8*/ {
+		#   define B2(n) n+8,     n+9,     n+9,     n+10
+		#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+		#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+		    B6(0), B6(1), B6(1), B6(2)
+		#undef B2
+		#undef B4
+		#undef B6
+	},
+	/*eolCharMask*/ {
+		#define _B1(n) _B(n), _B(n+1), _B(n+2), _B(n+3)
+		#define _B2(n) _B1(n), _B1(n+4), _B1(n+8), _B1(n+12)
+		#define _B3(n) _B2(n), _B2(n+16), _B2(n+32), _B2(n+48)
+		#define _BX _B3(0), _B3(64), _B3(128), _B3(192)
+		#define _B(n) ((n == 214+'\t' || n == 214+' ') ? 1 : 0)
+			_BX,
+		#undef _B
+		#define _B(n) ((n == 214+'\t' || n == 214+' ' || n == '.'-42) ? 2 : 0)
+			_BX
+		#undef _B
+		#undef _B1
+		#undef _B2
+		#undef _B3
+		#undef _BX
+	},
+	/*expandMask*/ {},
+	
+	
+	// for SSE2 expanding
+	#define _X2(n,k) n>k?-1:0
+	#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), _X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15)
+	#define _Y2(n, m) n==m ? '=' : 42+64*(n==m-1)
+	#define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
+		_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15)
+	#define _XY(n) _X(n), _Y(n)
+	
+	#if defined(__LZCNT__) && defined(__tune_amdfam10__)
+	/*expand_maskmix_lzc*/ {
+		// 512 bytes of padding; this allows us to save doing a subtraction in-loop
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		
+		_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8),
+		_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0)
+	},
+	#else
+	/*expand_maskmix_bsr*/ {
+		_XY( 0), _XY( 1), _XY( 2), _XY( 3), _XY( 4), _XY( 5), _XY( 6), _XY( 7),
+		_XY( 8), _XY( 9), _XY(10), _XY(11), _XY(12), _XY(13), _XY(14), _XY(15)
+	},
+	#endif
+	#undef _XY
+	#undef _Y
+	#undef _Y2
+	#undef _X
+	#undef _X2
+	
+	/*maskMixEOL*/ {
+		0xff0000ff, 0x00000000, 0, 0,    0x2a0a0d2a, 0x00000000, 0, 0,
+		0x0000ff00, 0x000000ff, 0, 0,    0x0a0d6a3d, 0x0000002a, 0, 0,
+		0x000000ff, 0x000000ff, 0, 0,    0x3d0a0d2a, 0x0000006a, 0, 0,
+		0x0000ff00, 0x0000ff00, 0, 0,    0x0a0d6a3d, 0x00006a3d, 0, 0
+	}
+};
+
 
 static void encoder_sse_lut() {
 	for(int i=0; i<256; i++) {
 		int k = i;
-		uint8_t* res = (uint8_t*)(&(shufMixLUT[i].shuf));
-		uint8_t* nlShuf = (uint8_t*)(&(nlShufMixLUT[i].shuf));
-		uint8_t* nlMix  = (uint8_t*)(&(nlShufMixLUT[i].mix));
+		uint8_t* res = (uint8_t*)(&(lookups.shufMix[i].shuf));
+		uint8_t* nlShuf = (uint8_t*)(&(lookups.nlShufMix[i].shuf));
+		uint8_t* nlMix  = (uint8_t*)(&(lookups.nlShufMix[i].mix));
 		uint16_t expand = 0;
 		int p = 0, pNl = 0;
 		for(int j=0; j<8; j++) {
@@ -86,7 +160,7 @@ static void encoder_sse_lut() {
 		for(; p<8; p++)
 			res[8+p] = 8+p +0x40; // +0x40 is an arbitrary value to make debugging slightly easier?  the top bit cannot be set
 		
-		expandLUT[i] = expand;
+		lookups.expandMask[i] = expand;
 		
 		// calculate add mask for mixing escape chars in
 		__m128i shuf = _mm_load_si128((__m128i*)res);
@@ -94,65 +168,21 @@ static void encoder_sse_lut() {
 		__m128i addMask = _mm_and_si128(_mm_slli_si128(maskEsc, 1), _mm_set1_epi8(64));
 		addMask = _mm_or_si128(addMask, _mm_and_si128(maskEsc, _mm_set1_epi8('=')));
 		
-		_mm_store_si128(&(shufMixLUT[i].mix), addMask);
-		_mm_store_si128(mixLUT + i, _mm_add_epi8(
+		_mm_store_si128(&(lookups.shufMix[i].mix), addMask);
+		_mm_store_si128(lookups.mix + i, _mm_add_epi8(
 			addMask,
 			_mm_andnot_si128(maskEsc, _mm_set1_epi8(42))
 		));
 		
 		__m128i mix = _mm_load_si128((__m128i*)nlMix);
 		__m128i plainChars = _mm_cmpeq_epi8(_mm_and_si128(mix, _mm_set1_epi8(255-64)), _mm_setzero_si128());
-		_mm_store_si128(nlMixLUT + i, _mm_add_epi8(
+		_mm_store_si128(lookups.nlMix + i, _mm_add_epi8(
 			mix,
 			_mm_and_si128(plainChars, _mm_set1_epi8(42))
 		));
 	}
 }
 
-// for SSE2 expanding
-#define _X2(n,k) n>k?-1:0
-#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), _X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15)
-#define _Y2(n, m) n==m ? '=' : 42+64*(n==m-1)
-#define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
-	_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15)
-#define _XY(n) _X(n), _Y(n)
-
-#if defined(__LZCNT__) && defined(__tune_amdfam10__)
-static const int8_t ALIGN_TO(16, _expand_maskmix_lzc_table[32*32]) = {
-	// 512 bytes of padding; this allows us to save doing a subtraction in-loop
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	
-	_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8),
-	_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0)
-};
-static const __m128i* expand_maskmix_lzc_table = (const __m128i*)_expand_maskmix_lzc_table;
-#else
-static const int8_t ALIGN_TO(16, _expand_maskmix_table[16*32]) = {
-	_XY( 0), _XY( 1), _XY( 2), _XY( 3), _XY( 4), _XY( 5), _XY( 6), _XY( 7),
-	_XY( 8), _XY( 9), _XY(10), _XY(11), _XY(12), _XY(13), _XY(14), _XY(15)
-};
-static const __m128i* expand_maskmix_table = (const __m128i*)_expand_maskmix_table;
-#endif
-#undef _XY
-#undef _Y
-#undef _Y2
-#undef _X
-#undef _X2
 
 // for LZCNT/BSF
 #ifdef _MSC_VER
@@ -173,12 +203,12 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
 		// get highest bit
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 		unsigned long bitIndex = _lzcnt_u32(mask);
-		__m128i mergeMask = _mm_load_si128(expand_maskmix_lzc_table + bitIndex*2);
+		__m128i mergeMask = _mm_load_si128((const __m128i*)lookups.expand_maskmix_lzc + bitIndex*2);
 		mask ^= 0x80000000U>>bitIndex;
 #else
 		// TODO: consider LUT for when BSR is slow
 		unsigned long _BSR_VAR(bitIndex, mask);
-		__m128i mergeMask = _mm_load_si128(expand_maskmix_table + bitIndex*2);
+		__m128i mergeMask = _mm_load_si128((const __m128i*)lookups.expand_maskmix_bsr + bitIndex*2);
 		mask ^= 1<<bitIndex;
 #endif
 		// perform expansion
@@ -190,14 +220,6 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
 	return data;
 }
 
-
-static const uint32_t ALIGN_TO(32, _maskMix_eol_table[4*32]) = {
-	0xff0000ff, 0x00000000, 0, 0,    0x2a0a0d2a, 0x00000000, 0, 0,
-	0x0000ff00, 0x000000ff, 0, 0,    0x0a0d6a3d, 0x0000002a, 0, 0,
-	0x000000ff, 0x000000ff, 0, 0,    0x3d0a0d2a, 0x0000006a, 0, 0,
-	0x0000ff00, 0x0000ff00, 0, 0,    0x0a0d6a3d, 0x00006a3d, 0, 0
-};
-static struct TShufMix* maskMixEOL = (struct TShufMix*)_maskMix_eol_table;
 
 template<enum YEncDecIsaLevel use_isa>
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
@@ -265,8 +287,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			cmp = _mm_or_si128(cmp, _mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)));
 			mask = _mm_movemask_epi8(cmp);
 			uint16_t lineChars = *(uint16_t*)(es + i);
-			mask |= eolCharMask[lineChars & 0xff];
-			mask |= eolCharMask[256 + ((lineChars>>8) & 0xff)];
+			mask |= lookups.eolCharMask[lineChars & 0xff];
+			mask |= lookups.eolCharMask[256 + ((lineChars>>8) & 0xff)];
 		}
 	} else
 #endif
@@ -284,8 +306,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		mask = _mm_movemask_epi8(cmp);
 		
 		uint16_t lineChars = *(uint16_t*)(es + i);
-		mask |= eolCharMask[lineChars & 0xff];
-		mask |= eolCharMask[256 + ((lineChars>>8) & 0xff)];
+		mask |= lookups.eolCharMask[lineChars & 0xff];
+		mask |= lookups.eolCharMask[256 + ((lineChars>>8) & 0xff)];
 	}
 	
 	if (LIKELIHOOD(0.2227, mask != 0)) {
@@ -299,15 +321,15 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			shufALen = popcnt32(m1) + 10;
 		else
 #endif
-			shufALen = BitsSetTable256plus8[m1] + 2;
+			shufALen = lookups.BitsSetTable256plus8[m1] + 2;
 		
 		// TODO: is VBMI2 worthwhile here?
 #ifdef __SSSE3__
 		if(use_isa >= ISA_LEVEL_SSSE3) {
-			__m128i shufMA = _mm_load_si128(&(nlShufMixLUT[m1].shuf));
+			__m128i shufMA = _mm_load_si128(&(lookups.nlShufMix[m1].shuf));
 			data1 = _mm_shuffle_epi8(data, shufMA);
 			// add in escaped chars
-			__m128i shufMixMA = _mm_load_si128(&(nlShufMixLUT[m1].mix));
+			__m128i shufMixMA = _mm_load_si128(&(lookups.nlShufMix[m1].mix));
 			data1 = _mm_add_epi8(data1, shufMixMA);
 		} else
 #endif
@@ -317,8 +339,9 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 				data1 = _mm_unpacklo_epi8(oData, oData); // 0011xxxx
 				data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(0,1,1,0)); // 00111100
 				
-				data1 = _mm_and_si128(data1, _mm_load_si128(&(maskMixEOL[m1 & 3].shuf)));
-				data1 = _mm_add_epi8(data1, _mm_load_si128(&(maskMixEOL[m1 & 3].mix)));
+				unsigned lut = (m1 & 3)*2;
+				data1 = _mm_and_si128(data1, _mm_load_si128((const __m128i*)lookups.maskMixEOL + lut));
+				data1 = _mm_add_epi8(data1, _mm_load_si128((const __m128i*)lookups.maskMixEOL + lut+1));
 			} else {
 				// regular expansion, except first byte
 				data1 = sse2_expand_bytes(m1 & 0xfe, data);
@@ -333,7 +356,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 					data1 = _mm_and_si128(data1, _mm_set_epi32(-1, -1, -1, 0xff0000ff));
 				}
 				
-				__m128i shufMixMA = _mm_load_si128(nlMixLUT + m1);
+				__m128i shufMixMA = _mm_load_si128(lookups.nlMix + m1);
 				data1 = _mm_add_epi8(data1, shufMixMA);
 			}
 		}
@@ -356,20 +379,20 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			shufTotalLen = popcnt32(mask) + 16;
 		else
 #endif
-			shufTotalLen = shufALen + BitsSetTable256plus8[m2];
+			shufTotalLen = shufALen + lookups.BitsSetTable256plus8[m2];
 		
 #ifdef __SSSE3__
 		if(use_isa >= ISA_LEVEL_SSSE3) {
-			__m128i shufMB = _mm_load_si128(&(shufMixLUT[m2].shuf));
+			__m128i shufMB = _mm_load_si128(&(lookups.shufMix[m2].shuf));
 			shufMB = _mm_or_si128(shufMB, _mm_set1_epi8(8));
 			data2 = _mm_shuffle_epi8(data, shufMB);
-			__m128i shufMixMB = _mm_load_si128(&(shufMixLUT[m2].mix));
+			__m128i shufMixMB = _mm_load_si128(&(lookups.shufMix[m2].mix));
 			data2 = _mm_add_epi8(data2, shufMixMB);
 		} else
 #endif
 		{
 			data2 = sse2_expand_bytes(m2, _mm_srli_si128(data, 8));
-			__m128i shufMixMB = _mm_load_si128(mixLUT + m2);
+			__m128i shufMixMB = _mm_load_si128(lookups.mix + m2);
 			data2 = _mm_add_epi8(data2, shufMixMB);
 		}
 		
@@ -495,15 +518,15 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 			if(use_isa >= ISA_LEVEL_VBMI2) {
 				data = _mm_mask_add_epi8(data, mask, data, _mm_set1_epi8(64));
 				
-				data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m2], _mm_srli_si128(data, 8));
-				data = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandLUT[m1], data);
+				data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m2], _mm_srli_si128(data, 8));
+				data = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m1], data);
 			} else
 #endif
 #ifdef __SSSE3__
 			if(use_isa >= ISA_LEVEL_SSSE3) {
 				// perform lookup for shuffle mask
-				shufMA = _mm_load_si128(&(shufMixLUT[m1].shuf));
-				shufMB = _mm_load_si128(&(shufMixLUT[m2].shuf));
+				shufMA = _mm_load_si128(&(lookups.shufMix[m1].shuf));
+				shufMB = _mm_load_si128(&(lookups.shufMix[m2].shuf));
 				
 				// second mask processes on second half, so add to the offsets
 				shufMB = _mm_or_si128(shufMB, _mm_set1_epi8(8));
@@ -513,8 +536,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 				data = _mm_shuffle_epi8(data, shufMA);
 				
 				// add in escaped chars
-				__m128i shufMixMA = _mm_load_si128(&(shufMixLUT[m1].mix));
-				__m128i shufMixMB = _mm_load_si128(&(shufMixLUT[m2].mix));
+				__m128i shufMixMA = _mm_load_si128(&(lookups.shufMix[m1].mix));
+				__m128i shufMixMB = _mm_load_si128(&(lookups.shufMix[m2].mix));
 				data = _mm_add_epi8(data, shufMixMA);
 				data2 = _mm_add_epi8(data2, shufMixMB);
 			} else
@@ -524,8 +547,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 					data2 = sse2_expand_bytes(m2, _mm_srli_si128(data, 8));
 					data = sse2_expand_bytes(m1, data);
 					// add in escaped chars
-					__m128i shufMixMA = _mm_load_si128(mixLUT + m1);
-					__m128i shufMixMB = _mm_load_si128(mixLUT + m2);
+					__m128i shufMixMA = _mm_load_si128(lookups.mix + m1);
+					__m128i shufMixMB = _mm_load_si128(lookups.mix + m2);
 					data = _mm_add_epi8(data, shufMixMA);
 					data2 = _mm_add_epi8(data2, shufMixMB);
 				} else {
@@ -533,12 +556,12 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 					// lzcnt is faster than bsf on AMD
 					long bitIndex = _lzcnt_u32(mask);
-					__m128i mergeMask = _mm_load_si128(expand_maskmix_lzc_table + bitIndex*2);
-					__m128i mixVals = _mm_load_si128(expand_maskmix_lzc_table + bitIndex*2 + 1);
+					__m128i mergeMask = _mm_load_si128((const __m128i*)lookups.expand_maskmix_lzc + bitIndex*2);
+					__m128i mixVals = _mm_load_si128((const __m128i*)lookups.expand_maskmix_lzc + bitIndex*2 + 1);
 #else
 					long _BSR_VAR(bitIndex, mask);
-					__m128i mergeMask = _mm_load_si128(expand_maskmix_table + bitIndex*2);
-					__m128i mixVals = _mm_load_si128(expand_maskmix_table + bitIndex*2 + 1);
+					__m128i mergeMask = _mm_load_si128((const __m128i*)lookups.expand_maskmix_bsr + bitIndex*2);
+					__m128i mixVals = _mm_load_si128((const __m128i*)lookups.expand_maskmix_bsr + bitIndex*2 + 1);
 #endif
 					data = _mm_or_si128(
 						_mm_and_si128(mergeMask, data),
@@ -585,8 +608,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 			} else
 #endif
 			{
-				shufALen = BitsSetTable256plus8[m1];
-				shufTotalLen = shufALen + BitsSetTable256plus8[m2];
+				shufALen = lookups.BitsSetTable256plus8[m1];
+				shufTotalLen = shufALen + lookups.BitsSetTable256plus8[m2];
 			}
 			STOREU_XMM(p, data);
 			STOREU_XMM(p+shufALen, data2);
@@ -597,7 +620,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 				uint32_t eqMask;
 				// from experimentation, it doesn't seem like it's worth trying to branch here, i.e. it isn't worth trying to avoid a pmovmskb+shift+or by checking overflow amount
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
-					eqMask = (expandLUT[m2] << shufALen) | expandLUT[m1];
+					eqMask = (lookups.expandMask[m2] << shufALen) | lookups.expandMask[m1];
 				} else {
 					eqMask = ((unsigned)_mm_movemask_epi8(shufMB) << shufALen) | (unsigned)_mm_movemask_epi8(shufMA);
 				}
@@ -610,10 +633,10 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 				else
 #endif
 				{
-					unsigned char cnt = BitsSetTable256[eqMask & 0xff];
-					cnt += BitsSetTable256[(eqMask>>8) & 0xff];
-					cnt += BitsSetTable256[(eqMask>>16) & 0xff];
-					cnt += BitsSetTable256[(eqMask>>24) & 0xff];
+					unsigned char cnt = lookups.BitsSetTable256[eqMask & 0xff];
+					cnt += lookups.BitsSetTable256[(eqMask>>8) & 0xff];
+					cnt += lookups.BitsSetTable256[(eqMask>>16) & 0xff];
+					cnt += lookups.BitsSetTable256[(eqMask>>24) & 0xff];
 					bitCount = cnt;
 				}
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {

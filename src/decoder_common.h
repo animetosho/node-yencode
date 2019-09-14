@@ -3,18 +3,6 @@
 // TODO: need to support max output length somehow
 // TODO: add branch probabilities
 
-// 8 - popcnt(byte) for decoder
-static const unsigned char BitsSetTable256inv[256] = 
-{
-#   define B2(n) 8-(n),     7-(n),     7-(n),     6-(n)
-#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
-#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
-    B6(0), B6(1), B6(1), B6(2)
-#undef B2
-#undef B4
-#undef B6
-};
-
 
 // state var: refers to the previous state - only used for incremental processing
 template<bool isRaw>
@@ -477,16 +465,7 @@ int do_decode_simd(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HED
 	return 0;
 }
 
-static uint8_t eqFixLUT[256];
-#ifdef YENC_DEC_USE_THINTABLE
-static uint64_t ALIGN_TO(8, unshufLUT[256]);
-#else
-#pragma pack(16)
-static struct { char bytes[16]; } ALIGN_TO(16, unshufLUTBig[32768]);
-#pragma pack()
-#endif
-
-static inline void decoder_init_lut() {
+static inline void decoder_init_lut(uint8_t* eqFixLUT, void* compactLUT) {
 	for(int i=0; i<256; i++) {
 		int k = i;
 		int p = 0;
@@ -504,7 +483,7 @@ static inline void decoder_init_lut() {
 		eqFixLUT[i] = p;
 		
 		#ifdef YENC_DEC_USE_THINTABLE
-		uint8_t* res = (uint8_t*)(unshufLUT + i);
+		uint8_t* res = (uint8_t*)compactLUT + i*8;
 		k = i;
 		p = 0;
 		for(int j=0; j<8; j++) {
@@ -520,7 +499,7 @@ static inline void decoder_init_lut() {
 	#ifndef YENC_DEC_USE_THINTABLE
 	for(int i=0; i<32768; i++) {
 		int k = i;
-		uint8_t* res = (uint8_t*)(unshufLUTBig + i);
+		uint8_t* res = (uint8_t*)compactLUT + i*16;
 		int p = 0;
 		
 		for(int j=0; j<16; j++) {

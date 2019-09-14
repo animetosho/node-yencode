@@ -6,18 +6,49 @@
 #endif
 #include "decoder_common.h"
 
-#define _X3(n, k) ((((n) & (1<<k)) ? 150ULL : 214ULL) << (k*8))
-#define _X2(n) \
-	_X3(n, 0) | _X3(n, 1) | _X3(n, 2) | _X3(n, 3) | _X3(n, 4) | _X3(n, 5) | _X3(n, 6) | _X3(n, 7)
-#define _X(n) _X2(n+0), _X2(n+1), _X2(n+2), _X2(n+3), _X2(n+4), _X2(n+5), _X2(n+6), _X2(n+7), \
-	_X2(n+8), _X2(n+9), _X2(n+10), _X2(n+11), _X2(n+12), _X2(n+13), _X2(n+14), _X2(n+15)
-static const uint64_t ALIGN_TO(8, eqAddLUT[256]) = {
-	_X(0), _X(16), _X(32), _X(48), _X(64), _X(80), _X(96), _X(112),
-	_X(128), _X(144), _X(160), _X(176), _X(192), _X(208), _X(224), _X(240)
+
+static struct {
+	const unsigned char BitsSetTable256inv[256];
+	
+#ifdef YENC_DEC_USE_THINTABLE
+	uint64_t ALIGN_TO(8, compact[256]);
+#else
+	#pragma pack(16)
+	struct { char bytes[16]; } ALIGN_TO(16, compact[32768]);
+	#pragma pack()
+#endif
+	
+	uint8_t eqFix[256];
+	const uint64_t ALIGN_TO(8, eqAdd[256]);
+	
+} lookups = {
+	/*BitsSetTable256inv*/ {
+		#   define B2(n) 8-(n),     7-(n),     7-(n),     6-(n)
+		#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+		#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+		    B6(0), B6(1), B6(1), B6(2)
+		#undef B2
+		#undef B4
+		#undef B6
+	},
+	/*compact*/ {},
+	
+	/*eqFix*/ {},
+	/*eqAdd*/ {
+		#define _X3(n, k) ((((n) & (1<<k)) ? 150ULL : 214ULL) << (k*8))
+		#define _X2(n) \
+			_X3(n, 0) | _X3(n, 1) | _X3(n, 2) | _X3(n, 3) | _X3(n, 4) | _X3(n, 5) | _X3(n, 6) | _X3(n, 7)
+		#define _X(n) _X2(n+0), _X2(n+1), _X2(n+2), _X2(n+3), _X2(n+4), _X2(n+5), _X2(n+6), _X2(n+7), \
+			_X2(n+8), _X2(n+9), _X2(n+10), _X2(n+11), _X2(n+12), _X2(n+13), _X2(n+14), _X2(n+15)
+		_X(0), _X(16), _X(32), _X(48), _X(64), _X(80), _X(96), _X(112),
+		_X(128), _X(144), _X(160), _X(176), _X(192), _X(208), _X(224), _X(240)
+		#undef _X3
+		#undef _X2
+		#undef _X
+	}
+	
 };
-#undef _X3
-#undef _X2
-#undef _X
+
 
 
 static uint16_t neon_movemask(uint8x16_t in) {
@@ -308,10 +339,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) | escFirst)) != 0)) {
-				uint8_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				uint8_t tmp = lookups.eqFix[(maskEq&0xff) & ~escFirst];
 				uint32_t maskEq2 = tmp;
 				for(int j=8; j<32; j+=8) {
-					tmp = eqFixLUT[((maskEq>>j)&0xff) & ~(tmp>>7)];
+					tmp = lookups.eqFix[((maskEq>>j)&0xff) & ~(tmp>>7)];
 					maskEq2 |= tmp<<j;
 				}
 				maskEq = maskEq2;
@@ -325,15 +356,15 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				dataA = vaddq_u8(
 					dataA,
 					vcombine_u8(
-						vld1_u8((uint8_t*)(eqAddLUT + (maskEq&0xff))),
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>8)&0xff)))
+						vld1_u8((uint8_t*)(lookups.eqAdd + (maskEq&0xff))),
+						vld1_u8((uint8_t*)(lookups.eqAdd + ((maskEq>>8)&0xff)))
 					)
 				);
 				dataB = vaddq_u8(
 					dataB,
 					vcombine_u8(
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>16)&0xff))),
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>24)&0xff)))
+						vld1_u8((uint8_t*)(lookups.eqAdd + ((maskEq>>16)&0xff))),
+						vld1_u8((uint8_t*)(lookups.eqAdd + ((maskEq>>24)&0xff)))
 					)
 				);
 			} else {
@@ -364,46 +395,40 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #ifdef __aarch64__
 			vst1q_u8(p, vqtbl1q_u8(
 				dataA,
-				vld1q_u8((uint8_t*)(unshufLUTBig + (mask&0x7fff)))
+				vld1q_u8((uint8_t*)(lookups.compact + (mask&0x7fff)))
 			));
-			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
+			p += lookups.BitsSetTable256inv[mask & 0xff] + lookups.BitsSetTable256inv[(mask >> 8) & 0xff];
 			mask >>= 16;
 			vst1q_u8(p, vqtbl1q_u8(
 				dataB,
-				vld1q_u8((uint8_t*)(unshufLUTBig + (mask&0x7fff)))
+				vld1q_u8((uint8_t*)(lookups.compact + (mask&0x7fff)))
 			));
-			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[mask >> 8];
+			p += lookups.BitsSetTable256inv[mask & 0xff] + lookups.BitsSetTable256inv[mask >> 8];
 #else
 			// lookup compress masks and shuffle
-# ifndef YENC_DEC_USE_THINTABLE
-#  define unshufLUT unshufLUTBig
-# endif
 			vst1_u8(p, vtbl1_u8(
 				vget_low_u8(dataA),
-				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
+				vld1_u8((uint8_t*)(lookups.compact + (mask&0xff)))
 			));
-			p += BitsSetTable256inv[mask & 0xff];
+			p += lookups.BitsSetTable256inv[mask & 0xff];
 			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
 				vget_high_u8(dataA),
-				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
+				vld1_u8((uint8_t*)(lookups.compact + (mask&0xff)))
 			));
-			p += BitsSetTable256inv[mask & 0xff];
+			p += lookups.BitsSetTable256inv[mask & 0xff];
 			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
 				vget_low_u8(dataB),
-				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
+				vld1_u8((uint8_t*)(lookups.compact + (mask&0xff)))
 			));
-			p += BitsSetTable256inv[mask & 0xff];
+			p += lookups.BitsSetTable256inv[mask & 0xff];
 			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
 				vget_high_u8(dataB),
-				vld1_u8((uint8_t*)(unshufLUT + (mask&0xff)))
+				vld1_u8((uint8_t*)(lookups.compact + (mask&0xff)))
 			));
-			p += BitsSetTable256inv[mask & 0xff];
-# ifndef YENC_DEC_USE_THINTABLE
-#  undef unshufLUT
-# endif
+			p += lookups.BitsSetTable256inv[mask & 0xff];
 			
 #endif
 			
@@ -432,7 +457,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 }
 
 void decoder_set_neon_funcs() {
-	decoder_init_lut();
+	decoder_init_lut(lookups.eqFix, lookups.compact);
 	_do_decode = &do_decode_simd<false, false, sizeof(uint8x16_t)*2, do_decode_neon<false, false> >;
 	_do_decode_raw = &do_decode_simd<true, false, sizeof(uint8x16_t)*2, do_decode_neon<true, false> >;
 	_do_decode_end = &do_decode_simd<false, true, sizeof(uint8x16_t)*2, do_decode_neon<false, true> >;

@@ -14,35 +14,56 @@
 # define PLATFORM_AMD64 1
 #endif
 
-
-static const int8_t ALIGN_TO(64, _expand_mergemix_table[33*32*2]) = {
-#define _X2(n,k) n>k?-1:0
-#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), \
-	_X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15), \
-	_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
-	_X2(n,24), _X2(n,25), _X2(n,26), _X2(n,27), _X2(n,28), _X2(n,29), _X2(n,30), _X2(n,31)
-#define _Y2(n, m) '='*(n==m) + 64*(n==m-1)
-#define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
-	_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15), \
-	_Y2(n,16), _Y2(n,17), _Y2(n,18), _Y2(n,19), _Y2(n,20), _Y2(n,21), _Y2(n,22), _Y2(n,23), \
-	_Y2(n,24), _Y2(n,25), _Y2(n,26), _Y2(n,27), _Y2(n,28), _Y2(n,29), _Y2(n,30), _Y2(n,31)
-#define _XY(n) _X(n), _Y(n)
-	_XY(31), _XY(30), _XY(29), _XY(28), _XY(27), _XY(26), _XY(25), _XY(24),
-	_XY(23), _XY(22), _XY(21), _XY(20), _XY(19), _XY(18), _XY(17), _XY(16),
-	_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8),
-	_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0),
-	_XY(32)
-#undef _XY
-#undef _Y
-#undef _Y2
-#undef _X
-#undef _X2
+#pragma pack(16)
+struct TShufMix {
+	__m128i shuf, mix;
 };
-static const __m256i* expand_mergemix_table = (const __m256i*)_expand_mergemix_table;
+#pragma pack()
+
+static struct {
+	const int8_t ALIGN_TO(64, expand_mergemix[33*2*32]);
+	__m256i ALIGN_TO(32, shufExpand[65536]); // huge 2MB table
+	const uint32_t ALIGN_TO(32, maskMixEOL[4*8]);
+	uint32_t expand[65536]; // biggish 256KB table (but still smaller than the 2MB table)
+} lookups = {
+	/*expand_mergemix*/ {
+		#define _X2(n,k) n>k?-1:0
+		#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), \
+			_X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15), \
+			_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
+			_X2(n,24), _X2(n,25), _X2(n,26), _X2(n,27), _X2(n,28), _X2(n,29), _X2(n,30), _X2(n,31)
+		#define _Y2(n, m) '='*(n==m) + 64*(n==m-1)
+		#define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
+			_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15), \
+			_Y2(n,16), _Y2(n,17), _Y2(n,18), _Y2(n,19), _Y2(n,20), _Y2(n,21), _Y2(n,22), _Y2(n,23), \
+			_Y2(n,24), _Y2(n,25), _Y2(n,26), _Y2(n,27), _Y2(n,28), _Y2(n,29), _Y2(n,30), _Y2(n,31)
+		#define _XY(n) _X(n), _Y(n)
+			_XY(31), _XY(30), _XY(29), _XY(28), _XY(27), _XY(26), _XY(25), _XY(24),
+			_XY(23), _XY(22), _XY(21), _XY(20), _XY(19), _XY(18), _XY(17), _XY(16),
+			_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8),
+			_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0),
+			_XY(32)
+		#undef _XY
+		#undef _Y
+		#undef _Y2
+		#undef _X
+		#undef _X2
+	},
+	
+	/*shufExpand*/ {},
+	/*maskMixEOL*/ {
+		// first row is an AND mask, rest is PSHUFB table
+		0xff0000ff, 0x00000000, 0, 0,    0x2a0a0d2a, 0x00000000, 0, 0,
+		
+		0xffff00ff, 0xffffff01, 0, 0,    0x0a0d6a3d, 0x0000002a, 0, 0,
+		0xffffff00, 0xffffff01, 0, 0,    0x3d0a0d2a, 0x0000006a, 0, 0,
+		0xffff00ff, 0xffff01ff, 0, 0,    0x0a0d6a3d, 0x00006a3d, 0, 0
+	},
+	/*expand*/ {}
+};
 
 
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__)
-static uint32_t expandLUT[65536]; // biggish 256KB table (but still smaller than the 2MB table)
 static void encoder_avx_vbmi2_lut() {
 	for(int i=0; i<65536; i++) {
 		int k = i;
@@ -55,16 +76,15 @@ static void encoder_avx_vbmi2_lut() {
 			expand |= 1<<(j+p);
 			k >>= 1;
 		}
-		expandLUT[i] = expand;
+		lookups.expand[i] = expand;
 	}
 }
 #endif
 
-static __m256i ALIGN_TO(32, shufExpandLUT[65536]); // huge 2MB table
 static void encoder_avx2_lut() {
 	for(int i=0; i<65536; i++) {
 		int k = i;
-		uint8_t* res = (uint8_t*)(shufExpandLUT + i);
+		uint8_t* res = (uint8_t*)(lookups.shufExpand + i);
 		int p = 0;
 		for(int j=0; j<16; j++) {
 			if(k & 1) {
@@ -80,22 +100,6 @@ static void encoder_avx2_lut() {
 }
 
 
-#pragma pack(16)
-struct TShufMix {
-	__m128i shuf, mix;
-};
-#pragma pack()
-
-static const uint32_t ALIGN_TO(32, _maskMix_eol_table[4*32]) = {
-	// first row is an AND mask, rest is PSHUFB table
-	0xff0000ff, 0x00000000, 0, 0,    0x2a0a0d2a, 0x00000000, 0, 0,
-	
-	0xffff00ff, 0xffffff01, 0, 0,    0x0a0d6a3d, 0x0000002a, 0, 0,
-	0xffffff00, 0xffffff01, 0, 0,    0x3d0a0d2a, 0x0000006a, 0, 0,
-	0xffff00ff, 0xffff01ff, 0, 0,    0x0a0d6a3d, 0x00006a3d, 0, 0
-};
-static struct TShufMix* maskMixEOL = (struct TShufMix*)_maskMix_eol_table;
-
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
 	__m128i lineChars = _mm_set1_epi16(*(uint16_t*)(es+i)); // unfortunately, _mm_broadcastw_epi16 requires __m128i argument
 	unsigned testChars = _mm_movemask_epi8(_mm_cmpeq_epi8(
@@ -108,9 +112,9 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	if(HEDLEY_UNLIKELY(testChars)) {
 		unsigned esc1stChar = (testChars & 0x5555) != 0;
 		unsigned esc2ndChar = (testChars & 0xaaaa) != 0;
-		unsigned lut = esc1stChar + esc2ndChar*2;
-		lineChars = _mm_shuffle_epi8(lineChars, _mm_load_si128(&(maskMixEOL[lut].shuf)));
-		lineChars = _mm_add_epi8(lineChars, _mm_load_si128(&(maskMixEOL[lut].mix)));
+		unsigned lut = (esc1stChar + esc2ndChar*2)*2;
+		lineChars = _mm_shuffle_epi8(lineChars, _mm_load_si128((const __m128i*)lookups.maskMixEOL + lut));
+		lineChars = _mm_add_epi8(lineChars, _mm_load_si128((const __m128i*)lookups.maskMixEOL + lut+1));
 		_mm_storel_epi64((__m128i*)p, lineChars);
 		col = lineSizeOffset + esc2ndChar;
 		p += 4 + esc1stChar + esc2ndChar;
@@ -215,8 +219,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				expandMask = _pext_u64(~expandMask, expandMask|0xaaaaaaaaaaaaaaaa);
 				*/
 				
-				data1 = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), expandLUT[m1], data);
-				data2 = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), expandLUT[m2], _mm256_castsi128_si256(
+				data1 = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), lookups.expand[m1], data);
+				data2 = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), lookups.expand[m2], _mm256_castsi128_si256(
 					_mm256_extracti128_si256(data, 1)
 				));
 			} else
@@ -228,8 +232,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				data1 = _mm256_inserti128_si256(data, _mm256_castsi256_si128(data), 1);
 				data2 = _mm256_permute4x64_epi64(data, 0xee);
 				
-				shufMA = _mm256_load_si256(shufExpandLUT + m1);
-				shufMB = _mm256_load_si256((__m256i*)((char*)shufExpandLUT + m2));
+				shufMA = _mm256_load_si256(lookups.shufExpand + m1);
+				shufMB = _mm256_load_si256((__m256i*)((char*)lookups.shufExpand + m2));
 				
 				// expand
 				data1 = _mm256_shuffle_epi8(data1, shufMA);
@@ -251,8 +255,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 				uint64_t eqMask1, eqMask2;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
-					eqMask1 = expandLUT[m1];
-					eqMask2 = expandLUT[m2];
+					eqMask1 = lookups.expand[m1];
+					eqMask2 = lookups.expand[m2];
 				} else
 #endif
 				{
@@ -304,7 +308,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 #endif
 			{
 				bitIndex = _lzcnt_u32(mask);
-				__m256i mergeMask = _mm256_load_si256(expand_mergemix_table + bitIndex*2);
+				__m256i mergeMask = _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndex*2);
 				__m256i dataMasked = _mm256_andnot_si256(mergeMask, data);
 				// to deal with the pain of lane crossing, use shift + mask/blend
 				__m256i dataShifted = _mm256_alignr_epi8(
@@ -323,7 +327,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, c
 #endif
 					data = _mm256_blendv_epi8(dataShifted, data, mergeMask);
 				
-				data = _mm256_add_epi8(data, _mm256_load_si256(expand_mergemix_table + bitIndex*2 + 1));
+				data = _mm256_add_epi8(data, _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndex*2 + 1));
 			}
 			// store main + additional char
 			_mm256_storeu_si256((__m256i*)p, data);

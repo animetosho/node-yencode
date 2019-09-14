@@ -4,9 +4,23 @@
 #include "encoder.h"
 #include "encoder_common.h"
 
-uint8x16_t ALIGN_TO(16, shufLUT[256]);
-uint8x16_t ALIGN_TO(16, nlShufLUT[256]);
-static uint16_t expandLUT[256];
+static struct {
+	uint8x16_t ALIGN_TO(16, shuf[256]);
+	uint8x16_t ALIGN_TO(16, nlShuf[256]);
+	uint16_t expand[256];
+	const unsigned char BitsSetTable256plus8[256];
+} lookups = {
+	{}, {}, {}
+	/*BitsSetTable256plus8*/ {
+		#   define B2(n) n+8,     n+9,     n+9,     n+10
+		#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+		#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+		    B6(0), B6(1), B6(1), B6(2)
+		#undef B2
+		#undef B4
+		#undef B6
+	}
+};
 
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col, int lineSizeOffset) {
 	uint8x16_t oData = vld1q_u8(es + i);
@@ -69,7 +83,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		uint8_t m2 = ((mask2 >> 16) & 0xff);
 #endif
 		
-		uint8x16_t shufMA = vld1q_u8((uint8_t*)(nlShufLUT + m1));
+		uint8x16_t shufMA = vld1q_u8((uint8_t*)(lookups.nlShuf + m1));
 		uint8x16_t data1 = vqsubq_u8(shufMA, vdupq_n_u8(64));
 #ifdef __aarch64__
 		data = vaddq_u8(data, vandq_u8(cmp, vdupq_n_u8(64)));
@@ -79,7 +93,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		data1 = vcombine_u8(vtbx1_u8(vget_low_u8(data1), vget_low_u8(data), vget_low_u8(shufMA)),
 		                              vtbx1_u8(vget_high_u8(data1), vget_low_u8(data), vget_high_u8(shufMA)));
 #endif
-		unsigned char shufALen = BitsSetTable256plus8[m1] +2;
+		unsigned char shufALen = lookups.BitsSetTable256plus8[m1] +2;
 		if(LIKELIHOOD(0.001, shufALen > sizeof(uint8x16_t))) {
 			// unlikely special case, which would cause vectors to be overflowed
 			// we'll just handle this by only dealing with the first 2 characters, and let main loop handle the rest
@@ -91,7 +105,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			return;
 		}
 		
-		uint8x16_t shufMB = vld1q_u8((uint8_t*)(shufLUT + m2));
+		uint8x16_t shufMB = vld1q_u8((uint8_t*)(lookups.shuf + m2));
 #ifdef __aarch64__
 		shufMB = vorrq_u8(shufMB, vdupq_n_u8(8));
 		uint8x16_t data2 = vqtbx1q_u8(vdupq_n_u8('='), data, shufMB);
@@ -99,7 +113,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		uint8x16_t data2 = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_low_u8(shufMB)),
 		                               vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_high_u8(shufMB)));
 #endif
-		unsigned char shufTotalLen = shufALen + BitsSetTable256plus8[m2];
+		unsigned char shufTotalLen = shufALen + lookups.BitsSetTable256plus8[m2];
 		vst1q_u8(p, data1);
 		vst1q_u8(p+shufALen, data2);
 		p += shufTotalLen;
@@ -211,8 +225,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 #endif
 			
 			// perform lookup for shuffle mask
-			uint8x16_t shufMA = vld1q_u8((uint8_t*)(shufLUT + m1));
-			uint8x16_t shufMB = vld1q_u8((uint8_t*)(shufLUT + m2));
+			uint8x16_t shufMA = vld1q_u8((uint8_t*)(lookups.shuf + m1));
+			uint8x16_t shufMB = vld1q_u8((uint8_t*)(lookups.shuf + m2));
 			
 			// expand halves
 #ifdef __aarch64__
@@ -233,8 +247,8 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 #endif
 			
 			// store out
-			unsigned char shufALen = BitsSetTable256plus8[m1];
-			unsigned char shufTotalLen = shufALen + BitsSetTable256plus8[m2];
+			unsigned char shufALen = lookups.BitsSetTable256plus8[m1];
+			unsigned char shufTotalLen = shufALen + lookups.BitsSetTable256plus8[m2];
 			vst1q_u8(p, data);
 			vst1q_u8(p+shufALen, data2);
 			p += shufTotalLen;
@@ -242,7 +256,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 			
 			if(LIKELIHOOD(0.15, col >= 0)) {
 				// we overflowed - find correct position to revert back to
-				uint32_t eqMask = (expandLUT[m2] << shufALen) | expandLUT[m1];
+				uint32_t eqMask = (lookups.expand[m2] << shufALen) | lookups.expand[m1];
 				eqMask >>= shufTotalLen - col -1;
 				
 				// count bits in eqMask; this VCNT approach seems to be about as fast as a 8-bit LUT on Cortex A53
@@ -287,8 +301,8 @@ void encoder_neon_init() {
 	for(int i=0; i<256; i++) {
 		int k = i;
 		uint16_t expand = 0;
-		uint8_t* res = (uint8_t*)(shufLUT + i);
-		uint8_t* nlShuf = (uint8_t*)(nlShufLUT + i);
+		uint8_t* res = (uint8_t*)(lookups.shuf + i);
+		uint8_t* nlShuf = (uint8_t*)(lookups.nlShuf + i);
 		int p = 0, pNl = 0;
 		for(int j=0; j<8; j++) {
 			if(k & 1) {
@@ -314,7 +328,7 @@ void encoder_neon_init() {
 		for(; p<8; p++)
 			res[8+p] = 8+p +0x80; // +0x80 => 0 discarded entries; has no effect other than to ease debugging
 		
-		expandLUT[i] = expand;
+		lookups.expand[i] = expand;
 	}
 }
 #else

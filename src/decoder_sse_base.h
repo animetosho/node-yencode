@@ -1,49 +1,79 @@
 
 #ifdef __SSE2__
 
-#define _X3(n, k) ((((n) & (1<<k)) ? 192ULL : 0ULL) << (k*8))
-#define _X2(n) \
-	_X3(n, 0) | _X3(n, 1) | _X3(n, 2) | _X3(n, 3) | _X3(n, 4) | _X3(n, 5) | _X3(n, 6) | _X3(n, 7)
-#define _X(n) _X2(n+0), _X2(n+1), _X2(n+2), _X2(n+3), _X2(n+4), _X2(n+5), _X2(n+6), _X2(n+7), \
-	_X2(n+8), _X2(n+9), _X2(n+10), _X2(n+11), _X2(n+12), _X2(n+13), _X2(n+14), _X2(n+15)
-static const uint64_t ALIGN_TO(8, eqAddLUT[256]) = {
-	_X(0), _X(16), _X(32), _X(48), _X(64), _X(80), _X(96), _X(112),
-	_X(128), _X(144), _X(160), _X(176), _X(192), _X(208), _X(224), _X(240)
-};
-#undef _X3
-#undef _X2
-#undef _X
 
-
-#define _X2(n,k) n>k?-1:0
-#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), _X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15)
-
-#if defined(__LZCNT__) && defined(__tune_amdfam10__)
-static const int8_t ALIGN_TO(16, _unshuf_mask_lzc_table[512]) = {
-	// 256 bytes of padding; this allows us to save doing a subtraction in-loop
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+static struct {
+	const unsigned char BitsSetTable256inv[256];
 	
-	_X(15), _X(14), _X(13), _X(12), _X(11), _X(10), _X(9), _X(8),
-	_X(7), _X(6), _X(5), _X(4), _X(3), _X(2), _X(1), _X(0)
-};
-static const __m128i* unshuf_mask_lzc_table = (const __m128i*)_unshuf_mask_lzc_table;
+	#pragma pack(16)
+	struct { char bytes[16]; } ALIGN_TO(16, compact[32768]);
+	#pragma pack()
+	
+	uint8_t eqFix[256];
+	const uint64_t ALIGN_TO(8, eqAdd[256]);
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
+	const int8_t ALIGN_TO(16, unshuf_mask_lzc[32*16]);
 #else
-static const int8_t ALIGN_TO(16, _unshuf_mask_bsr_table[256]) = {
-	_X(0), _X(1), _X(2), _X(3), _X(4), _X(5), _X(6), _X(7),
-	_X(8), _X(9), _X(10), _X(11), _X(12), _X(13), _X(14), _X(15)
-};
-static const __m128i* unshuf_mask_bsr_table = (const __m128i*)_unshuf_mask_bsr_table;
+	const int8_t ALIGN_TO(16, unshuf_mask_bsr[16*16]);
 #endif
+	
+} lookups = {
+	/*BitsSetTable256inv*/ {
+		#   define B2(n) 8-(n),     7-(n),     7-(n),     6-(n)
+		#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+		#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+		    B6(0), B6(1), B6(1), B6(2)
+		#undef B2
+		#undef B4
+		#undef B6
+	},
+	/*compact*/ {},
+	
+	/*eqFix*/ {},
+	/*eqAdd*/ {
+		#define _X3(n, k) ((((n) & (1<<k)) ? 192ULL : 0ULL) << (k*8))
+		#define _X2(n) \
+			_X3(n, 0) | _X3(n, 1) | _X3(n, 2) | _X3(n, 3) | _X3(n, 4) | _X3(n, 5) | _X3(n, 6) | _X3(n, 7)
+		#define _X(n) _X2(n+0), _X2(n+1), _X2(n+2), _X2(n+3), _X2(n+4), _X2(n+5), _X2(n+6), _X2(n+7), \
+			_X2(n+8), _X2(n+9), _X2(n+10), _X2(n+11), _X2(n+12), _X2(n+13), _X2(n+14), _X2(n+15)
+		_X(0), _X(16), _X(32), _X(48), _X(64), _X(80), _X(96), _X(112),
+		_X(128), _X(144), _X(160), _X(176), _X(192), _X(208), _X(224), _X(240)
+		#undef _X3
+		#undef _X2
+		#undef _X
+	},
+	
+	
+	#define _X2(n,k) n>k?-1:0
+	#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), _X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15)
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
+	/*unshuf_mask_lzc*/ {
+		// 256 bytes of padding; this allows us to save doing a subtraction in-loop
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+		
+		_X(15), _X(14), _X(13), _X(12), _X(11), _X(10), _X(9), _X(8),
+		_X(7), _X(6), _X(5), _X(4), _X(3), _X(2), _X(1), _X(0)
+	}
+#else
+	/*unshuf_mask_bsr*/ {
+		_X(0), _X(1), _X(2), _X(3), _X(4), _X(5), _X(6), _X(7),
+		_X(8), _X(9), _X(10), _X(11), _X(12), _X(13), _X(14), _X(15)
+	}
+#endif
+	#undef _X
+	#undef _X2
+	
+	
+};
 
-#undef _X
-#undef _X2
+
 
 // for LZCNT/BSR
 #ifdef _MSC_VER
@@ -64,11 +94,11 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_compact_vect(uint32_t mask, __m128i dat
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 		// lzcnt is always at least as fast as bsr, so prefer it if it's available
 		unsigned long bitIndex = _lzcnt_u32(mask);
-		__m128i mergeMask = _mm_load_si128(unshuf_mask_lzc_table + bitIndex);
+		__m128i mergeMask = _mm_load_si128((__m128i*)lookups.unshuf_mask_lzc + bitIndex);
 		mask ^= 0x80000000U>>bitIndex;
 #else
 		unsigned long _BSR_VAR(bitIndex, mask);
-		__m128i mergeMask = _mm_load_si128(unshuf_mask_bsr_table + bitIndex);
+		__m128i mergeMask = _mm_load_si128((__m128i*)lookups.unshuf_mask_bsr + bitIndex);
 		mask ^= 1<<bitIndex;
 #endif
 		data = _mm_or_si128(
@@ -421,10 +451,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
 				// resolve invalid sequences of = to deal with cases like '===='
-				unsigned tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
+				unsigned tmp = lookups.eqFix[(maskEq&0xff) & ~escFirst];
 				uint32_t maskEq2 = tmp;
 				for(int j=8; j<32; j+=8) {
-					tmp = eqFixLUT[((maskEq>>j)&0xff) & ~(tmp>>7)];
+					tmp = lookups.eqFix[((maskEq>>j)&0xff) & ~(tmp>>7)];
 					maskEq2 |= tmp<<j;
 				}
 				maskEq = maskEq2;
@@ -457,16 +487,16 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 					dataA = _mm_add_epi8(
 						dataA,
 						LOAD_HALVES(
-							eqAddLUT + (maskEq&0xff),
-							eqAddLUT + ((maskEq>>8)&0xff)
+							lookups.eqAdd + (maskEq&0xff),
+							lookups.eqAdd + ((maskEq>>8)&0xff)
 						)
 					);
 					maskEq >>= 16;
 					dataB = _mm_add_epi8(
 						dataB,
 						LOAD_HALVES(
-							eqAddLUT + (maskEq&0xff),
-							eqAddLUT + ((maskEq>>8)&0xff)
+							lookups.eqAdd + (maskEq&0xff),
+							lookups.eqAdd + ((maskEq>>8)&0xff)
 						)
 					);
 				}
@@ -542,10 +572,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 # endif
 				{
 					
-					dataA = _mm_shuffle_epi8(dataA, _mm_load_si128((__m128i*)(unshufLUTBig + (mask&0x7fff))));
+					dataA = _mm_shuffle_epi8(dataA, _mm_load_si128((__m128i*)(lookups.compact + (mask&0x7fff))));
 					STOREU_XMM(p, dataA);
 					
-					dataB = _mm_shuffle_epi8(dataB, _mm_load_si128((__m128i*)((char*)unshufLUTBig + ((mask >> 12) & 0x7fff0))));
+					dataB = _mm_shuffle_epi8(dataB, _mm_load_si128((__m128i*)((char*)lookups.compact + ((mask >> 12) & 0x7fff0))));
 					
 # if defined(__POPCNT__) && !defined(__tune_btver1__)
 					if(use_isa >= ISA_LEVEL_AVX) {
@@ -556,10 +586,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 					} else
 # endif
 					{
-						p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
+						p += lookups.BitsSetTable256inv[mask & 0xff] + lookups.BitsSetTable256inv[(mask >> 8) & 0xff];
 						STOREU_XMM(p, dataB);
 						mask >>= 16;
-						p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
+						p += lookups.BitsSetTable256inv[mask & 0xff] + lookups.BitsSetTable256inv[(mask >> 8) & 0xff];
 					}
 				}
 			} else
@@ -567,11 +597,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			{
 				dataA = sse2_compact_vect(mask & 0xffff, dataA);
 				STOREU_XMM(p, dataA);
-				p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
+				p += lookups.BitsSetTable256inv[mask & 0xff] + lookups.BitsSetTable256inv[(mask >> 8) & 0xff];
 				mask >>= 16;
 				dataB = sse2_compact_vect(mask, dataB);
 				STOREU_XMM(p, dataB);
-				p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
+				p += lookups.BitsSetTable256inv[mask & 0xff] + lookups.BitsSetTable256inv[(mask >> 8) & 0xff];
 			}
 #undef LOAD_HALVES
 		} else {
