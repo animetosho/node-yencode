@@ -10,7 +10,7 @@ static struct {
 	uint16_t expand[256];
 	const unsigned char BitsSetTable256plus8[256];
 } lookups = {
-	{}, {}, {}
+	{}, {}, {},
 	/*BitsSetTable256plus8*/ {
 		#   define B2(n) n+8,     n+9,     n+9,     n+10
 		#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
