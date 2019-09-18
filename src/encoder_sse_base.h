@@ -16,7 +16,6 @@ static struct {
 	struct TShufMix ALIGN_TO(32, nlShufMix[256]);
 	__m128i ALIGN_TO(16, mix[256]);
 	__m128i ALIGN_TO(16, nlMix[256]);
-	const unsigned char BitsSetTable256[256];
 	const unsigned char BitsSetTable256plus8[256];
 	const uint16_t eolCharMask[512];
 	uint16_t expandMask[256];
@@ -31,15 +30,6 @@ static struct {
 } lookups = {
 	// shuf/mix lookups
 	{}, {}, {}, {},
-	/*BitsSetTable256*/ {
-		#   define B2(n) n+0,     n+1,     n+1,     n+2
-		#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
-		#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
-		    B6(0), B6(1), B6(1), B6(2)
-		#undef B2
-		#undef B4
-		#undef B6
-	},
 	/*BitsSetTable256plus8*/ {
 		#   define B2(n) n+8,     n+9,     n+9,     n+10
 		#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
@@ -578,15 +568,15 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 					
 					if(LIKELIHOOD(0.15, col >= 0)) {
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
-						bitIndex = bitIndex-16;
+						bitIndex = bitIndex-16 +1;
 #else
-						bitIndex = 15^bitIndex;
+						bitIndex = 15-bitIndex +1;
 #endif
-						if(HEDLEY_UNLIKELY(col-1 == bitIndex)) {
+						if(HEDLEY_UNLIKELY(col == bitIndex)) {
 							// this is an escape character, so line will need to overflow
 							p--;
 						} else {
-							i += (col-1 > bitIndex);
+							i += (col > bitIndex);
 						}
 						p -= col;
 						i -= col;
@@ -631,11 +621,11 @@ static HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, co
 				else
 #endif
 				{
-					unsigned char cnt = lookups.BitsSetTable256[eqMask & 0xff];
-					cnt += lookups.BitsSetTable256[(eqMask>>8) & 0xff];
-					cnt += lookups.BitsSetTable256[(eqMask>>16) & 0xff];
-					cnt += lookups.BitsSetTable256[(eqMask>>24) & 0xff];
-					bitCount = cnt;
+					unsigned char cnt = lookups.BitsSetTable256plus8[eqMask & 0xff];
+					cnt += lookups.BitsSetTable256plus8[(eqMask>>8) & 0xff];
+					cnt += lookups.BitsSetTable256plus8[(eqMask>>16) & 0xff];
+					cnt += lookups.BitsSetTable256plus8[(eqMask>>24) & 0xff];
+					bitCount = cnt-32;
 				}
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
 					i -= bitCount;
