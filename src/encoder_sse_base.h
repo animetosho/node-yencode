@@ -364,7 +364,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		unsigned int shufTotalLen;
 #if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
 		if(use_isa >= ISA_LEVEL_AVX)
-			shufTotalLen = popcnt32(mask) + 16;
+			shufTotalLen = popcnt32(mask) + 18;
 		else
 #endif
 			shufTotalLen = shufALen + lookups.BitsSetTable256plus8[m2];
