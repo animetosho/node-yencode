@@ -1,6 +1,16 @@
 
 #ifdef __AVX2__
 
+#if defined(__x86_64__) || \
+    defined(__amd64__ ) || \
+    defined(__LP64    ) || \
+    defined(_M_X64    ) || \
+    defined(_M_AMD64  ) || \
+    defined(_WIN64    )
+# define PLATFORM_AMD64 1
+#endif
+
+
 static struct {
 	#pragma pack(16)
 	struct { char bytes[16]; } ALIGN_TO(16, compact[32768]);
@@ -397,7 +407,15 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 #endif
 				{
 					// convert maskEq into vector form (i.e. reverse pmovmskb)
+#ifdef PLATFORM_AMD64
 					__m256i vMaskEq = _mm256_broadcastq_epi64(_mm_cvtsi64_si128(maskEq));
+#else
+					__m256i vMaskEq = _mm256_permute4x64_epi64(_mm256_insert_epi32(
+						_mm256_castsi128_si256(_mm_cvtsi32_si128(maskEq & 0xffffffff)),
+						maskEq >> 32,
+						1
+					), 0);
+#endif
 					__m256i vMaskEqA = _mm256_shuffle_epi8(vMaskEq, _mm256_set_epi32(
 						0x03030303, 0x03030303, 0x02020202, 0x02020202,
 						0x01010101, 0x01010101, 0x00000000, 0x00000000
@@ -507,6 +525,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				_mm_storeu_si128((__m128i*)(p + XMM_SIZE), _mm256_extracti128_si256(dataA, 1));
 				p -= popcnt32(mask & 0xffff0000);
 				
+#ifdef PLATFORM_AMD64
 				mask >>= 28;
 				shuf = _mm256_inserti128_si256(
 					_mm256_castsi128_si256(_mm_load_si128((__m128i*)((char*)lookups.compact + (mask & 0x7fff0)))),
@@ -520,6 +539,21 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				
 				_mm_storeu_si128((__m128i*)(p + XMM_SIZE*3), _mm256_extracti128_si256(dataB, 1));
 				p -= popcnt32(mask >> 20);
+#else
+				mask >>= 32;
+				shuf = _mm256_inserti128_si256(
+					_mm256_castsi128_si256(_mm_load_si128((__m128i*)(lookups.compact + (mask & 0x7fff)))),
+					*(__m128i*)((char*)lookups.compact + ((mask >> 12) & 0x7fff0)),
+					1
+				);
+				dataB = _mm256_shuffle_epi8(dataB, shuf);
+				
+				_mm_storeu_si128((__m128i*)(p + XMM_SIZE*2), _mm256_castsi256_si128(dataB));
+				p -= popcnt32(mask & 0xffff);
+				
+				_mm_storeu_si128((__m128i*)(p + XMM_SIZE*3), _mm256_extracti128_si256(dataB, 1));
+				p -= popcnt32(mask & 0xffff0000);
+#endif
 				p += XMM_SIZE*4;
 			}
 		} else {

@@ -163,7 +163,7 @@ static void encoder_sse_lut() {
 		));
 		
 		__m128i mix = _mm_load_si128((__m128i*)nlMix);
-		__m128i plainChars = _mm_cmpeq_epi8(_mm_and_si128(mix, _mm_set1_epi8(255-64)), _mm_setzero_si128());
+		__m128i plainChars = _mm_cmpeq_epi8(_mm_and_si128(mix, _mm_set1_epi8(-1-64)), _mm_setzero_si128());
 		_mm_store_si128(lookups.nlMix + i, _mm_add_epi8(
 			mix,
 			_mm_and_si128(plainChars, _mm_set1_epi8(42))
