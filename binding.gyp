@@ -44,19 +44,45 @@
     "xcode_settings": {
       "OTHER_CFLAGS": ["-Wno-unused-function"],
       "OTHER_CXXFLAGS": ["-Wno-unused-function"]
-    }
+    },
+    "msvs_settings": {"VCCLCompilerTool": {"Optimization": "MaxSpeed"}}
   },
   "targets": [
     {
       "target_name": "yencode",
-      "dependencies": ["crcutil", "yencode_ssse3", "yencode_clmul", "yencode_avx", "yencode_avx2", "yencode_avx3", "yencode_neon", "yencode_armcrc"],
+      "dependencies": ["crcutil", "yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_avx", "yencode_avx2", "yencode_avx3", "yencode_neon", "yencode_armcrc"],
       "sources": [
         "src/yencode.cc",
-        "src/encoder.cc", "src/encoder_sse2.cc",
-        "src/decoder.cc", "src/decoder_sse2.cc",
+        "src/encoder.cc",
+        "src/decoder.cc",
         "src/crc.cc"
       ],
       "include_dirs": ["crcutil-1.0/code","crcutil-1.0/examples"]
+    },
+    {
+      "target_name": "yencode_sse2",
+      "type": "static_library",
+      "sources": [
+        "src/encoder_sse2.cc",
+        "src/decoder_sse2.cc"
+      ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
+      "conditions": [
+        ['target_arch in "ia32 x64"', {
+          "cflags": ["-msse2"],
+          "cxxflags": ["-msse2"],
+          "xcode_settings": {
+            "OTHER_CFLAGS": ["-msse2"],
+            "OTHER_CXXFLAGS": ["-msse2"],
+          }
+        }]
+      ]
     },
     {
       "target_name": "yencode_ssse3",
@@ -65,6 +91,13 @@
         "src/encoder_ssse3.cc",
         "src/decoder_ssse3.cc"
       ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
       "conditions": [
         ['target_arch in "ia32 x64"', {
           "cflags": ["-mssse3"],
@@ -82,6 +115,13 @@
       "sources": [
         "src/crc_folding.c"
       ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
       "conditions": [
         ['target_arch in "ia32 x64"', {
           "cflags": ["-mssse3", "-msse4.1", "-mpclmul"],
@@ -100,6 +140,13 @@
         "src/encoder_avx.cc",
         "src/decoder_avx.cc"
       ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
       "conditions": [
         ['target_arch in "ia32 x64"', {
           "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "3"}},
@@ -118,6 +165,13 @@
       "sources": [
         "src/decoder_avx2.cc", "src/encoder_avx2.cc"
       ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
       "conditions": [
         ['target_arch in "ia32 x64" and OS!="win"', {
           "variables": {"supports_avx2%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/decoder_avx2.cc -mavx2 2>/dev/null || true)"},
@@ -143,6 +197,13 @@
       "sources": [
         "src/decoder_avx3.cc"
       ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
       "conditions": [
         ['target_arch in "ia32 x64" and OS!="win"', {
           "variables": {"supports_avx3%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/decoder_avx3.cc -mavx512vl -mavx512bw 2>/dev/null || true)"},
@@ -170,6 +231,13 @@
       "sources": [
         "src/encoder_neon.cc"
       ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
       "conditions": [
         ['target_arch=="arm"', {
           "cflags": ["-mfpu=neon"],
@@ -192,6 +260,13 @@
       "sources": [
         "src/crc_arm.cc"
       ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
       "conditions": [
         ['target_arch in "arm arm64"', {
           "cflags!": ["-march=native"],
@@ -221,14 +296,15 @@
       ],
       "cflags": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"],
       "cxxflags": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"],
-      "cflags!": ["-fno-omit-frame-pointer"],
-      "cxxflags!": ["-fno-omit-frame-pointer"],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
       "xcode_settings": {
         "OTHER_CFLAGS": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"],
         "OTHER_CXXFLAGS": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"],
-        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer"],
-        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer"]
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
       },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
       "include_dirs": ["crcutil-1.0/code", "crcutil-1.0/tests"],
       "defines": ["CRCUTIL_USE_MM_CRC32=0"]
     }
