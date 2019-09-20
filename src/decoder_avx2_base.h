@@ -296,7 +296,7 @@ void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char
 						// GCC (ver 6-10(dev)) fails to optimize pure C version, but has this intrinsic; Clang >= 7 optimizes C version fine
 						partialEndFound = !_kortestz_mask32_u8(match3EqYMaskA, match3EqYMaskB);
 # else
-						partialEndFound = !(match3EqYMaskA | match3EqYMaskB);
+						partialEndFound = (match3EqYMaskA | match3EqYMaskB);
 # endif
 					} else
 #endif
@@ -334,7 +334,7 @@ void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char
 								_mm256_mask_test_epi8_mask(match3LfEqYMaskB, cmpCrB, cmpCrB)
 							);
 # else
-							endFound = !(
+							endFound = (
 								_mm256_mask_test_epi8_mask(match3LfEqYMaskA, cmpCrA, cmpCrA) |
 								_mm256_mask_test_epi8_mask(match3LfEqYMaskB, cmpCrB, cmpCrB)
 							);

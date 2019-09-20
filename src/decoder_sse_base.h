@@ -370,7 +370,7 @@ void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char*
 						// GCC (ver 6-10(dev)) fails to optimize pure C version, but has this intrinsic; Clang >= 7 optimizes C version fine
 						partialEndFound = !_kortestz_mask16_u8(match3EqYMaskA, match3EqYMaskB);
 # else
-						partialEndFound = !(match3EqYMaskA | match3EqYMaskB);
+						partialEndFound = (match3EqYMaskA | match3EqYMaskB);
 # endif
 					} else
 #endif
@@ -410,7 +410,7 @@ void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char*
 								_mm_mask_test_epi8_mask(match3LfEqYMaskB, cmpCrB, cmpCrB)
 							);
 # else
-							endFound = !(
+							endFound = (
 								_mm_mask_test_epi8_mask(match3LfEqYMaskA, cmpCrA, cmpCrA) |
 								_mm_mask_test_epi8_mask(match3LfEqYMaskB, cmpCrB, cmpCrB)
 							);
