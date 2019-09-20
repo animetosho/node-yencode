@@ -7,6 +7,17 @@
 #include "decoder_common.h"
 
 
+#ifdef _MSC_VER
+# define vld1_u8_align vld1_u8_ex
+# define vld1q_u8_align vld1q_u8_ex
+#elif defined(__GNUC__)
+# define vld1_u8_align(p, n) vld1_u8((uint8_t*)__builtin_assume_aligned(p, n))
+# define vld1q_u8_align(p, n) vld1q_u8((uint8_t*)__builtin_assume_aligned(p, n))
+#else
+# define vld1_u8_align(p, n) vld1_u8(p)
+# define vld1q_u8_align(p, n) vld1q_u8(p)
+#endif
+
 const unsigned char BitsSetTable256inv[256] = {
 	#   define B2(n) 8-(n),     7-(n),     7-(n),     6-(n)
 	#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
@@ -82,8 +93,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 	}
 #endif
 	for(long i = -len; i; i += sizeof(uint8x16_t)*2) {
-		uint8x16_t dataA = vld1q_u8(src+i);
-		uint8x16_t dataB = vld1q_u8(src+i+sizeof(uint8x16_t));
+		uint8x16_t dataA = vld1q_u8_align(src+i, 16);
+		uint8x16_t dataB = vld1q_u8_align(src+i+sizeof(uint8x16_t), 16);
 		
 		// search for special chars
 		uint8x16_t cmpEqA = vceqq_u8(dataA, vdupq_n_u8('=')),
@@ -172,9 +183,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				// vext seems to be a cheap operation on ARM, relative to loads, so only avoid it if there's only one load (isRaw only)
 				uint8x16_t tmpData2, nextData;
 				if(isRaw && !searchEnd) {
-					tmpData2 = vld1q_u8(src+i + 2 + sizeof(uint8x16_t));
+					tmpData2 = vld1q_u8_align(src+i + 2 + sizeof(uint8x16_t), 2);
 				} else {
-					nextData = vld1q_u8(src+i + sizeof(uint8x16_t)*2); // only 32-bits needed, but there doesn't appear a nice way to do this via intrinsics: https://stackoverflow.com/questions/46910799/arm-neon-intrinsics-convert-d-64-bit-register-to-low-half-of-q-128-bit-regis
+					nextData = vld1q_u8_align(src+i + sizeof(uint8x16_t)*2, 16); // only 32-bits needed, but there doesn't appear a nice way to do this via intrinsics: https://stackoverflow.com/questions/46910799/arm-neon-intrinsics-convert-d-64-bit-register-to-low-half-of-q-128-bit-regis
 					tmpData2 = vextq_u8(dataB, nextData, 2);
 				}
 #ifdef __aarch64__
@@ -346,15 +357,15 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				dataA = vaddq_u8(
 					dataA,
 					vcombine_u8(
-						vld1_u8((uint8_t*)(eqAddLUT + (maskEq&0xff))),
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>8)&0xff)))
+						vld1_u8_align((uint8_t*)(eqAddLUT + (maskEq&0xff)), 8),
+						vld1_u8_align((uint8_t*)(eqAddLUT + ((maskEq>>8)&0xff)), 8)
 					)
 				);
 				dataB = vaddq_u8(
 					dataB,
 					vcombine_u8(
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>16)&0xff))),
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>24)&0xff)))
+						vld1_u8_align((uint8_t*)(eqAddLUT + ((maskEq>>16)&0xff)), 8),
+						vld1_u8_align((uint8_t*)(eqAddLUT + ((maskEq>>24)&0xff)), 8)
 					)
 				);
 			} else {
@@ -385,38 +396,38 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #ifdef __aarch64__
 			vst1q_u8(p, vqtbl1q_u8(
 				dataA,
-				vld1q_u8((uint8_t*)(compactLUT + (mask&0x7fff)))
+				vld1q_u8_align((uint8_t*)(compactLUT + (mask&0x7fff)), 16)
 			));
 			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
 			mask >>= 16;
 			vst1q_u8(p, vqtbl1q_u8(
 				dataB,
-				vld1q_u8((uint8_t*)(compactLUT + (mask&0x7fff)))
+				vld1q_u8_align((uint8_t*)(compactLUT + (mask&0x7fff)), 16)
 			));
 			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[mask >> 8];
 #else
 			// lookup compress masks and shuffle
 			vst1_u8(p, vtbl1_u8(
 				vget_low_u8(dataA),
-				vld1_u8((uint8_t*)(compactLUT + (mask&0xff)))
+				vld1_u8_align((uint8_t*)(compactLUT + (mask&0xff)), 8)
 			));
 			p += BitsSetTable256inv[mask & 0xff];
 			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
 				vget_high_u8(dataA),
-				vld1_u8((uint8_t*)(compactLUT + (mask&0xff)))
+				vld1_u8_align((uint8_t*)(compactLUT + (mask&0xff)), 8)
 			));
 			p += BitsSetTable256inv[mask & 0xff];
 			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
 				vget_low_u8(dataB),
-				vld1_u8((uint8_t*)(compactLUT + (mask&0xff)))
+				vld1_u8_align((uint8_t*)(compactLUT + (mask&0xff)), 8)
 			));
 			p += BitsSetTable256inv[mask & 0xff];
 			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
 				vget_high_u8(dataB),
-				vld1_u8((uint8_t*)(compactLUT + (mask&0xff)))
+				vld1_u8_align((uint8_t*)(compactLUT + (mask&0xff)), 8)
 			));
 			p += BitsSetTable256inv[mask & 0xff];
 			
