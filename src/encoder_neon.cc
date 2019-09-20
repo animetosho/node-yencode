@@ -90,8 +90,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		data1 = vqtbx1q_u8(data1, data, shufMA);
 #else
 		data = vsubq_u8(data, vbslq_u8(cmp, vdupq_n_u8(-64-42), vdupq_n_u8(-42)));
-		data1 = vcombine_u8(vtbx1_u8(vget_low_u8(data1), vget_low_u8(data), vget_low_u8(shufMA)),
-		                              vtbx1_u8(vget_high_u8(data1), vget_low_u8(data), vget_high_u8(shufMA)));
+		data1 = vcombine_u8(vtbx1_u8(vget_low_u8(data1),  vget_low_u8(data), vget_low_u8(shufMA)),
+		                    vtbx1_u8(vget_high_u8(data1), vget_low_u8(data), vget_high_u8(shufMA)));
 #endif
 		unsigned char shufALen = lookups.BitsSetTable256plus8[m1] +2;
 		if(LIKELIHOOD(0.001, shufALen > sizeof(uint8x16_t))) {
@@ -107,8 +107,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		
 		uint8x16_t shufMB = vld1q_u8((uint8_t*)(lookups.shuf + m2));
 #ifdef __aarch64__
-		shufMB = vorrq_u8(shufMB, vdupq_n_u8(8));
-		uint8x16_t data2 = vqtbx1q_u8(vdupq_n_u8('='), data, shufMB);
+		uint8x16_t data2 = vqtbx1q_u8(vdupq_n_u8('='), vextq_u8(data, data, 8), shufMB);
 #else
 		uint8x16_t data2 = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_low_u8(shufMB)),
 		                               vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_high_u8(shufMB)));
@@ -236,10 +235,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 #ifdef __aarch64__
 			data = vaddq_u8(data, vandq_u8(cmp, vdupq_n_u8(64)));
 			
-			// second mask processes on second half, so add to the offsets
-			shufMB = vorrq_u8(shufMB, vdupq_n_u8(8));
-			
-			uint8x16_t data2 = vqtbx1q_u8(vdupq_n_u8('='), data, shufMB);
+			uint8x16_t data2 = vqtbx1q_u8(vdupq_n_u8('='), vextq_u8(data, data, 8), shufMB);
 			data = vqtbx1q_u8(vdupq_n_u8('='), data, shufMA);
 #else
 			data = vsubq_u8(data, vbslq_u8(cmp, vdupq_n_u8(-64-42), vdupq_n_u8(-42)));
