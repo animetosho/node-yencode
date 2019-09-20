@@ -221,9 +221,13 @@
       ],
       "cflags": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"],
       "cxxflags": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"],
+      "cflags!": ["-fno-omit-frame-pointer"],
+      "cxxflags!": ["-fno-omit-frame-pointer"],
       "xcode_settings": {
         "OTHER_CFLAGS": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"],
-        "OTHER_CXXFLAGS": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"]
+        "OTHER_CXXFLAGS": ["-fomit-frame-pointer", "-Wno-expansion-to-defined"],
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer"]
       },
       "include_dirs": ["crcutil-1.0/code", "crcutil-1.0/tests"],
       "defines": ["CRCUTIL_USE_MM_CRC32=0"]
