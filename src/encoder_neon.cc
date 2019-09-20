@@ -113,11 +113,12 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		uint8x16_t data2 = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_low_u8(shufMB)),
 		                               vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_high_u8(shufMB)));
 #endif
-		unsigned char shufTotalLen = shufALen + lookups.BitsSetTable256plus8[m2];
 		vst1q_u8(p, data1);
-		vst1q_u8(p+shufALen, data2);
-		p += shufTotalLen;
-		col = shufTotalLen-2 - (m1&1) + lineSizeOffset-16;
+		p += shufALen;
+		unsigned char shufBLen = lookups.BitsSetTable256plus8[m2];
+		vst1q_u8(p, data2);
+		p += shufBLen;
+		col = shufALen+shufBLen-2 - (m1&1) + lineSizeOffset-16;
 	} else {
 		uint8x16_t data1;
 #ifdef __aarch64__
@@ -131,8 +132,9 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 #endif
 		vst1q_u8(p, data1);
 		p += sizeof(uint8x16_t);
-		*(uint16_t*)p = vgetq_lane_u16(vreinterpretq_u16_u8(data), 7);
-		p += 2;
+		uint16_t v = vgetq_lane_u16(vreinterpretq_u16_u8(data), 7);
+		memcpy(p, &v, sizeof(v));
+		p += sizeof(v);
 		col = lineSizeOffset;
 	}
 	
@@ -157,7 +159,7 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 	if (LIKELIHOOD(0.999, col == -line_size+1)) {
 		uint8_t c = es[i++];
 		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
-			*(uint16_t*)p = escapedLUT[c];
+			memcpy(p, escapedLUT + c, 2);
 			p += 2;
 			col += 2;
 		} else {
@@ -171,11 +173,13 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 		else {
 			uint8_t c = es[i++];
 			if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
-				*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+				uint32_t v = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+				memcpy(p, &v, sizeof(v));
 				p += 4;
 				col = 2-line_size + 1;
 			} else {
-				*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+				uint32_t v = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+				memcpy(p, &v, sizeof(v));
 				p += 3;
 				col = 2-line_size;
 			}
@@ -248,10 +252,12 @@ static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, c
 			
 			// store out
 			unsigned char shufALen = lookups.BitsSetTable256plus8[m1];
-			unsigned char shufTotalLen = shufALen + lookups.BitsSetTable256plus8[m2];
+			unsigned char shufBLen = lookups.BitsSetTable256plus8[m2];
+			unsigned char shufTotalLen = shufALen + shufBLen;
 			vst1q_u8(p, data);
-			vst1q_u8(p+shufALen, data2);
-			p += shufTotalLen;
+			p += shufALen;
+			vst1q_u8(p, data2);
+			p += shufBLen;
 			col += shufTotalLen;
 			
 			if(LIKELIHOOD(0.15, col >= 0)) {
