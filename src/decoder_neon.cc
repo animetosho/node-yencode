@@ -18,16 +18,6 @@
 # define vld1q_u8_align(p, n) vld1q_u8(p)
 #endif
 
-const unsigned char BitsSetTable256inv[256] = {
-	#   define B2(n) 8-(n),     7-(n),     7-(n),     6-(n)
-	#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
-	#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
-		B6(0), B6(1), B6(1), B6(2)
-	#undef B2
-	#undef B4
-	#undef B6
-};
-
 #ifdef YENC_DEC_USE_THINTABLE
 uint64_t ALIGN_TO(8, compactLUT[256]);
 #else
@@ -83,7 +73,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 	HEDLEY_ASSUME(escFirst == 0 || escFirst == 1);
 	HEDLEY_ASSUME(nextMask == 0 || nextMask == 1 || nextMask == 2);
 	uint8x16_t yencOffset = escFirst ? (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42} : vdupq_n_u8(42);
-#ifndef __aarch64__
+#ifdef __aarch64__
+	uint8x8_t nextMaskMix = vdup_n_u8(0);
+	if(nextMask)
+		nextMaskMix[nextMask-1] = nextMask;
+#else
 	uint8x16_t lfCompare = vdupq_n_u8('\n');
 	if(isRaw) {
 		if(nextMask == 1)
@@ -111,6 +105,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			(uint8x16_t){0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
 			dataB
 		);
+		if(isRaw) cmpA = vorrq_u8(cmpA, vcombine_u8(nextMaskMix, vdup_n_u8(0)));
 #else
 		cmpCrA = vceqq_u8(dataA, vdupq_n_u8('\r')),
 		cmpCrB = vceqq_u8(dataB, vdupq_n_u8('\r')),
@@ -131,9 +126,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #endif
 		
 		
-		
 #ifdef __aarch64__
-		if (LIKELIHOOD(0.42 /*guess*/, neon_vect_is_nonzero(vorrq_u8(cmpA, cmpB))) || (isRaw && LIKELIHOOD(0.001, nextMask!=0))) {
+		if (LIKELIHOOD(0.42 /*guess*/, neon_vect_is_nonzero(vorrq_u8(cmpA, cmpB)))) {
 			cmpA = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 			cmpB = vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 			uint8x16_t cmpMerge = vpaddq_u8(cmpA, cmpB);
@@ -146,8 +140,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmpCombined), vget_high_u8(cmpCombined));
 			uint32_t mask = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
 			uint32_t maskEq = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 1);
-			
-			if(isRaw) mask |= nextMask;
 #else
 		cmpA = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 		cmpB = vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
@@ -272,9 +264,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 						}
 					}
 #ifdef __aarch64__
+					uint8x16_t match2NlDotBMasked = vandq_u8(match2NlDotB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 					uint8x16_t mergeKillDots = vpaddq_u8(
 						vandq_u8(match2NlDotA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128}),
-						vandq_u8(match2NlDotB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128})
+						match2NlDotBMasked
 					);
 					uint8x8_t mergeKillDots2 = vpadd_u8(vget_low_u8(mergeKillDots), vget_high_u8(mergeKillDots));
 #else
@@ -292,8 +285,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 					mergeKillDots2 = vpadd_u8(mergeKillDots2, mergeKillDots2);
 					uint32_t killDots = vget_lane_u32(vreinterpret_u32_u8(mergeKillDots2), 0);
 					mask |= (killDots << 2) & 0xffffffff;
+					cmpPacked = vreinterpret_u8_u32(vmov_n_u32(mask));
 #ifdef __aarch64__
-					nextMask = killDots >> (32-2);
+					nextMaskMix = vget_high_u8(match2NlDotBMasked);
+					nextMaskMix = vreinterpret_u8_u64(vshr_n_u64(vreinterpret_u64_u8(nextMaskMix), 48+6));
 #else
 					// this bitiwse trick works because '.'|'\n' == '.'
 					lfCompare = vcombine_u8(vorr_u8(
@@ -324,13 +319,13 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #undef NEXT_DATA
 					if(isRaw)
 #ifdef __aarch64__
-						nextMask = 0;
+						nextMaskMix = vdup_n_u8(0);
 #else
 						lfCompare = vcombine_u8(vget_high_u8(lfCompare), vget_high_u8(lfCompare));
 #endif
 				} else if(isRaw) // no \r_. found
 #ifdef __aarch64__
-					nextMask = 0;
+					nextMaskMix = vdup_n_u8(0);
 #else
 					lfCompare = vcombine_u8(vget_high_u8(lfCompare), vget_high_u8(lfCompare));
 #endif
@@ -351,6 +346,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq = (maskEq<<1) | escFirst;
 				mask &= ~maskEq;
+				cmpPacked = vreinterpret_u8_u32(vmov_n_u32(mask));
 				escFirst = tmp>>7;
 				
 				// unescape chars following `=`
@@ -393,43 +389,49 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			yencOffset[0] = (escFirst << 6) | 42;
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
+			uint8x8_t vCounts = vsub_u8(
+				vdup_n_u8(8),
+				vcnt_u8(cmpPacked)
+			);
+			uint32_t counts = vget_lane_u32(vreinterpret_u32_u8(vCounts), 0);
 #ifdef __aarch64__
+			counts += counts >> 8;
 			vst1q_u8(p, vqtbl1q_u8(
 				dataA,
 				vld1q_u8_align((uint8_t*)(compactLUT + (mask&0x7fff)), 16)
 			));
-			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[(mask >> 8) & 0xff];
+			p += counts & 0xff;
 			mask >>= 16;
 			vst1q_u8(p, vqtbl1q_u8(
 				dataB,
 				vld1q_u8_align((uint8_t*)(compactLUT + (mask&0x7fff)), 16)
 			));
-			p += BitsSetTable256inv[mask & 0xff] + BitsSetTable256inv[mask >> 8];
+			p += (counts>>16) & 0xff;
 #else
 			// lookup compress masks and shuffle
 			vst1_u8(p, vtbl1_u8(
 				vget_low_u8(dataA),
 				vld1_u8_align((uint8_t*)(compactLUT + (mask&0xff)), 8)
 			));
-			p += BitsSetTable256inv[mask & 0xff];
+			p += counts & 0xff;
 			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
 				vget_high_u8(dataA),
 				vld1_u8_align((uint8_t*)(compactLUT + (mask&0xff)), 8)
 			));
-			p += BitsSetTable256inv[mask & 0xff];
+			p += (counts>>8) & 0xff;
 			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
 				vget_low_u8(dataB),
 				vld1_u8_align((uint8_t*)(compactLUT + (mask&0xff)), 8)
 			));
-			p += BitsSetTable256inv[mask & 0xff];
+			p += (counts>>16) & 0xff;
 			mask >>= 8;
 			vst1_u8(p, vtbl1_u8(
 				vget_high_u8(dataB),
 				vld1_u8_align((uint8_t*)(compactLUT + (mask&0xff)), 8)
 			));
-			p += BitsSetTable256inv[mask & 0xff];
+			p += (counts>>24) & 0xff;
 			
 #endif
 			
@@ -447,7 +449,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #endif
 		}
 	}
-#ifndef __aarch64__
+#ifdef __aarch64__
+	nextMask = vget_lane_u16(vreinterpret_u16_u8(nextMaskMix), 0);
+	nextMask += nextMask >> 8;
+	nextMask &= 3;
+#else
 	if(lfCompare[0] == '.')
 		nextMask = 1;
 	else if(lfCompare[1] == '.')
