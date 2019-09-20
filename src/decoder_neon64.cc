@@ -8,18 +8,6 @@ struct { char bytes[16]; } ALIGN_TO(16, compactLUT[32768]);
 #pragma pack()
 
 uint8_t eqFixLUT[256];
-const uint64_t ALIGN_TO(8, eqAddLUT[256]) = {
-	#define _X3(n, k) ((((n) & (1<<k)) ? 150ULL : 214ULL) << (k*8))
-	#define _X2(n) \
-		_X3(n, 0) | _X3(n, 1) | _X3(n, 2) | _X3(n, 3) | _X3(n, 4) | _X3(n, 5) | _X3(n, 6) | _X3(n, 7)
-	#define _X(n) _X2(n+0), _X2(n+1), _X2(n+2), _X2(n+3), _X2(n+4), _X2(n+5), _X2(n+6), _X2(n+7), \
-		_X2(n+8), _X2(n+9), _X2(n+10), _X2(n+11), _X2(n+12), _X2(n+13), _X2(n+14), _X2(n+15)
-	_X(0), _X(16), _X(32), _X(48), _X(64), _X(80), _X(96), _X(112),
-	_X(128), _X(144), _X(160), _X(176), _X(192), _X(208), _X(224), _X(240)
-	#undef _X3
-	#undef _X2
-	#undef _X
-};
 
 
 
@@ -298,33 +286,46 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				escFirst = tmp>>7;
 				
 				// unescape chars following `=`
-				dataA = vaddq_u8(
+				uint8x8_t maskEqTemp = vreinterpret_u8_u64(vmov_n_u64(maskEq));
+				uint8x16_t vMaskEqA = vqtbl1q_u8(
+					vcombine_u8(maskEqTemp, vdup_n_u8(0)),
+					(uint8x16_t){0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1}
+				);
+				maskEqTemp = vext_u8(maskEqTemp, maskEqTemp, 2);
+				uint8x16_t vMaskEqB = vqtbl1q_u8(
+					vcombine_u8(maskEqTemp, vdup_n_u8(0)),
+					(uint8x16_t){0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1}
+				);
+				maskEqTemp = vext_u8(maskEqTemp, maskEqTemp, 2);
+				uint8x16_t vMaskEqC = vqtbl1q_u8(
+					vcombine_u8(maskEqTemp, vdup_n_u8(0)),
+					(uint8x16_t){0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1}
+				);
+				maskEqTemp = vext_u8(maskEqTemp, maskEqTemp, 2);
+				uint8x16_t vMaskEqD = vqtbl1q_u8(
+					vcombine_u8(maskEqTemp, vdup_n_u8(0)),
+					(uint8x16_t){0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1}
+				);
+				vMaskEqA = vtstq_u8(vMaskEqA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+				vMaskEqB = vtstq_u8(vMaskEqB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+				vMaskEqC = vtstq_u8(vMaskEqC, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+				vMaskEqD = vtstq_u8(vMaskEqD, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+				
+				dataA = vsubq_u8(
 					dataA,
-					vcombine_u8(
-						vld1_u8((uint8_t*)(eqAddLUT + (maskEq&0xff))),
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>8)&0xff)))
-					)
+					vbslq_u8(vMaskEqA, vdupq_n_u8(64+42), vdupq_n_u8(42))
 				);
-				dataB = vaddq_u8(
+				dataB = vsubq_u8(
 					dataB,
-					vcombine_u8(
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>16)&0xff))),
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>24)&0xff)))
-					)
+					vbslq_u8(vMaskEqB, vdupq_n_u8(64+42), vdupq_n_u8(42))
 				);
-				dataC = vaddq_u8(
+				dataC = vsubq_u8(
 					dataC,
-					vcombine_u8(
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>32)&0xff))),
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>40)&0xff)))
-					)
+					vbslq_u8(vMaskEqC, vdupq_n_u8(64+42), vdupq_n_u8(42))
 				);
-				dataD = vaddq_u8(
+				dataD = vsubq_u8(
 					dataD,
-					vcombine_u8(
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>48)&0xff))),
-						vld1_u8((uint8_t*)(eqAddLUT + ((maskEq>>56)&0xff)))
-					)
+					vbslq_u8(vMaskEqD, vdupq_n_u8(64+42), vdupq_n_u8(42))
 				);
 			} else {
 				// no invalid = sequences found - we can cut out some things from above
