@@ -32,6 +32,9 @@ template<bool isRaw, bool searchEnd>
 HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& escFirst, uint16_t& nextMask) {
 	HEDLEY_ASSUME(escFirst == 0 || escFirst == 1);
 	HEDLEY_ASSUME(nextMask == 0 || nextMask == 1 || nextMask == 2);
+	uint8x8_t nextMaskMix = vdup_n_u8(0);
+	if(nextMask)
+		nextMaskMix[nextMask-1] = nextMask;
 	uint8x16_t yencOffset = escFirst ? (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42} : vdupq_n_u8(42);
 	for(long i = -len; i; i += sizeof(uint8x16_t)*4) {
 		uint8x16_t dataA = vld1q_u8(src+i);
@@ -65,12 +68,12 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			(uint8x16_t){0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
 			dataD
 		);
-		
+		if(isRaw) cmpA = vorrq_u8(cmpA, vcombine_u8(nextMaskMix, vdup_n_u8(0)));
 		
 		if (LIKELIHOOD(0.42 /*guess*/, neon_vect_is_nonzero(vorrq_u8(
 			vorrq_u8(cmpA, cmpB),
 			vorrq_u8(cmpC, cmpD)
-		))) || (isRaw && LIKELIHOOD(0.001, nextMask!=0))) {
+		)))) {
 			uint8x16_t cmpMerge = vpaddq_u8(
 				vpaddq_u8(
 					vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128}),
@@ -95,8 +98,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			uint8x16_t cmpCombined = vpaddq_u8(cmpMerge, cmpEqMerge);
 			uint64_t mask = vgetq_lane_u64(vreinterpretq_u64_u8(cmpCombined), 0);
 			uint64_t maskEq = vgetq_lane_u64(vreinterpretq_u64_u8(cmpCombined), 1);
-			
-			if(isRaw) mask |= nextMask;
 			
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
@@ -227,6 +228,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 							break;
 						}
 					}
+					uint8x16_t match2NlDotDMasked = vandq_u8(match2NlDotD, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 					uint8x16_t mergeKillDots = vpaddq_u8(
 						vpaddq_u8(
 							vandq_u8(match2NlDotA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128}),
@@ -234,14 +236,15 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 						),
 						vpaddq_u8(
 							vandq_u8(match2NlDotC, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128}),
-							vandq_u8(match2NlDotD, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128})
+							match2NlDotDMasked
 						)
 					);
 					uint8x8_t mergeKillDots2 = vpadd_u8(vget_low_u8(mergeKillDots), vget_high_u8(mergeKillDots));
 					uint64_t killDots = vget_lane_u64(vreinterpret_u64_u8(mergeKillDots2), 0);
 					mask |= (killDots << 2) & 0xffffffffffffffffULL;
 					cmpCombined = vreinterpretq_u8_u64(vcombine_u64(vmov_n_u64(mask), vdup_n_u64(0)));
-					nextMask = killDots >> (64-2);
+					nextMaskMix = vget_high_u8(match2NlDotDMasked);
+					nextMaskMix = vreinterpret_u8_u64(vshr_n_u64(vreinterpret_u64_u8(nextMaskMix), 48+6));
 				} else if(searchEnd) {
 					uint8x16_t match3EqYA = vandq_u8(match2EqA, vceqq_u8(vextq_u8(dataA, dataB, 3), vdupq_n_u8('y')));
 					uint8x16_t match3EqYB = vandq_u8(match2EqB, vceqq_u8(vextq_u8(dataB, dataC, 3), vdupq_n_u8('y')));
@@ -271,9 +274,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 						}
 					}
 					if(isRaw)
-						nextMask = 0;
+						nextMaskMix = vdup_n_u8(0);
 				} else if(isRaw) // no \r_. found
-					nextMask = 0;
+					nextMaskMix = vdup_n_u8(0);
 			}
 			
 			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
@@ -409,6 +412,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			yencOffset = vdupq_n_u8(42);
 		}
 	}
+	nextMask = vget_lane_u16(vreinterpret_u16_u8(nextMaskMix), 0);
+	nextMask += nextMask >> 8;
+	nextMask &= 3;
 }
 
 void decoder_set_neon_funcs() {

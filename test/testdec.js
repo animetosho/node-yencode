@@ -157,6 +157,8 @@ doTest('Long all newlines', b);
 b.fill(223);
 doTest('Long all tabs', b);
 
+// test for past bug in ARMv8 NEON decoder where nextMask wasn't properly compensated for
+doTest('Extra null issue', new Buffer('2e900a4fb6054c9126171cdc196dc41237bb1b76da9191aa5e85c1d2a2a5c638fe39054a210e8c799473cd510541fd118f3904b242a9938558c879238aae1d3bdab32e287cedb820b494f54ffae6dd0b13f73a4a9499df486a7845c612182bcef72a6e50a8e98351c35765d26c605115dc8c5c56a5e3f20ae6da8dcd78536e6d1601eb1fc3ddc774', 'hex'));
 
 // random tests
 for(var i=0; i<32; i++) {
