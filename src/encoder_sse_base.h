@@ -102,7 +102,8 @@ static struct {
 	#undef _X2
 	
 	/*maskMixEOL*/ {
-		0xff0000ff, 0x00000000, 0, 0,    0x2a0a0d2a, 0x00000000, 0, 0,
+		0xff0000ff, ~0U, ~0U, ~0U,    0x0000ffff, ~0U, ~0U, ~0U, // first row not looked up, so reuse it for other purposes
+		
 		0x0000ff00, 0x000000ff, 0, 0,    0x0a0d6a3d, 0x0000002a, 0, 0,
 		0x000000ff, 0x000000ff, 0, 0,    0x3d0a0d2a, 0x0000006a, 0, 0,
 		0x0000ff00, 0x0000ff00, 0, 0,    0x0a0d6a3d, 0x00006a3d, 0, 0
@@ -337,11 +338,12 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 				if(LIKELIHOOD(0.02, m1 & 1)) {
 					data1 = _mm_slli_si128(data1, 3);
 					data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(3,2,1,1));
-					data1 = _mm_and_si128(data1, _mm_set_epi32(-1, -1, -1, 0x0000ffff));
+					// try to get compiler to not waste a register on this mask
+					data1 = _mm_and_si128(data1, _mm_load_si128((const __m128i*)lookups.maskMixEOL + 1));
 				} else {
 					data1 = _mm_slli_si128(data1, 2);
 					data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(3,2,1,1));
-					data1 = _mm_and_si128(data1, _mm_set_epi32(-1, -1, -1, 0xff0000ff));
+					data1 = _mm_and_si128(data1, _mm_load_si128((const __m128i*)lookups.maskMixEOL));
 				}
 				
 				__m128i shufMixMA = _mm_load_si128(lookups.nlMix + m1);
@@ -401,7 +403,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			data = _mm_sub_epi8(oData, _mm_set1_epi8(-42));
 			data1 = _mm_slli_si128(data, 2);
 			data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(3,2,1,1));
-			data1 = _mm_and_si128(data1, _mm_set_epi32(-1, -1, -1, 0xff0000ff));
+			data1 = _mm_and_si128(data1, _mm_load_si128((const __m128i*)lookups.maskMixEOL));
 		}
 		data1 = _mm_or_si128(data1, _mm_cvtsi32_si128(0x0a0d00));
 		STOREU_XMM(p, data1);
