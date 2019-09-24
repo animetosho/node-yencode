@@ -26,7 +26,7 @@ static struct {
 
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
-void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& _escFirst, uint16_t& _nextMask) {
+HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	HEDLEY_ASSUME(_escFirst == 0 || _escFirst == 1);
 	HEDLEY_ASSUME(_nextMask == 0 || _nextMask == 1 || _nextMask == 2);
 	unsigned long escFirst = _escFirst;
