@@ -167,10 +167,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 						uint8x16_t match3EqYB = vandq_u8(match2EqB, vceqq_u8(vextq_u8(dataB, dataC, 3), vdupq_n_u8('y')));
 						uint8x16_t match3EqYC = vandq_u8(match2EqC, vceqq_u8(vextq_u8(dataC, dataD, 3), vdupq_n_u8('y')));
 						uint8x16_t match3EqYD = vandq_u8(match2EqD, vceqq_u8(tmpData3, vdupq_n_u8('y')));
-						match4EqYA = vreinterpretq_u8_u16(vshlq_n_u16(vreinterpretq_u16_u8(match4EqYA), 8));
-						match4EqYB = vreinterpretq_u8_u16(vshlq_n_u16(vreinterpretq_u16_u8(match4EqYB), 8));
-						match4EqYC = vreinterpretq_u8_u16(vshlq_n_u16(vreinterpretq_u16_u8(match4EqYC), 8));
-						match4EqYD = vreinterpretq_u8_u16(vshlq_n_u16(vreinterpretq_u16_u8(match4EqYD), 8));
 						// merge \r\n and =y matches for tmpData4
 						uint8x16_t match4EndA = vorrq_u8(
 							vandq_u8(match3CrA, match4LfA),
