@@ -394,11 +394,7 @@ void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char
 			yencOffset[0] = (escFirst << 6) | 42;
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
-			uint8x8_t vCounts = vsub_u8(
-				vdup_n_u8(8),
-				vcnt_u8(cmpPacked)
-			);
-			uint32_t counts = vget_lane_u32(vreinterpret_u32_u8(vCounts), 0);
+			uint32_t counts = 0x08080808 - vget_lane_u32(vreinterpret_u32_u8(vcnt_u8(cmpPacked)), 0);
 #ifdef __aarch64__
 			counts += counts >> 8;
 			vst1q_u8(p, vqtbl1q_u8(

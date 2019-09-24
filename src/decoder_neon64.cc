@@ -368,13 +368,9 @@ void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char
 			yencOffset[0] = (escFirst << 6) | 42;
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
-			uint8x8_t vCounts = vsub_u8(
-				vdup_n_u8(8),
-				vcnt_u8(vget_low_u8(cmpCombined))
-			);
-			// TODO: scalar add is probably faster than VPADD
-			vCounts = vpadd_u8(vCounts, vCounts);
-			uint32_t counts = vget_lane_u32(vreinterpret_u32_u8(vCounts), 0);
+			uint64_t counts = vget_lane_u64(vreinterpret_u64_u8(vcnt_u8(vget_low_u8(cmpCombined))), 0);
+			counts = 0x0808080808080808ULL - counts;
+			counts += counts>>8;
 			
 			vst1q_u8(p, vqtbl1q_u8(
 				dataA,
@@ -386,19 +382,19 @@ void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char
 				dataB,
 				vld1q_u8((uint8_t*)(compactLUT + (mask&0x7fff)))
 			));
-			p += (counts>>8) & 0xff;
+			p += (counts>>16) & 0xff;
 			mask >>= 16;
 			vst1q_u8(p, vqtbl1q_u8(
 				dataC,
 				vld1q_u8((uint8_t*)(compactLUT + (mask&0x7fff)))
 			));
-			p += (counts>>16) & 0xff;
+			p += (counts>>32) & 0xff;
 			mask >>= 16;
 			vst1q_u8(p, vqtbl1q_u8(
 				dataD,
 				vld1q_u8((uint8_t*)(compactLUT + (mask&0x7fff)))
 			));
-			p += (counts>>24) & 0xff;
+			p += (counts>>48) & 0xff;
 		} else {
 			dataA = vsubq_u8(dataA, yencOffset);
 			dataB = vsubq_u8(dataB, vdupq_n_u8(42));
