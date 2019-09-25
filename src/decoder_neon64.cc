@@ -111,10 +111,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				uint8x16_t cmpCrB = vceqq_u8(dataB, vdupq_n_u8('\r'));
 				uint8x16_t cmpCrC = vceqq_u8(dataC, vdupq_n_u8('\r'));
 				uint8x16_t cmpCrD = vceqq_u8(dataD, vdupq_n_u8('\r'));
-				uint8x16_t match2EqA, match2DotA;
-				uint8x16_t match2EqB, match2DotB;
-				uint8x16_t match2EqC, match2DotC;
-				uint8x16_t match2EqD, match2DotD;
+				uint8x16_t match2EqA, match2Cr_DotA;
+				uint8x16_t match2EqB, match2Cr_DotB;
+				uint8x16_t match2EqC, match2Cr_DotC;
+				uint8x16_t match2EqD, match2Cr_DotD;
 				if(searchEnd) {
 					match2EqA = vextq_u8(cmpEqA, cmpEqB, 2);
 					match2EqB = vextq_u8(cmpEqB, cmpEqC, 2);
@@ -122,21 +122,16 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 					match2EqD = vceqq_u8(tmpData2, vdupq_n_u8('='));
 				}
 				if(isRaw) {
-					match2DotA = vceqq_u8(vextq_u8(dataA, dataB, 2), vdupq_n_u8('.'));
-					match2DotB = vceqq_u8(vextq_u8(dataB, dataC, 2), vdupq_n_u8('.'));
-					match2DotC = vceqq_u8(vextq_u8(dataC, dataD, 2), vdupq_n_u8('.'));
-					match2DotD = vceqq_u8(tmpData2, vdupq_n_u8('.'));
+					match2Cr_DotA = vandq_u8(cmpCrA, vceqq_u8(vextq_u8(dataA, dataB, 2), vdupq_n_u8('.')));
+					match2Cr_DotB = vandq_u8(cmpCrB, vceqq_u8(vextq_u8(dataB, dataC, 2), vdupq_n_u8('.')));
+					match2Cr_DotC = vandq_u8(cmpCrC, vceqq_u8(vextq_u8(dataC, dataD, 2), vdupq_n_u8('.')));
+					match2Cr_DotD = vandq_u8(cmpCrD, vceqq_u8(tmpData2, vdupq_n_u8('.')));
 				}
 				
 				// find patterns of \r_.
 				if(isRaw && LIKELIHOOD(0.001, neon_vect_is_nonzero(vorrq_u8(
-					vorrq_u8(
-						vandq_u8(cmpCrA, match2DotA),
-						vandq_u8(cmpCrB, match2DotB)
-					), vorrq_u8(
-						vandq_u8(cmpCrC, match2DotC),
-						vandq_u8(cmpCrD, match2DotD)
-					)
+					vorrq_u8(match2Cr_DotA, match2Cr_DotB),
+					vorrq_u8(match2Cr_DotC, match2Cr_DotD)
 				)))) {
 					uint8x16_t match1LfA = vceqq_u8(vextq_u8(dataA, dataB, 1), vdupq_n_u8('\n'));
 					uint8x16_t match1LfB = vceqq_u8(vextq_u8(dataB, dataC, 1), vdupq_n_u8('\n'));
@@ -146,16 +141,17 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 						match1LfD = vceqq_u8(vextq_u8(dataD, nextData, 1), vdupq_n_u8('\n'));
 					else
 						match1LfD = vceqq_u8(vld1q_u8(src+i + 1+sizeof(uint8x16_t)*3), vdupq_n_u8('\n'));
-					uint8x16_t match1NlA = vandq_u8(match1LfA, cmpCrA);
-					uint8x16_t match1NlB = vandq_u8(match1LfB, cmpCrB);
-					uint8x16_t match1NlC = vandq_u8(match1LfC, cmpCrC);
-					uint8x16_t match1NlD = vandq_u8(match1LfD, cmpCrD);
-					// merge matches of \r\n with those for .
-					uint8x16_t match2NlDotA = vandq_u8(match2DotA, match1NlA);
-					uint8x16_t match2NlDotB = vandq_u8(match2DotB, match1NlB);
-					uint8x16_t match2NlDotC = vandq_u8(match2DotC, match1NlC);
-					uint8x16_t match2NlDotD = vandq_u8(match2DotD, match1NlD);
+					// merge matches of \r_. with those for \n
+					uint8x16_t match2NlDotA = vandq_u8(match2Cr_DotA, match1LfA);
+					uint8x16_t match2NlDotB = vandq_u8(match2Cr_DotB, match1LfB);
+					uint8x16_t match2NlDotC = vandq_u8(match2Cr_DotC, match1LfC);
+					uint8x16_t match2NlDotD = vandq_u8(match2Cr_DotD, match1LfD);
 					if(searchEnd) {
+						uint8x16_t match1NlA = vandq_u8(match1LfA, cmpCrA);
+						uint8x16_t match1NlB = vandq_u8(match1LfB, cmpCrB);
+						uint8x16_t match1NlC = vandq_u8(match1LfC, cmpCrC);
+						uint8x16_t match1NlD = vandq_u8(match1LfD, cmpCrD);
+						
 						uint8x16_t tmpData3 = vextq_u8(dataD, nextData, 3);
 						uint8x16_t tmpData4 = vextq_u8(dataD, nextData, 4);
 						// match instances of \r\n.\r\n and \r\n.=y

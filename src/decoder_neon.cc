@@ -176,40 +176,34 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 // on ARMv7, prefer loading over VEXT to avoid holding onto nextData reference; this reduces register spills. Shouldn't be an issue on ARMv8 due to 32x 128-bit registers
 # define NEXT_DATA(n) vld1q_u8(src+i + n+sizeof(uint8x16_t))
 #endif
-				uint8x16_t match2EqA, match2DotA;
-				uint8x16_t match2EqB, match2DotB;
+				uint8x16_t match2EqA, match2Cr_DotA;
+				uint8x16_t match2EqB, match2Cr_DotB;
 				if(searchEnd) {
 					match2EqA = vextq_u8(cmpEqA, cmpEqB, 2);
 					match2EqB = vceqq_u8(tmpData2, vdupq_n_u8('='));
 				}
 				if(isRaw) {
-					match2DotA = vceqq_u8(vextq_u8(dataA, dataB, 2), vdupq_n_u8('.'));
-					match2DotB = vceqq_u8(tmpData2, vdupq_n_u8('.'));
+					match2Cr_DotA = vandq_u8(cmpCrA, vceqq_u8(vextq_u8(dataA, dataB, 2), vdupq_n_u8('.')));
+					match2Cr_DotB = vandq_u8(cmpCrB, vceqq_u8(tmpData2, vdupq_n_u8('.')));
 				}
 				
 				// find patterns of \r_.
-				if(isRaw && LIKELIHOOD(0.001, neon_vect_is_nonzero(vorrq_u8(
-					vandq_u8(cmpCrA, match2DotA),
-					vandq_u8(cmpCrB, match2DotB)
-				)))) {
+				if(isRaw && LIKELIHOOD(0.001, neon_vect_is_nonzero(
+					vorrq_u8(match2Cr_DotA, match2Cr_DotB)
+				))) {
 					uint8x16_t match1LfA = vceqq_u8(vextq_u8(dataA, dataB, 1), vdupq_n_u8('\n'));
 					uint8x16_t match1LfB;
 					if(searchEnd)
 						match1LfB = vceqq_u8(NEXT_DATA(1), vdupq_n_u8('\n'));
 					else
 						match1LfB = vceqq_u8(vld1q_u8(src+i + 1+sizeof(uint8x16_t)), vdupq_n_u8('\n'));
-					uint8x16_t match1NlA = vandq_u8(match1LfA, cmpCrA);
-					uint8x16_t match1NlB = vandq_u8(match1LfB, cmpCrB);
-					// merge matches of \r\n with those for .
-#ifdef __aarch64__
-					uint8x16_t match2NlDotA = vandq_u8(match2DotA, match1NlA);
-					uint8x16_t match2NlDotB = vandq_u8(match2DotB, match1NlB);
-#else
-					// try to get compiler to recompute match2Dot to avoid register spilling above
-					uint8x16_t match2NlDotA = vandq_u8(vceqq_u8(vextq_u8(dataA, dataB, 2), vdupq_n_u8('.')), match1NlA);
-					uint8x16_t match2NlDotB = vandq_u8(vceqq_u8(NEXT_DATA(2), vdupq_n_u8('.')), match1NlB);
-#endif
+					// merge matches of \r_. with those for \n
+					uint8x16_t match2NlDotA = vandq_u8(match2Cr_DotA, match1LfA);
+					uint8x16_t match2NlDotB = vandq_u8(match2Cr_DotB, match1LfB);
 					if(searchEnd) {
+						uint8x16_t match1NlA = vandq_u8(match1LfA, cmpCrA);
+						uint8x16_t match1NlB = vandq_u8(match1LfB, cmpCrB);
+						
 						uint8x16_t tmpData3 = NEXT_DATA(3);
 						uint8x16_t tmpData4 = NEXT_DATA(4);
 						// match instances of \r\n.\r\n and \r\n.=y
