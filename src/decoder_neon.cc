@@ -213,36 +213,38 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 						uint8x16_t tmpData3 = NEXT_DATA(3);
 						uint8x16_t tmpData4 = NEXT_DATA(4);
 						// match instances of \r\n.\r\n and \r\n.=y
-						uint8x16_t match3CrA = vextq_u8(cmpCrA, cmpCrB, 3);
-						uint8x16_t match3CrB = vceqq_u8(tmpData3, vdupq_n_u8('\r'));
-						uint8x16_t match4LfA = vextq_u8(match1LfA, match1LfB, 3);
-						uint8x16_t match4LfB = vceqq_u8(tmpData4, vdupq_n_u8('\n'));
-						uint8x16_t match4EqYA = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(vextq_u8(dataA, dataB, 4)), vdupq_n_u16(0x793d))); // =y
-						uint8x16_t match4EqYB = vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d))); // =y
-						
-						uint8x16_t match3EqYA = vandq_u8(match2EqA, vceqq_u8(vextq_u8(dataA, dataB, 3), vdupq_n_u8('y')));
-						uint8x16_t match3EqYB = vandq_u8(match2EqB, vceqq_u8(tmpData3, vdupq_n_u8('y')));
-						// merge \r\n and =y matches for tmpData4
-						uint8x16_t match4EndA = vorrq_u8(
-							vandq_u8(match3CrA, match4LfA),
-							vreinterpretq_u8_u16(vsriq_n_u16(vreinterpretq_u16_u8(match4EqYA), vreinterpretq_u16_u8(match3EqYA), 8))
+						uint8x16_t match3Cr = vbslq_u8(vdupq_n_u8(0x0f),
+							vextq_u8(cmpCrA, cmpCrB, 3),
+							vceqq_u8(tmpData3, vdupq_n_u8('\r'))
 						);
-						uint8x16_t match4EndB = vorrq_u8(
-							vandq_u8(match3CrB, match4LfB),
-							vreinterpretq_u8_u16(vsriq_n_u16(vreinterpretq_u16_u8(match4EqYB), vreinterpretq_u16_u8(match3EqYB), 8))
+						uint8x16_t match4Lf = vbslq_u8(vdupq_n_u8(0x0f),
+							vextq_u8(match1LfA, match1LfB, 3),
+							vceqq_u8(tmpData4, vdupq_n_u8('\n'))
+						);
+						uint8x16_t match4EqY = vbslq_u8(vdupq_n_u8(0x0f),
+							// match =y
+							vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(vextq_u8(dataA, dataB, 4)), vdupq_n_u16(0x793d))),
+							vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d)))
+						);
+						
+						uint8x16_t match3Y = vbslq_u8(vdupq_n_u8(0x0f),
+							vceqq_u8(vextq_u8(dataA, dataB, 3), vdupq_n_u8('y')),
+							vceqq_u8(tmpData3, vdupq_n_u8('y'))
+						);
+						uint8x16_t match3EqY = vandq_u8(match3Y, vbslq_u8(vdupq_n_u8(0x0f), match2EqA, match2EqB));
+						// merge \r\n and =y matches for tmpData4
+						uint8x16_t match4End = vorrq_u8(
+							vandq_u8(match3Cr, match4Lf),
+							vreinterpretq_u8_u16(vsriq_n_u16(vreinterpretq_u16_u8(match4EqY), vreinterpretq_u16_u8(match3EqY), 8))
 						);
 						// merge with \r\n.
-						match4EndA = vandq_u8(match4EndA, match2NlDotA);
-						match4EndB = vandq_u8(match4EndB, match2NlDotB);
+						uint8x16_t match2NlDot = vbslq_u8(vdupq_n_u8(0x0f), match2NlDotA, match2NlDotB);
+						match4End = vandq_u8(match4End, match2NlDot);
 						// match \r\n=y
-						uint8x16_t match3EndA = vandq_u8(match3EqYA, match1NlA);
-						uint8x16_t match3EndB = vandq_u8(match3EqYB, match1NlB);
+						uint8x16_t match1Nl = vbslq_u8(vdupq_n_u8(0x0f), match1NlA, match1NlB);
+						uint8x16_t match3End = vandq_u8(match3EqY, match1Nl);
 						// combine match sequences
-						uint8x16_t matchEnd = vorrq_u8(
-							vorrq_u8(match4EndA, match3EndA),
-							vorrq_u8(match4EndB, match3EndB)
-						);
-						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(matchEnd))) {
+						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(vorrq_u8(match4End, match3End)))) {
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
 							len += i;
