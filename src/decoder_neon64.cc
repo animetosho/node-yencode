@@ -16,10 +16,11 @@ static bool neon_vect_is_nonzero(uint8x16_t v) {
 }
 
 static HEDLEY_ALWAYS_INLINE uint8x16_t mergeCompares(uint8x16_t a, uint8x16_t b, uint8x16_t c, uint8x16_t d) {
+	// constant vectors arbitrarily chosen from ones that can be reused; exact ordering of bits doesn't matter, we just need to mix them in
 	return vbslq_u8(
-		vdupq_n_u8(0x0f),
-		vbslq_u8(vdupq_n_u8(0x0c), b, a),
-		vbslq_u8(vdupq_n_u8(0xc0), d, c)
+		vdupq_n_u8('='),
+		vbslq_u8(vdupq_n_u8('y'), a, b),
+		vbslq_u8(vdupq_n_u8('y'), c, d)
 	);
 }
 

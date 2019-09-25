@@ -213,35 +213,35 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 						uint8x16_t tmpData3 = NEXT_DATA(3);
 						uint8x16_t tmpData4 = NEXT_DATA(4);
 						// match instances of \r\n.\r\n and \r\n.=y
-						uint8x16_t match3Cr = vbslq_u8(vdupq_n_u8(0x0f),
+						uint8x16_t match3Cr = vbslq_u8(vdupq_n_u8('\r'), // exact VBSL vector doesn't matter, so reuse the '\r' vector
 							vextq_u8(cmpCrA, cmpCrB, 3),
 							vceqq_u8(tmpData3, vdupq_n_u8('\r'))
 						);
-						uint8x16_t match4Lf = vbslq_u8(vdupq_n_u8(0x0f),
+						uint8x16_t match4Lf = vbslq_u8(vdupq_n_u8('\r'),
 							vextq_u8(match1LfA, match1LfB, 3),
 							vceqq_u8(tmpData4, vdupq_n_u8('\n'))
 						);
-						uint8x16_t match4EqY = vbslq_u8(vdupq_n_u8(0x0f),
+						uint8x16_t match4EqY = vbslq_u8(vdupq_n_u8('\r'),
 							// match =y
 							vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(vextq_u8(dataA, dataB, 4)), vdupq_n_u16(0x793d))),
 							vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d)))
 						);
 						
-						uint8x16_t match3Y = vbslq_u8(vdupq_n_u8(0x0f),
+						uint8x16_t match3Y = vbslq_u8(vdupq_n_u8('\r'),
 							vceqq_u8(vextq_u8(dataA, dataB, 3), vdupq_n_u8('y')),
 							vceqq_u8(tmpData3, vdupq_n_u8('y'))
 						);
-						uint8x16_t match3EqY = vandq_u8(match3Y, vbslq_u8(vdupq_n_u8(0x0f), match2EqA, match2EqB));
+						uint8x16_t match3EqY = vandq_u8(match3Y, vbslq_u8(vdupq_n_u8('\r'), match2EqA, match2EqB));
 						// merge \r\n and =y matches for tmpData4
 						uint8x16_t match4End = vorrq_u8(
 							vandq_u8(match3Cr, match4Lf),
 							vreinterpretq_u8_u16(vsriq_n_u16(vreinterpretq_u16_u8(match4EqY), vreinterpretq_u16_u8(match3EqY), 8))
 						);
 						// merge with \r\n.
-						uint8x16_t match2NlDot = vbslq_u8(vdupq_n_u8(0x0f), match2NlDotA, match2NlDotB);
+						uint8x16_t match2NlDot = vbslq_u8(vdupq_n_u8('\r'), match2NlDotA, match2NlDotB);
 						match4End = vandq_u8(match4End, match2NlDot);
 						// match \r\n=y
-						uint8x16_t match1Nl = vbslq_u8(vdupq_n_u8(0x0f), match1NlA, match1NlB);
+						uint8x16_t match1Nl = vbslq_u8(vdupq_n_u8('\r'), match1NlA, match1NlB);
 						uint8x16_t match3End = vandq_u8(match3EqY, match1Nl);
 						// combine match sequences
 						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(vorrq_u8(match4End, match3End)))) {
