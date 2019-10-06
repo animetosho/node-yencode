@@ -216,7 +216,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 							match2NlDotDMasked
 						)
 					);
-					uint8x8_t mergeKillDots2 = vpadd_u8(vget_low_u8(mergeKillDots), vget_high_u8(mergeKillDots));
+					uint8x8_t mergeKillDots2 = vget_low_u8(vpaddq_u8(mergeKillDots, mergeKillDots));
 					uint64_t killDots = vget_lane_u64(vreinterpret_u64_u8(mergeKillDots2), 0);
 					mask |= (killDots << 2) & 0xffffffffffffffffULL;
 					cmpCombined = vreinterpretq_u8_u64(vcombine_u64(vmov_n_u64(mask), vdup_n_u64(0)));

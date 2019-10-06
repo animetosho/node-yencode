@@ -125,9 +125,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			);
 			
 			uint8x16_t cmpCombined = vpaddq_u8(cmpMerge, cmpEqMerge);
-			uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmpCombined), vget_high_u8(cmpCombined));
-			uint32_t mask = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
-			uint32_t maskEq = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 1);
+			cmpCombined = vpaddq_u8(cmpCombined, cmpCombined);
+			uint8x8_t cmpPacked = vget_low_u8(cmpCombined);
+			uint32_t mask = vgetq_lane_u32(vreinterpretq_u32_u8(cmpCombined), 0);
+			uint32_t maskEq = vgetq_lane_u32(vreinterpretq_u32_u8(cmpCombined), 1);
 #else
 		cmpA = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 		cmpB = vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
@@ -253,7 +254,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 						vandq_u8(match2NlDotA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128}),
 						match2NlDotBMasked
 					);
-					uint8x8_t mergeKillDots2 = vpadd_u8(vget_low_u8(mergeKillDots), vget_high_u8(mergeKillDots));
+					uint8x8_t mergeKillDots2 = vget_low_u8(vpaddq_u8(mergeKillDots, mergeKillDots));
 #else
 					uint8x16_t match2NlDotMaskedA = vandq_u8(match2NlDotA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 					uint8x16_t match2NlDotMaskedB = vandq_u8(match2NlDotB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});

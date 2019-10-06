@@ -117,8 +117,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128}),
 			vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128})
 		);
-		uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmpMerge), vget_high_u8(cmpMerge));
-		cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
+		cmpMerge = vpaddq_u8(cmpMerge, cmpMerge);
+		uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmpMerge), vget_low_u8(cmpMerge));
 		uint32_t mask = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
 #else
 	uint8x16_t cmpAMasked = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
