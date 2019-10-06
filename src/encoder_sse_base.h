@@ -631,6 +631,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 # endif
 					{
 						asm(
+							"shrl $1, %[eqMask] \n"
 							"shrl %%cl, %[eqMask] \n"
 # ifdef PLATFORM_AMD64
 							"adcq %[col], %[p] \n"
@@ -638,7 +639,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 							"adcl %[col], %[p] \n"
 # endif
 							: [eqMask]"+q"(eqMask), [p]"+r"(p)
-							: "c"(shufTotalLen - col), [col]"r"(~col)
+							: "c"(shufTotalLen - col - 1), [col]"r"(~col)
 						);
 					}
 # if !(defined(__tune_amdfam10__) || defined(__tune_k8__))

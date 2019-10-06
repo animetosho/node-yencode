@@ -268,10 +268,11 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 #if defined(__GNUC__) && defined(PLATFORM_AMD64)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
 					asm(
+						"shrq $1, %[eqMask] \n"
 						"shrq %%cl, %[eqMask] \n"
 						"adcq %[col], %[p] \n"
 						: [eqMask]"+r"(eqMask), [p]"+r"(p)
-						: "c"(outputBytes - col), [col]"r"(~col)
+						: "c"(outputBytes - col -1), [col]"r"(~col)
 					);
 					i -= _mm_popcnt_u64(eqMask);
 				} else
