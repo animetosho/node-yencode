@@ -631,7 +631,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 # endif
 					{
 						asm(
-							"shrl $1, %[eqMask] \n"
+							"shrl $1, %[eqMask] \n" // can eliminate this shift in x64 by using shrq, but is a little fiddly...
 							"shrl %%cl, %[eqMask] \n"
 # ifdef PLATFORM_AMD64
 							"adcq %[col], %[p] \n"

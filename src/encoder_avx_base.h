@@ -310,12 +310,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			if(use_isa >= ISA_LEVEL_VBMI2) {
 				data = _mm256_mask_expand_epi8(
 					_mm256_set1_epi8('='),
-# if defined(__GNUC__) && __GNUC__ >= 8
-					// GCC 8/9/10(dev) fails to optimize this, so use intrinsic explicitly; Clang 6+ has no issue, but Clang 6/7 doesn't have the intrinsic; MSVC 2019 also fails and lacks the intrinsic
-					_knot_mask32(mask),
-# else
-					~mask,
-# endif
+					KNOT32(mask),
 					_mm256_mask_add_epi8(data, mask, data, _mm256_set1_epi8(64))
 				);
 			} else

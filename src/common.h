@@ -57,6 +57,7 @@
 		#define __AVX512VL__ 1
 	#endif
 	#if defined(__AVX512F__) && _MSC_VER >= 1920
+		#define __AVX512VBMI__ 1
 		#define __AVX512VBMI2__ 1
 	#endif
 #endif
@@ -206,6 +207,15 @@ enum YEncDecIsaLevel {
 # include <v8.h>
 #endif
 
+
+// GCC 8/9/10(dev) fails to optimize cases where KNOT should be used, so use intrinsic explicitly; Clang 6+ has no issue, but Clang 6/7 doesn't have the intrinsic; MSVC 2019 also fails and lacks the intrinsic
+#if defined(__GNUC__) && __GNUC__ >= 7
+# define KNOT16 _knot_mask16
+# define KNOT32 _knot_mask32
+#else
+# define KNOT16(x) ((__mmask16)~(x))
+# define KNOT32(x) ((__mmask32)~(x))
+#endif
 
 #ifdef __GNUC__
 # if __GNUC__ >= 9

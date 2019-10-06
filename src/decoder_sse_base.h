@@ -559,15 +559,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			if(use_isa >= ISA_LEVEL_SSSE3) {
 # if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__POPCNT__)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
-#  if defined(__GNUC__) && __GNUC__ >= 7
-					_mm_mask_compressstoreu_epi8(p, _knot_mask16(mask), dataA);
+					_mm_mask_compressstoreu_epi8(p, KNOT16(mask), dataA);
 					p -= popcnt32(mask & 0xffff);
-					_mm_mask_compressstoreu_epi8(p+XMM_SIZE, _knot_mask16(mask>>16), dataB);
-#  else
-					_mm_mask_compressstoreu_epi8(p, (__mmask16)(~mask), dataA);
-					p -= popcnt32(mask & 0xffff);
-					_mm_mask_compressstoreu_epi8(p+XMM_SIZE, (__mmask16)(~(mask>>16)), dataB);
-#  endif
+					_mm_mask_compressstoreu_epi8(p+XMM_SIZE, KNOT16(mask>>16), dataB);
 					p -= popcnt32(mask>>16);
 					p += XMM_SIZE*2;
 				} else
