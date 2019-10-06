@@ -265,28 +265,41 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				}
 				uint64_t eqMask = eqMask1 | (eqMask2 << shuf1Len);
 				
-				eqMask >>= outputBytes - col -1;
-				unsigned int bitCount;
-#ifdef PLATFORM_AMD64
-				bitCount = (unsigned int)_mm_popcnt_u64(eqMask);
-#else
-				bitCount = popcnt32(eqMask & 0xffffffff) + popcnt32(eqMask >> 32);
-#endif
-#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
+#if defined(__GNUC__) && defined(PLATFORM_AMD64)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
-					i -= bitCount;
-					p -= col;
-					if(LIKELIHOOD(0.98, (eqMask & 1) != 1))
-						p--;
-					else
-						i++;
+					asm(
+						"shrq %%cl, %[eqMask] \n"
+						"adcq %[col], %[p] \n"
+						: [eqMask]"+r"(eqMask), [p]"+r"(p)
+						: "c"(outputBytes - col), [col]"r"(~col)
+					);
+					i -= _mm_popcnt_u64(eqMask);
 				} else
 #endif
 				{
-					i += bitCount;
-					long revert = col + (eqMask & 1);
-					p -= revert;
-					i -= revert;
+					eqMask >>= outputBytes - col -1;
+					unsigned int bitCount;
+#ifdef PLATFORM_AMD64
+					bitCount = (unsigned int)_mm_popcnt_u64(eqMask);
+#else
+					bitCount = popcnt32(eqMask & 0xffffffff) + popcnt32(eqMask >> 32);
+#endif
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
+					if(use_isa >= ISA_LEVEL_VBMI2) {
+						i -= bitCount;
+						p -= col;
+						if(LIKELIHOOD(0.98, (eqMask & 1) != 1))
+							p--;
+						else
+							i++;
+					} else
+#endif
+					{
+						i += bitCount;
+						long revert = col + (eqMask & 1);
+						p -= revert;
+						i -= revert;
+					}
 				}
 				goto _encode_eol_handle_pre;
 			}

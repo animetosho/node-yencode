@@ -3,6 +3,14 @@
 #include "encoder.h"
 #include "encoder_common.h"
 
+#if defined(__x86_64__) || \
+    defined(__amd64__ ) || \
+    defined(__LP64    ) || \
+    defined(_M_X64    ) || \
+    defined(_M_AMD64  ) || \
+    defined(_WIN64    )
+# define PLATFORM_AMD64 1
+#endif
 
 #if defined(__clang__) && __clang_major__ == 6 && __clang_minor__ == 0
 // VBMI2 introduced in clang 6.0, but 128-bit functions misnamed there; fixed in clang 7.0, but we'll handle those on 6.0
@@ -616,10 +624,41 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				// from experimentation, it doesn't seem like it's worth trying to branch here, i.e. it isn't worth trying to avoid a pmovmskb+shift+or by checking overflow amount
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
 					eqMask = (lookups.expandMask[m2] << shufALen) | lookups.expandMask[m1];
+#if defined(__GNUC__)
+					// be careful to avoid partial flag stalls on Intel P6 CPUs (SHR+ADC will likely stall)
+# if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
+					if(use_isa >= ISA_LEVEL_VBMI2)
+# endif
+					{
+						asm(
+							"shrl %%cl, %[eqMask] \n"
+# ifdef PLATFORM_AMD64
+							"adcq %[col], %[p] \n"
+# else
+							"adcl %[col], %[p] \n"
+# endif
+							: [eqMask]"+q"(eqMask), [p]"+r"(p)
+							: "c"(shufTotalLen - col), [col]"r"(~col)
+						);
+					}
+# if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
+					else
+# else
+					if(0)
+# endif
+#endif
+					{
+						eqMask >>= shufTotalLen - col -1;
+						p -= col;
+						if(LIKELIHOOD(0.98, (eqMask & 1) != 1))
+							p--;
+						else
+							i++;
+					}
 				} else {
 					eqMask = ((unsigned)_mm_movemask_epi8(shufMB) << shufALen) | (unsigned)_mm_movemask_epi8(shufMA);
+					eqMask >>= shufTotalLen - col -1;
 				}
-				eqMask >>= shufTotalLen - col -1;
 				
 				unsigned int bitCount;
 #if defined(__POPCNT__)
@@ -636,11 +675,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				}
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
 					i -= bitCount;
-					p -= col;
-					if(LIKELIHOOD(0.98, (eqMask & 1) != 1))
-						p--;
-					else
-						i++;
 				} else {
 					i += bitCount;
 					long revert = col + (eqMask & 1);
