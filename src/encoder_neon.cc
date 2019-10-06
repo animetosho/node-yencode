@@ -415,28 +415,42 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 			
 			if(LIKELIHOOD(0.3, col >= 0)) {
 				// we overflowed - find correct position to revert back to
-				uint32_t eqMask1 = (expandLUT[m2] << shuf1Len) | expandLUT[m1];
+				long revert = col;
 				uint32_t eqMask2 = (expandLUT[m4] << shuf3Len) | expandLUT[m3];
-				uint64_t eqMask = ((uint64_t)eqMask2 << (shuf1Len+shuf2Len)) | (uint64_t)eqMask1;
-				eqMask >>= shufTotalLen - col -1;
-				
-				// count bits in eqMask
+				long pastMid = col - (shuf3Len+shuf4Len);
+				if(HEDLEY_UNLIKELY(pastMid >= 0)) {
+					uint32_t eqMask1 = (expandLUT[m2] << shuf1Len) | expandLUT[m1];
+					eqMask1 >>= shufTotalLen - col -1;
+					revert += eqMask1 & 1;
+					
 #ifdef __aarch64__
-				uint8x8_t vCnt = vcnt_u8(vreinterpret_u8_u64(vmov_n_u64(eqMask)));
-				uint8_t cnt = vaddv_u8(vCnt);
+					uint64_t eqMask = ((uint64_t)eqMask2 << 32) | (uint64_t)eqMask1;
+					uint8x8_t vCnt = vcnt_u8(vreinterpret_u8_u64(vmov_n_u64(eqMask)));
+					uint8_t cnt = vaddv_u8(vCnt);
 #else
-				uint32x2_t vCnt = vmov_n_u32(eqMask & 0xffffffff);
-				vCnt = vset_lane_u32(eqMask >> 32, vCnt, 1);
-				uint8x8_t vCnt_ = vcnt_u8(vreinterpret_u8_u32(vCnt));
-				vCnt_ = vpadd_u8(vCnt_, vCnt_);
-				uint32_t cnt = vget_lane_u32(vreinterpret_u32_u8(vCnt_), 0);
-				cnt += cnt >> 16;
-				cnt += cnt >> 8;
-				cnt &= 0xff;
+					uint32x2_t vCnt = vmov_n_u32(eqMask2);
+					vCnt = vset_lane_u32(eqMask1, vCnt, 1);
+					uint8x8_t vCnt_ = vcnt_u8(vreinterpret_u8_u32(vCnt));
+					vCnt_ = vpadd_u8(vCnt_, vCnt_);
+					uint32_t cnt = vget_lane_u32(vreinterpret_u32_u8(vCnt_), 0);
+					cnt += cnt >> 16;
+					cnt += cnt >> 8;
+					cnt &= 0xff;
 #endif
-				i += cnt;
+					i += cnt;
+				} else {
+					eqMask2 >>= -pastMid -1; // == ~pastMid
+					revert += eqMask2 & 1;
+					
+					// count bits in eqMask
+					uint8x8_t vCnt = vcnt_u8(vreinterpret_u8_u32(vmov_n_u32(eqMask2)));
+					uint32_t cnt = vget_lane_u32(vreinterpret_u32_u8(vCnt), 0);
+					cnt += cnt >> 16;
+					cnt += cnt >> 8;
+					cnt &= 0xff;
+					i += cnt;
+				}
 				
-				long revert = col + (eqMask & 1);
 				p -= revert;
 				i -= revert;
 				goto _encode_eol_handle_pre;
