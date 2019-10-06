@@ -153,20 +153,26 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		dataA = vaddq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
 		dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
 		data1A = vqtbx1q_u8(data1A, dataA, shuf1);
-		uint8x16_t data2A = vqtbx1q_u8(vdupq_n_u8('='), vextq_u8(dataA, dataA, 8), shuf2);
-		uint8x16_t data1B = vqtbx1q_u8(vdupq_n_u8('='), dataB, shuf3);
-		uint8x16_t data2B = vqtbx1q_u8(vdupq_n_u8('='), vextq_u8(dataB, dataB, 8), shuf4);
+		uint8x16_t data2A = vqtbx1q_u8(shuf2, vextq_u8(dataA, dataA, 8), shuf2);
+		uint8x16_t data1B = vqtbx1q_u8(shuf3, dataB, shuf3);
+		uint8x16_t data2B = vqtbx1q_u8(shuf4, vextq_u8(dataB, dataB, 8), shuf4);
 #else
 		dataA = vsubq_u8(dataA, vbslq_u8(cmpA, vdupq_n_u8(-64-42), vdupq_n_u8(-42)));
 		dataB = vsubq_u8(dataB, vbslq_u8(cmpB, vdupq_n_u8(-64-42), vdupq_n_u8(-42)));
 		data1A = vcombine_u8(vtbx1_u8(vget_low_u8(data1A),  vget_low_u8(dataA), vget_low_u8(shuf1)),
 		                     vtbx1_u8(vget_high_u8(data1A), vget_low_u8(dataA), vget_high_u8(shuf1)));
-		uint8x16_t data2A = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataA), vget_low_u8(shuf2)),
-		                                vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataA), vget_high_u8(shuf2)));
-		uint8x16_t data1B = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_low_u8(dataB), vget_low_u8(shuf3)),
-		                                vtbx1_u8(vdup_n_u8('='), vget_low_u8(dataB), vget_high_u8(shuf3)));
-		uint8x16_t data2B = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataB), vget_low_u8(shuf4)),
-		                                vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataB), vget_high_u8(shuf4)));
+		uint8x8_t shuf2l = vget_low_u8(shuf2);
+		uint8x8_t shuf2h = vget_high_u8(shuf2);
+		uint8x8_t shuf3l = vget_low_u8(shuf3);
+		uint8x8_t shuf3h = vget_high_u8(shuf3);
+		uint8x8_t shuf4l = vget_low_u8(shuf4);
+		uint8x8_t shuf4h = vget_high_u8(shuf4);
+		uint8x16_t data2A = vcombine_u8(vtbx1_u8(shuf2l, vget_high_u8(dataA), shuf2l),
+		                                vtbx1_u8(shuf2h, vget_high_u8(dataA), shuf2h));
+		uint8x16_t data1B = vcombine_u8(vtbx1_u8(shuf3l, vget_low_u8(dataB), shuf3l),
+		                                vtbx1_u8(shuf3h, vget_low_u8(dataB), shuf3h));
+		uint8x16_t data2B = vcombine_u8(vtbx1_u8(shuf4l, vget_high_u8(dataB), shuf4l),
+		                                vtbx1_u8(shuf4h, vget_high_u8(dataB), shuf4h));
 #endif
 		uint32_t counts = vget_lane_u32(vreinterpret_u32_u8(vcnt_u8(cmpPacked)), 0);
 		counts += 0x0808080A;
@@ -362,19 +368,27 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 			
 			// expand halves
 #ifdef __aarch64__
-			uint8x16_t data1A = vqtbx1q_u8(vdupq_n_u8('='), dataA, shuf1);
-			uint8x16_t data2A = vqtbx1q_u8(vdupq_n_u8('='), vextq_u8(dataA, dataA, 8), shuf2);
-			uint8x16_t data1B = vqtbx1q_u8(vdupq_n_u8('='), dataB, shuf3);
-			uint8x16_t data2B = vqtbx1q_u8(vdupq_n_u8('='), vextq_u8(dataB, dataB, 8), shuf4);
+			uint8x16_t data1A = vqtbx1q_u8(shuf1, dataA, shuf1);
+			uint8x16_t data2A = vqtbx1q_u8(shuf2, vextq_u8(dataA, dataA, 8), shuf2);
+			uint8x16_t data1B = vqtbx1q_u8(shuf3, dataB, shuf3);
+			uint8x16_t data2B = vqtbx1q_u8(shuf4, vextq_u8(dataB, dataB, 8), shuf4);
 #else
-			uint8x16_t data1A = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_low_u8(dataA), vget_low_u8(shuf1)),
-			                                vtbx1_u8(vdup_n_u8('='), vget_low_u8(dataA), vget_high_u8(shuf1)));
-			uint8x16_t data2A = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataA), vget_low_u8(shuf2)),
-			                                vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataA), vget_high_u8(shuf2)));
-			uint8x16_t data1B = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_low_u8(dataB), vget_low_u8(shuf3)),
-			                                vtbx1_u8(vdup_n_u8('='), vget_low_u8(dataB), vget_high_u8(shuf3)));
-			uint8x16_t data2B = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataB), vget_low_u8(shuf4)),
-			                                vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataB), vget_high_u8(shuf4)));
+			uint8x8_t shuf1l = vget_low_u8(shuf1);
+			uint8x8_t shuf1h = vget_high_u8(shuf1);
+			uint8x8_t shuf2l = vget_low_u8(shuf2);
+			uint8x8_t shuf2h = vget_high_u8(shuf2);
+			uint8x8_t shuf3l = vget_low_u8(shuf3);
+			uint8x8_t shuf3h = vget_high_u8(shuf3);
+			uint8x8_t shuf4l = vget_low_u8(shuf4);
+			uint8x8_t shuf4h = vget_high_u8(shuf4);
+			uint8x16_t data1A = vcombine_u8(vtbx1_u8(shuf1l, vget_low_u8(dataA), shuf1l),
+			                                vtbx1_u8(shuf1h, vget_low_u8(dataA), shuf1h));
+			uint8x16_t data2A = vcombine_u8(vtbx1_u8(shuf2l, vget_high_u8(dataA), shuf2l),
+			                                vtbx1_u8(shuf2h, vget_high_u8(dataA), shuf2h));
+			uint8x16_t data1B = vcombine_u8(vtbx1_u8(shuf3l, vget_low_u8(dataB), shuf3l),
+			                                vtbx1_u8(shuf3h, vget_low_u8(dataB), shuf3h));
+			uint8x16_t data2B = vcombine_u8(vtbx1_u8(shuf4l, vget_high_u8(dataB), shuf4l),
+			                                vtbx1_u8(shuf4h, vget_high_u8(dataB), shuf4h));
 #endif
 			
 			// store out
@@ -533,7 +547,7 @@ void encoder_neon_init() {
 		int p = 0, pNl = 0;
 		for(int j=0; j<8; j++) {
 			if(k & 1) {
-				res[j+p] = 0xf0 + j;
+				res[j+p] = '=';
 				expand |= 1<<(j+p);
 				p++;
 				if(j+pNl < 16) {
