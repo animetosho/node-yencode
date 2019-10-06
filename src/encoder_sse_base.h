@@ -4,6 +4,11 @@
 #include "encoder_common.h"
 
 
+#if defined(__clang__) && __clang_major__ == 6 && __clang_minor__ == 0
+// VBMI2 introduced in clang 6.0, but 128-bit functions misnamed there; fixed in clang 7.0, but we'll handle those on 6.0
+# define _mm_mask_expand_epi8 _mm128_mask_expand_epi8
+#endif
+
 
 #pragma pack(16)
 struct TShufMix {

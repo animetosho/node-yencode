@@ -1,6 +1,12 @@
 
 #ifdef __SSE2__
 
+#if defined(__clang__) && __clang_major__ == 6 && __clang_minor__ == 0
+// VBMI2 introduced in clang 6.0, but 128-bit functions misnamed there; fixed in clang 7.0, but we'll handle those on 6.0
+# define _mm_mask_compressstoreu_epi8 _mm128_mask_compressstoreu_epi8
+# define _mm_shrdi_epi16 _mm128_shrdi_epi16
+#endif
+
 
 static struct {
 	const unsigned char BitsSetTable256inv[256];
@@ -255,6 +261,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						__m128i tmpData4A = _mm_loadu_si128((__m128i*)(src+i+4));
 						__m128i tmpData4B = _mm_loadu_si128((__m128i*)(src+i+4) + 1);
 						// match instances of \r\n.\r\n and \r\n.=y
+						// TODO: consider doing a PALIGNR using match1Nl for match4NlA
 						__m128i match3CrA = _mm_cmpeq_epi8(_mm_set1_epi8('\r'), tmpData3A);
 						__m128i match3CrB = _mm_cmpeq_epi8(_mm_set1_epi8('\r'), tmpData3B);
 						__m128i match4LfA = _mm_cmpeq_epi8(tmpData4A, _mm_set1_epi8('\n'));
@@ -552,12 +559,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			if(use_isa >= ISA_LEVEL_SSSE3) {
 # if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__POPCNT__)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
-#  if defined(__clang__) && __clang_major__ == 6 && __clang_minor__ == 0
-					/* VBMI2 introduced in clang 6.0, but misnamed there; presumably will be fixed in 6.1 */
-					_mm128_mask_compressstoreu_epi8(p, (__mmask16)(~mask), dataA);
-					p -= popcnt32(mask & 0xffff);
-					_mm128_mask_compressstoreu_epi8(p+XMM_SIZE, (__mmask16)(~(mask>>16)), dataB);
-#  elif defined(__GNUC__) && __GNUC__ >= 7
+#  if defined(__GNUC__) && __GNUC__ >= 7
 					_mm_mask_compressstoreu_epi8(p, _knot_mask16(mask), dataA);
 					p -= popcnt32(mask & 0xffff);
 					_mm_mask_compressstoreu_epi8(p+XMM_SIZE, _knot_mask16(mask>>16), dataB);
