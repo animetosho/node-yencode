@@ -4,50 +4,97 @@
 #include "encoder.h"
 #include "encoder_common.h"
 
+#define _X(n) \
+	_X2(n,0), _X2(n,16), _X2(n,1), _X2(n,17), _X2(n,2), _X2(n,18), _X2(n,3), _X2(n,19), \
+	_X2(n,4), _X2(n,20), _X2(n,5), _X2(n,21), _X2(n,6), _X2(n,22), _X2(n,7), _X2(n,23), \
+	_X2(n,8), _X2(n,24), _X2(n,9), _X2(n,25), _X2(n,10), _X2(n,26), _X2(n,11), _X2(n,27), \
+	_X2(n,12), _X2(n,28), _X2(n,13), _X2(n,29), _X2(n,14), _X2(n,30), _X2(n,15), _X2(n,31)
+#ifdef __aarch64__
+static const uint8_t ALIGN_TO(16, shufIndexLUT[65*32]) = {
+# define _X2(n, k) ((n==k)? '=' : k-(k>n))
+	// need dummy entries for bits that can never be set
+	_X(31), _X(30), _X(29), _X(28),
+		_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),
+	_X(27), _X(26), _X(25), _X(24),
+	_X(23), _X(22), _X(21), _X(20),
+		_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),
+	_X(19), _X(18), _X(17), _X(16),
+	_X(15), _X(14), _X(13), _X(12),
+		_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),
+	_X(11), _X(10), _X( 9), _X( 8),
+	_X( 7), _X( 6), _X( 5), _X( 4),
+		_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),
+	_X( 3), _X( 2), _X( 1), _X( 0),
+	_X(32)
+# undef _X2
+};
+#else
+static const uint8_t ALIGN_TO(16, shufIndexLUT[33*32]) = {
+# define _X2(n, k) (((n==k)? '=' : k-(k>n) - (k>15 ? (k&~7) - 8 : 0)))
+	_X(31), _X(30), _X(29), _X(28), _X(27), _X(26), _X(25), _X(24),
+	_X(23), _X(22), _X(21), _X(20), _X(19), _X(18), _X(17), _X(16),
+	_X(15), _X(14), _X(13), _X(12), _X(11), _X(10), _X( 9), _X( 8),
+	_X( 7), _X( 6), _X( 5), _X( 4), _X( 3), _X( 2), _X( 1), _X( 0),
+	_X(32)
+# undef _X2
+};
+#endif
+#undef _X
+
 uint8x16_t ALIGN_TO(16, shufLUT[256]);
 uint8x16_t ALIGN_TO(16, nlShufLUT[256]);
 uint16_t expandLUT[256];
-const unsigned char BitsSetTable256plus8[256] = {
-	#   define B2(n) n+8,     n+9,     n+9,     n+10
-	#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
-	#   define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
-		B6(0), B6(1), B6(1), B6(2)
-	#undef B2
-	#undef B4
-	#undef B6
-};
 
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col, int lineSizeOffset) {
-	uint8x16_t oData = vld1q_u8(es + i);
-	uint8x16_t data = oData;
+	uint8x16_t oDataA = vld1q_u8(es + i);
+	uint8x16_t oDataB = vld1q_u8(es + i + sizeof(uint8x16_t));
+	uint8x16_t dataA = oDataA;
+	uint8x16_t dataB = oDataB;
 #ifdef __aarch64__
-	data = vaddq_u8(oData, vdupq_n_u8(42));
-	uint8x16_t cmp = vqtbx1q_u8(
-		vceqq_u8(oData, vdupq_n_u8('='-42)),
+	dataA = vaddq_u8(oDataA, vdupq_n_u8(42));
+	dataB = vaddq_u8(oDataB, vdupq_n_u8(42));
+	uint8x16_t cmpA = vqtbx1q_u8(
+		vceqq_u8(oDataA, vdupq_n_u8('='-42)),
 		//          \0                \t\n    \r
 		(uint8x16_t){3,0,0,0,0,0,0,0,0,2,3,0,0,3,0,0},
-		data
+		dataA
 	);
-	cmp = vorrq_u8(cmp, vqtbl1q_u8( // ORR+TBL seems to work better than TBX, maybe due to long TBL/X latency?
+	uint8x16_t cmpB = vqtbx1q_u8(
+		vceqq_u8(oDataB, vdupq_n_u8('='-42)),
+		//            \0                    \n      \r
+		(uint8x16_t){255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
+		dataB
+	);
+	cmpA = vorrq_u8(cmpA, vqtbl1q_u8( // ORR+TBL seems to work better than TBX, maybe due to long TBL/X latency?
 		//          \s                           .  
 		(uint8x16_t){2,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0},
-		vaddq_u8(oData, vdupq_n_u8(42-32))
+		vaddq_u8(oDataA, vdupq_n_u8(42-32))
 	));
-	cmp = vcgtq_u8(cmp, (uint8x16_t){1,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2});
+	cmpA = vcgtq_u8(cmpA, (uint8x16_t){1,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2});
 #else
-	uint8x16_t cmp = vorrq_u8(
+	uint8x16_t cmpA = vorrq_u8(
 		vorrq_u8(
-			vceqq_u8(oData, vdupq_n_u8(-42)),
-			vceqq_u8(oData, vdupq_n_u8('='-42))
+			vceqq_u8(oDataA, vdupq_n_u8(-42)),
+			vceqq_u8(oDataA, vdupq_n_u8('='-42))
 		),
 		vorrq_u8(
-			vceqq_u8(oData, vdupq_n_u8('\r'-42)),
-			vceqq_u8(oData, vdupq_n_u8('\n'-42))
+			vceqq_u8(oDataA, vdupq_n_u8('\r'-42)),
+			vceqq_u8(oDataA, vdupq_n_u8('\n'-42))
+		)
+	);
+	uint8x16_t cmpB = vorrq_u8(
+		vorrq_u8(
+			vceqq_u8(oDataB, vdupq_n_u8(-42)),
+			vceqq_u8(oDataB, vdupq_n_u8('='-42))
+		),
+		vorrq_u8(
+			vceqq_u8(oDataB, vdupq_n_u8('\r'-42)),
+			vceqq_u8(oDataB, vdupq_n_u8('\n'-42))
 		)
 	);
 	
 	// dup low 2 bytes & compare
-	uint8x8_t firstTwoChars = vreinterpret_u8_u16(vdup_lane_u16(vreinterpret_u16_u8(vget_low_u8(oData)), 0));
+	uint8x8_t firstTwoChars = vreinterpret_u8_u16(vdup_lane_u16(vreinterpret_u16_u8(vget_low_u8(oDataA)), 0));
 	uint8x8_t cmpNl = vceq_u8(firstTwoChars, vreinterpret_u8_s8((int8x8_t){
 		' '-42,' '-42,'\t'-42,'\t'-42,'\r'-42,'.'-42,'='-42,'='-42
 	}));
@@ -55,98 +102,140 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	uint16x4_t cmpNl2 = vreinterpret_u16_u8(cmpNl);
 	cmpNl2 = vpadd_u16(cmpNl2, vdup_n_u16(0));
 	cmpNl2 = vpadd_u16(cmpNl2, vdup_n_u16(0));
-	cmp = vcombine_u8(
-		vorr_u8(vget_low_u8(cmp), vreinterpret_u8_u16(cmpNl2)),
-		vget_high_u8(cmp)
+	cmpA = vcombine_u8(
+		vorr_u8(vget_low_u8(cmpA), vreinterpret_u8_u16(cmpNl2)),
+		vget_high_u8(cmpA)
 	);
 #endif
 	
 	
 #ifdef __aarch64__
-	if (LIKELIHOOD(0.2227, vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(cmp))), 0)!=0)) {
-		uint8x16_t cmpPacked = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-		uint8_t m1 = vaddv_u8(vget_low_u8(cmpPacked));
-		uint8_t m2 = vaddv_u8(vget_high_u8(cmpPacked));
+	if (LIKELIHOOD(0.4, vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(
+		vorrq_u8(cmpA, cmpB)
+	))), 0)!=0)) {
+		uint8x16_t cmpMerge = vpaddq_u8(
+			vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128}),
+			vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128})
+		);
+		uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmpMerge), vget_high_u8(cmpMerge));
+		cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
+		uint32_t mask = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
 #else
-	uint8x16_t cmpPacked = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-	uint8x8_t cmpPackedHalf = vpadd_u8(vget_low_u8(cmpPacked), vget_high_u8(cmpPacked));
-	cmpPackedHalf = vpadd_u8(cmpPackedHalf, cmpPackedHalf);
-	uint32_t mask2 = vget_lane_u32(vreinterpret_u32_u8(cmpPackedHalf), 0);
-	if(LIKELIHOOD(0.2227, mask2 != 0)) {
-		mask2 += mask2 >> 8;
-		uint8_t m1 = (mask2 & 0xff);
-		uint8_t m2 = ((mask2 >> 16) & 0xff);
+	uint8x16_t cmpAMasked = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+	uint8x16_t cmpBMasked = vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+	// no vpaddq_u8 in ARMv7, so need extra 64-bit VPADD
+	uint8x8_t cmpPacked = vpadd_u8(
+		vpadd_u8(
+			vget_low_u8(cmpAMasked), vget_high_u8(cmpAMasked)
+		),
+		vpadd_u8(
+			vget_low_u8(cmpBMasked), vget_high_u8(cmpBMasked)
+		)
+	);
+	cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
+	uint32_t mask = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
+	if(LIKELIHOOD(0.4, mask != 0)) {
 #endif
 		
-		uint8x16_t shufMA = vld1q_u8((uint8_t*)(nlShufLUT + m1));
-		uint8x16_t data1 = vqsubq_u8(shufMA, vdupq_n_u8(64));
+		uint8_t m1 = (mask & 0xff);
+		uint8_t m2 = ((mask >> 8) & 0xff);
+		uint8_t m3 = ((mask >> 16) & 0xff);
+		uint8_t m4 = ((mask >> 24) & 0xff);
+		
+		// perform lookup for shuffle mask
+		uint8x16_t shuf2 = vld1q_u8((uint8_t*)(shufLUT + m2));
+		uint8x16_t shuf3 = vld1q_u8((uint8_t*)(shufLUT + m3));
+		uint8x16_t shuf4 = vld1q_u8((uint8_t*)(shufLUT + m4));
+		
+		uint8x16_t shuf1 = vld1q_u8((uint8_t*)(nlShufLUT + m1));
+		uint8x16_t data1A = vqsubq_u8(shuf1, vdupq_n_u8(64));
 #ifdef __aarch64__
-		data = vaddq_u8(data, vandq_u8(cmp, vdupq_n_u8(64)));
-		data1 = vqtbx1q_u8(data1, data, shufMA);
+		dataA = vaddq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
+		dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
+		data1A = vqtbx1q_u8(data1A, dataA, shuf1);
+		uint8x16_t data2A = vqtbx1q_u8(vdupq_n_u8('='), vextq_u8(dataA, dataA, 8), shuf2);
+		uint8x16_t data1B = vqtbx1q_u8(vdupq_n_u8('='), dataB, shuf3);
+		uint8x16_t data2B = vqtbx1q_u8(vdupq_n_u8('='), vextq_u8(dataB, dataB, 8), shuf4);
 #else
-		data = vsubq_u8(data, vbslq_u8(cmp, vdupq_n_u8(-64-42), vdupq_n_u8(-42)));
-		data1 = vcombine_u8(vtbx1_u8(vget_low_u8(data1),  vget_low_u8(data), vget_low_u8(shufMA)),
-		                    vtbx1_u8(vget_high_u8(data1), vget_low_u8(data), vget_high_u8(shufMA)));
+		dataA = vsubq_u8(dataA, vbslq_u8(cmpA, vdupq_n_u8(-64-42), vdupq_n_u8(-42)));
+		dataB = vsubq_u8(dataB, vbslq_u8(cmpB, vdupq_n_u8(-64-42), vdupq_n_u8(-42)));
+		data1A = vcombine_u8(vtbx1_u8(vget_low_u8(data1A),  vget_low_u8(dataA), vget_low_u8(shuf1)),
+		                     vtbx1_u8(vget_high_u8(data1A), vget_low_u8(dataA), vget_high_u8(shuf1)));
+		uint8x16_t data2A = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataA), vget_low_u8(shuf2)),
+		                                vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataA), vget_high_u8(shuf2)));
+		uint8x16_t data1B = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_low_u8(dataB), vget_low_u8(shuf3)),
+		                                vtbx1_u8(vdup_n_u8('='), vget_low_u8(dataB), vget_high_u8(shuf3)));
+		uint8x16_t data2B = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataB), vget_low_u8(shuf4)),
+		                                vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataB), vget_high_u8(shuf4)));
 #endif
-		unsigned char shufALen = BitsSetTable256plus8[m1] +2;
-		if(LIKELIHOOD(0.001, shufALen > sizeof(uint8x16_t))) {
+		uint32_t counts = vget_lane_u32(vreinterpret_u32_u8(vcnt_u8(cmpPacked)), 0);
+		counts += 0x0808080A;
+		
+		unsigned char shuf1Len = counts & 0xff;
+		unsigned char shuf2Len = (counts>>8) & 0xff;
+		unsigned char shuf3Len = (counts>>16) & 0xff;
+		unsigned char shuf4Len = (counts>>24) & 0xff;
+		uint16_t shufTotalLen = (counts>>16) + counts;
+		shufTotalLen += shufTotalLen>>8;
+		shufTotalLen &= 0xff;
+		
+		if(LIKELIHOOD(0.001, shuf1Len > sizeof(uint8x16_t))) {
 			// unlikely special case, which would cause vectors to be overflowed
 			// we'll just handle this by only dealing with the first 2 characters, and let main loop handle the rest
 			// at least one of the first 2 chars is guaranteed to need escaping
-			vst1_u8(p, vget_low_u8(data1));
-			col = lineSizeOffset + ((m1 & 2)>>1) - 16+2;
+			vst1_u8(p, vget_low_u8(data1A));
+			col = lineSizeOffset + ((m1 & 2)>>1) - 32+2;
 			p += 4 + (m1 & 1) + ((m1 & 2)>>1);
 			i += 2;
 			return;
 		}
 		
-		uint8x16_t shufMB = vld1q_u8((uint8_t*)(shufLUT + m2));
-#ifdef __aarch64__
-		uint8x16_t data2 = vqtbx1q_u8(vdupq_n_u8('='), vextq_u8(data, data, 8), shufMB);
-#else
-		uint8x16_t data2 = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_low_u8(shufMB)),
-		                               vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_high_u8(shufMB)));
-#endif
-		vst1q_u8(p, data1);
-		p += shufALen;
-		unsigned char shufBLen = BitsSetTable256plus8[m2];
-		vst1q_u8(p, data2);
-		p += shufBLen;
-		col = shufALen+shufBLen-2 - (m1&1) + lineSizeOffset-16;
+		vst1q_u8(p, data1A);
+		p += shuf1Len;
+		vst1q_u8(p, data2A);
+		p += shuf2Len;
+		vst1q_u8(p, data1B);
+		p += shuf3Len;
+		vst1q_u8(p, data2B);
+		p += shuf4Len;
+		col = shufTotalLen-2 - (m1&1) + lineSizeOffset-32;
 	} else {
 		uint8x16_t data1;
 #ifdef __aarch64__
-		data1 = vqtbx1q_u8((uint8x16_t){0,'\r','\n',0,0,0,0,0,0,0,0,0,0,0,0,0}, data, (uint8x16_t){0,16,16,1,2,3,4,5,6,7,8,9,10,11,12,13});
+		data1 = vqtbx1q_u8((uint8x16_t){0,'\r','\n',0,0,0,0,0,0,0,0,0,0,0,0,0}, dataA, (uint8x16_t){0,16,16,1,2,3,4,5,6,7,8,9,10,11,12,13});
 #else
-		data = vsubq_u8(data, vdupq_n_u8(-42));
+		dataA = vsubq_u8(dataA, vdupq_n_u8(-42));
+		dataB = vsubq_u8(dataB, vdupq_n_u8(-42));
 		data1 = vcombine_u8(
-			vtbx1_u8((uint8x8_t){0,'\r','\n',0,0,0,0,0}, vget_low_u8(data), (uint8x8_t){0,16,16,1,2,3,4,5}),
-			vext_u8(vget_low_u8(data), vget_high_u8(data), 6)
+			vtbx1_u8((uint8x8_t){0,'\r','\n',0,0,0,0,0}, vget_low_u8(dataA), (uint8x8_t){0,16,16,1,2,3,4,5}),
+			vext_u8(vget_low_u8(dataA), vget_high_u8(dataA), 6)
 		);
 #endif
 		vst1q_u8(p, data1);
 		p += sizeof(uint8x16_t);
-		uint16_t v = vgetq_lane_u16(vreinterpretq_u16_u8(data), 7);
+		uint16_t v = vgetq_lane_u16(vreinterpretq_u16_u8(dataA), 7);
 		memcpy(p, &v, sizeof(v));
 		p += sizeof(v);
+		vst1q_u8(p, dataB);
+		p += sizeof(uint8x16_t);
 		col = lineSizeOffset;
 	}
 	
-	i += sizeof(uint8x16_t);
+	i += sizeof(uint8x16_t)*2;
 	// TODO: check col >= 0 if we want to support short lines
 }
 
 
 HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
-	if(len < sizeof(uint8x16_t)*2 || line_size < (int)sizeof(uint8x16_t)*2) return;
+	if(len < sizeof(uint8x16_t)*4 || line_size < (int)sizeof(uint8x16_t)*4) return;
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
-	int lineSizeOffset = -line_size +16; // line size plus vector length
+	int lineSizeOffset = -line_size +32; // line size plus vector length
 	int col = *colOffset - line_size +1;
 	
 	// offset position to enable simpler loop condition checking
-	const int INPUT_OFFSET = sizeof(uint8x16_t) + sizeof(uint8x16_t) -1; // extra chars for EOL handling, -1 to change <= to <
+	const int INPUT_OFFSET = sizeof(uint8x16_t)*4 -1; // extra chars for EOL handling, -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
@@ -180,90 +269,158 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 		}
 	}
 	while(i < 0) {
-		uint8x16_t data = vld1q_u8(es + i);
-		i += sizeof(uint8x16_t);
+		uint8x16_t dataA = vld1q_u8(es + i);
+		uint8x16_t dataB = vld1q_u8(es + i + sizeof(uint8x16_t));
+		i += sizeof(uint8x16_t)*2;
 		// search for special chars
 #ifdef __aarch64__
-		uint8x16_t cmpEq = vceqq_u8(data, vdupq_n_u8('='-42));
-		data = vaddq_u8(data, vdupq_n_u8(42));
-		uint8x16_t cmp = vqtbx1q_u8(
-			cmpEq,
+		uint8x16_t cmpEqA = vceqq_u8(dataA, vdupq_n_u8('='-42));
+		uint8x16_t cmpEqB = vceqq_u8(dataB, vdupq_n_u8('='-42));
+		dataA = vaddq_u8(dataA, vdupq_n_u8(42));
+		dataB = vaddq_u8(dataB, vdupq_n_u8(42));
+		uint8x16_t cmpA = vqtbx1q_u8(
+			cmpEqA,
 			//            \0                    \n      \r
 			(uint8x16_t){255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
-			data
+			dataA
 		);
+		uint8x16_t cmpB = vqtbx1q_u8(
+			cmpEqB,
+			//            \0                    \n      \r
+			(uint8x16_t){255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
+			dataB
+		);
+		
+		dataA = vaddq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
+		dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
 #else
-		uint8x16_t cmp = vorrq_u8(
+		// the ARMv8 strategy may be worth it here with 2x vtbx2's, but both GCC-9 and Clang-9 generate poor assembly for it, so it performs worse than the following
+		uint8x16_t cmpA = vorrq_u8(
 			vorrq_u8(
-				vceqq_u8(data, vdupq_n_u8(-42)),
-				vceqq_u8(data, vdupq_n_u8('='-42))
+				vceqq_u8(dataA, vdupq_n_u8(-42)),
+				vceqq_u8(dataA, vdupq_n_u8('='-42))
 			),
 			vorrq_u8(
-				vceqq_u8(data, vdupq_n_u8('\r'-42)),
-				vceqq_u8(data, vdupq_n_u8('\n'-42))
+				vceqq_u8(dataA, vdupq_n_u8('\r'-42)),
+				vceqq_u8(dataA, vdupq_n_u8('\n'-42))
 			)
 		);
+		uint8x16_t cmpB = vorrq_u8(
+			vorrq_u8(
+				vceqq_u8(dataB, vdupq_n_u8(-42)),
+				vceqq_u8(dataB, vdupq_n_u8('='-42))
+			),
+			vorrq_u8(
+				vceqq_u8(dataB, vdupq_n_u8('\r'-42)),
+				vceqq_u8(dataB, vdupq_n_u8('\n'-42))
+			)
+		);
+		
+		dataA = vsubq_u8(dataA, vbslq_u8(cmpA, vdupq_n_u8(-64-42), vdupq_n_u8(-42)));
+		dataB = vsubq_u8(dataB, vbslq_u8(cmpB, vdupq_n_u8(-64-42), vdupq_n_u8(-42)));
 #endif
 		
 		
+		long bitIndex; // prevent compiler whining
+		uint8x16_t cmpAMasked = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+		uint8x16_t cmpBMasked = vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 #ifdef __aarch64__
-		if (LIKELIHOOD(0.2227, vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(cmp))), 0)!=0)) {
-			uint8x16_t cmpPacked = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-			uint8_t m1 = vaddv_u8(vget_low_u8(cmpPacked));
-			uint8_t m2 = vaddv_u8(vget_high_u8(cmpPacked));
+		uint8x16_t cmpMerge = vpaddq_u8(cmpAMasked, cmpBMasked);
+		cmpMerge = vpaddq_u8(cmpMerge, cmpMerge);
+		uint64_t mask = vgetq_lane_u64(vreinterpretq_u64_u8(cmpMerge), 0);
+		if(LIKELIHOOD(0.09, (mask & (mask-1)) != 0)) {
+			mask |= mask >> 8;
+			uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmpMerge), vget_low_u8(cmpMerge));
+			uint8_t m1 = (mask & 0xff);
+			uint8_t m2 = ((mask >> 16) & 0xff);
+			uint8_t m3 = ((mask >> 32) & 0xff);
+			uint8_t m4 = ((mask >> 48) & 0xff);
 #else
-		uint8x16_t cmpPacked = vandq_u8(cmp, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-		uint8x8_t cmpPackedHalf = vpadd_u8(vget_low_u8(cmpPacked), vget_high_u8(cmpPacked));
-		cmpPackedHalf = vpadd_u8(cmpPackedHalf, cmpPackedHalf);
-		uint32_t mask2 = vget_lane_u32(vreinterpret_u32_u8(cmpPackedHalf), 0);
-		if(LIKELIHOOD(0.2227, mask2 != 0)) {
-			mask2 += mask2 >> 8;
-			uint8_t m1 = (mask2 & 0xff);
-			uint8_t m2 = ((mask2 >> 16) & 0xff);
+		// no vpaddq_u8 in ARMv7, so need extra 64-bit VPADD
+		uint8x8_t cmpPacked = vpadd_u8(
+			vpadd_u8(
+				vget_low_u8(cmpAMasked), vget_high_u8(cmpAMasked)
+			),
+			vpadd_u8(
+				vget_low_u8(cmpBMasked), vget_high_u8(cmpBMasked)
+			)
+		);
+		cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
+		uint32_t mask = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
+		if(LIKELIHOOD(0.09, (mask & (mask-1)) != 0)) {
+			uint8_t m1 = (mask & 0xff);
+			uint8_t m2 = ((mask >> 8) & 0xff);
+			uint8_t m3 = ((mask >> 16) & 0xff);
+			uint8_t m4 = ((mask >> 24) & 0xff);
 #endif
 			
 			// perform lookup for shuffle mask
-			uint8x16_t shufMA = vld1q_u8((uint8_t*)(shufLUT + m1));
-			uint8x16_t shufMB = vld1q_u8((uint8_t*)(shufLUT + m2));
+			uint8x16_t shuf1 = vld1q_u8((uint8_t*)(shufLUT + m1));
+			uint8x16_t shuf2 = vld1q_u8((uint8_t*)(shufLUT + m2));
+			uint8x16_t shuf3 = vld1q_u8((uint8_t*)(shufLUT + m3));
+			uint8x16_t shuf4 = vld1q_u8((uint8_t*)(shufLUT + m4));
 			
 			// expand halves
 #ifdef __aarch64__
-			data = vaddq_u8(data, vandq_u8(cmp, vdupq_n_u8(64)));
-			
-			uint8x16_t data2 = vqtbx1q_u8(vdupq_n_u8('='), vextq_u8(data, data, 8), shufMB);
-			data = vqtbx1q_u8(vdupq_n_u8('='), data, shufMA);
+			uint8x16_t data1A = vqtbx1q_u8(vdupq_n_u8('='), dataA, shuf1);
+			uint8x16_t data2A = vqtbx1q_u8(vdupq_n_u8('='), vextq_u8(dataA, dataA, 8), shuf2);
+			uint8x16_t data1B = vqtbx1q_u8(vdupq_n_u8('='), dataB, shuf3);
+			uint8x16_t data2B = vqtbx1q_u8(vdupq_n_u8('='), vextq_u8(dataB, dataB, 8), shuf4);
 #else
-			data = vsubq_u8(data, vbslq_u8(cmp, vdupq_n_u8(-64-42), vdupq_n_u8(-42)));
-			
-			uint8x16_t data2 = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_low_u8(shufMB)),
-			                               vtbx1_u8(vdup_n_u8('='), vget_high_u8(data), vget_high_u8(shufMB)));
-			data = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_low_u8(data), vget_low_u8(shufMA)),
-			                   vtbx1_u8(vdup_n_u8('='), vget_low_u8(data), vget_high_u8(shufMA)));
+			uint8x16_t data1A = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_low_u8(dataA), vget_low_u8(shuf1)),
+			                                vtbx1_u8(vdup_n_u8('='), vget_low_u8(dataA), vget_high_u8(shuf1)));
+			uint8x16_t data2A = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataA), vget_low_u8(shuf2)),
+			                                vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataA), vget_high_u8(shuf2)));
+			uint8x16_t data1B = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_low_u8(dataB), vget_low_u8(shuf3)),
+			                                vtbx1_u8(vdup_n_u8('='), vget_low_u8(dataB), vget_high_u8(shuf3)));
+			uint8x16_t data2B = vcombine_u8(vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataB), vget_low_u8(shuf4)),
+			                                vtbx1_u8(vdup_n_u8('='), vget_high_u8(dataB), vget_high_u8(shuf4)));
 #endif
 			
 			// store out
-			unsigned char shufALen = BitsSetTable256plus8[m1];
-			unsigned char shufBLen = BitsSetTable256plus8[m2];
-			unsigned char shufTotalLen = shufALen + shufBLen;
-			vst1q_u8(p, data);
-			p += shufALen;
-			vst1q_u8(p, data2);
-			p += shufBLen;
+			uint32_t counts = vget_lane_u32(vreinterpret_u32_u8(vcnt_u8(cmpPacked)), 0);
+			counts += 0x08080808;
+			
+			unsigned char shuf1Len = counts & 0xff;
+			unsigned char shuf2Len = (counts>>8) & 0xff;
+			unsigned char shuf3Len = (counts>>16) & 0xff;
+			unsigned char shuf4Len = (counts>>24) & 0xff;
+			uint16_t shufTotalLen = (counts>>16) + counts;
+			shufTotalLen += shufTotalLen>>8;
+			shufTotalLen &= 0xff;
+			
+			vst1q_u8(p, data1A);
+			p += shuf1Len;
+			vst1q_u8(p, data2A);
+			p += shuf2Len;
+			vst1q_u8(p, data1B);
+			p += shuf3Len;
+			vst1q_u8(p, data2B);
+			p += shuf4Len;
 			col += shufTotalLen;
 			
-			if(LIKELIHOOD(0.15, col >= 0)) {
+			if(LIKELIHOOD(0.3, col >= 0)) {
 				// we overflowed - find correct position to revert back to
-				uint32_t eqMask = (expandLUT[m2] << shufALen) | expandLUT[m1];
+				uint32_t eqMask1 = (expandLUT[m2] << shuf1Len) | expandLUT[m1];
+				uint32_t eqMask2 = (expandLUT[m4] << shuf3Len) | expandLUT[m3];
+				uint64_t eqMask = ((uint64_t)eqMask2 << (shuf1Len+shuf2Len)) | (uint64_t)eqMask1;
 				eqMask >>= shufTotalLen - col -1;
 				
-				// count bits in eqMask; this VCNT approach seems to be about as fast as a 8-bit LUT on Cortex A53
-				uint32x2_t vCnt;
-				vCnt = vset_lane_u32(eqMask, vCnt, 0);
-				vCnt = vreinterpret_u32_u8(vcnt_u8(vreinterpret_u8_u32(vCnt)));
-				uint32_t cnt = vget_lane_u32(vCnt, 0);
+				// count bits in eqMask
+#ifdef __aarch64__
+				uint8x8_t vCnt = vcnt_u8(vreinterpret_u8_u64(vmov_n_u64(eqMask)));
+				uint8_t cnt = vaddv_u8(vCnt);
+#else
+				uint32x2_t vCnt = vmov_n_u32(eqMask & 0xffffffff);
+				vCnt = vset_lane_u32(eqMask >> 32, vCnt, 1);
+				uint8x8_t vCnt_ = vcnt_u8(vreinterpret_u8_u32(vCnt));
+				vCnt_ = vpadd_u8(vCnt_, vCnt_);
+				uint32_t cnt = vget_lane_u32(vreinterpret_u32_u8(vCnt_), 0);
 				cnt += cnt >> 16;
 				cnt += cnt >> 8;
-				i += cnt & 0xff;
+				cnt &= 0xff;
+#endif
+				i += cnt;
 				
 				long revert = col + (eqMask & 1);
 				p -= revert;
@@ -271,13 +428,86 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 				goto _encode_eol_handle_pre;
 			}
 		} else {
-#ifndef __aarch64__
-			data = vsubq_u8(data, vdupq_n_u8(-42));
+			{
+#ifdef __aarch64__
+# ifdef _MSC_VER
+				// does this work?
+				if(_BitScanReverse64(&bitIndex, mask))
+					bitIndex ^= 63;
+				else
+					bitIndex = 64;
+# else
+				bitIndex = __builtin_clzll(mask); // TODO: is the 'undefined if 0' case problematic here?
+# endif
+#else
+# ifdef __GNUC__
+				bitIndex = __builtin_clz(mask);
+# elif defined(_MSC_VER)
+				bitIndex = _arm_clz(mask);
+# else
+				bitIndex = __clz(mask); // ARM compiler?
+# endif
 #endif
-			vst1q_u8(p, data);
-			p += sizeof(uint8x16_t);
-			col += sizeof(uint8x16_t);
+				
+				uint8x16x2_t shuf = vld2q_u8(shufIndexLUT + bitIndex*32);
+				
+#ifdef __aarch64__
+				uint8x16_t shufA = shuf.val[0];
+				uint8x16_t shufB = shuf.val[1];
+				uint8x16_t outDataB = vqtbx2q_u8(shufB, {dataA, dataB}, shufB);
+				dataA = vqtbx1q_u8(shufA, dataA, shufA);
+#else
+				/* alternative no-LUT version; seems to be slightly slower than using a LUT
+				// TODO: remove need to XOR
+				uint8x16_t vClz = vdupq_n_u8(31^bitIndex);
+				uint8x16_t shufA = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
+				uint8x16_t shufB = {8,9,10,11,12,13,14,15,8,9,10,11,12,13,14,15};
+				shufA = vaddq_u8(
+					vbslq_u8(cmpA, vdupq_n_u8('='), shufA),
+					vcgtq_u8(shufA, vClz)
+				);
+				shufB = vaddq_u8(
+					vbslq_u8(cmpB, vdupq_n_u8('='), shufB),
+					vcgtq_u8((uint8x16_t){16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31}, vClz)
+				);
+				*/
+				
+				uint8x8_t shufAl = vget_low_u8(shuf.val[0]);
+				uint8x8_t shufAh = vget_high_u8(shuf.val[0]);
+				uint8x8_t shufBl = vget_low_u8(shuf.val[1]);
+				uint8x8_t shufBh = vget_high_u8(shuf.val[1]);
+				uint8x16_t outDataB = vcombine_u8(
+					vtbx2_u8(shufBl, {vget_high_u8(dataA), vget_low_u8(dataB)}, shufBl),
+					vtbx2_u8(shufBh, {vget_low_u8(dataB), vget_high_u8(dataB)}, shufBh)
+				);
+				dataA = vcombine_u8(
+					vtbx1_u8(shufAl, vget_low_u8(dataA), shufAl),
+					vtbx2_u8(shufAh, {vget_low_u8(dataA), vget_high_u8(dataA)}, shufAh)
+				);
+#endif
+				vst1q_u8(p, dataA);
+				p += sizeof(uint8x16_t);
+				vst1q_u8(p, outDataB);
+				p += sizeof(uint8x16_t);
+				// write last byte
+				*p = vgetq_lane_u8(dataB, 15);
+				p += (mask != 0);
+				col += (mask != 0);
+				col += sizeof(uint8x16_t)*2;
+			}
+			
 			if(HEDLEY_UNLIKELY(col >= 0)) {
+#ifdef __aarch64__
+				// fixup bitIndex
+				bitIndex -= ((bitIndex+4)>>4)<<3;
+#endif
+				bitIndex = bitIndex +1;
+				if(HEDLEY_UNLIKELY(col == bitIndex)) {
+					// this is an escape character, so line will need to overflow
+					p--;
+				} else {
+					i += (col > bitIndex);
+				}
 				p -= col;
 				i -= col;
 				
