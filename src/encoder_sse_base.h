@@ -280,13 +280,12 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		} else
 #endif
 		{
-			cmp = _mm_shuffle_epi8(_mm_set_epi8(
-				//  \r     \n\t                 \0
-				0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
-			), _mm_min_epu8(
-				data, _mm_set1_epi8(15)
-			));
-			cmp = _mm_or_si128(cmp, _mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)));
+			cmp = _mm_cmpeq_epi8(
+				_mm_shuffle_epi8(_mm_set_epi8(
+					'=',-1,'\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'\0'
+				), _mm_min_epu8(data, _mm_set1_epi8(15))),
+				data
+			);
 			mask = _mm_movemask_epi8(cmp);
 			uint16_t lineChars = *(uint16_t*)(es + i);
 			mask |= lookups.eolCharMask[lineChars & 0xff];
@@ -485,14 +484,11 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
 		// use shuffle to replace 3x cmpeq + ors; ideally, avoid on CPUs with slow shuffle
 		if(use_isa >= ISA_LEVEL_SSSE3) {
-			cmp = _mm_or_si128(
-				_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
+			cmp = _mm_cmpeq_epi8(
 				_mm_shuffle_epi8(_mm_set_epi8(
-					//  \r     \n                   \0
-					0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
-				), _mm_min_epu8(
-					data, _mm_set1_epi8(15)
-				))
+					'=',-1,'\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'\0'
+				), _mm_min_epu8(data, _mm_set1_epi8(15))),
+				data
 			);
 		} else
 #endif

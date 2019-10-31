@@ -88,7 +88,7 @@ static void encoder_avx2_lut() {
 		int p = 0;
 		for(int j=0; j<16; j++) {
 			if(k & 1) {
-				res[j+p] = 0x70+'=';
+				res[j+p] = 0xff;
 				p++;
 			}
 			res[j+p] = j;
@@ -170,32 +170,17 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 		}
 	}
 	while(i < 0) {
-		__m256i oData = _mm256_loadu_si256((__m256i *)(es + i));
-		__m256i data = _mm256_add_epi8(oData, _mm256_set1_epi8(42));
+		__m256i data = _mm256_loadu_si256((__m256i *)(es + i));
+		data = _mm256_add_epi8(data, _mm256_set1_epi8(42));
 		i += YMM_SIZE;
 		// search for special chars
-		__m256i cmp = _mm256_or_si256(
-			_mm256_cmpeq_epi8(oData, _mm256_set1_epi8('='-42)),
+		__m256i cmp = _mm256_cmpeq_epi8(
 			_mm256_shuffle_epi8(_mm256_set_epi8(
-				//  \r     \n                   \0
-				0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1,
-				0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
-			), _mm256_adds_epu8(
-				data, _mm256_set1_epi8(0x70)
-			))
-		);
-		/* this AVX512 idea has one less instruction, but is slower on Skylake-X, probably due to masked compares being very slow? maybe it'll be faster on some later processor?
-		__m256i cmp = _mm256_mask_shuffle_epi8(
-			_mm256_cmpeq_epi8(oData, _mm256_set1_epi8('='-42)),
-			_mm256_cmplt_epu8_mask(data, _mm256_set1_epi8(16)),
-			_mm256_set_epi8(
-				//  \r     \n                   \0
-				0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1,
-				0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
-			),
+				'=',-1,'\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'\0',
+				'=',-1,'\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'\0'
+			), _mm256_min_epu8(data, _mm256_set1_epi8(15))),
 			data
 		);
-		*/
 		
 		uint32_t mask = _mm256_movemask_epi8(cmp);
 		unsigned int maskBits = popcnt32(mask);
