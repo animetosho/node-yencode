@@ -10,8 +10,12 @@
 // GCC (ver 6-10(dev)) fails to optimize pure C version of mask testing, but has this intrinsic; Clang >= 7 optimizes C version fine
 #if defined(__GNUC__) && __GNUC__ >= 7
 # define KORTEST16(a, b) !_kortestz_mask16_u8((a), (b))
+# define KAND16(a, b) _kand_mask16((a), (b))
+# define KOR16(a, b) _kor_mask16((a), (b))
 #else
 # define KORTEST16(a, b) ((a) | (b))
+# define KAND16(a, b) ((a) & (b))
+# define KOR16(a, b) ((a) | (b))
 #endif
 
 static struct {
@@ -260,6 +264,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 					// merge matches for \r\n.
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 					__mmask16 match1NlMaskA, match1NlMaskB;
+					__mmask16 match2NlDotMaskA, match2NlDotMaskB;
 					if(use_isa >= ISA_LEVEL_AVX3) {
 						match1NlMaskA = _mm_mask_cmpeq_epi8_mask(
 							match0CrMaskA,
@@ -271,8 +276,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 							_mm_set1_epi8('\n'),
 							_mm_loadu_si128((__m128i *)(src+i+1) + 1)
 						);
-						match2NlDotA = _mm_movm_epi8(match2CrXDtMaskA & match1NlMaskA);
-						match2NlDotB = _mm_movm_epi8(match2CrXDtMaskB & match1NlMaskB);
+						match2NlDotMaskA = KAND16(match2CrXDtMaskA, match1NlMaskA);
+						match2NlDotMaskB = KAND16(match2CrXDtMaskB, match1NlMaskB);
 					} else
 #endif
 					{
@@ -305,7 +310,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						__m128i match4EqYA = _mm_cmpeq_epi16(tmpData4A, _mm_set1_epi16(0x793d)); // =y
 						__m128i match4EqYB = _mm_cmpeq_epi16(tmpData4B, _mm_set1_epi16(0x793d)); // =y
 						
-						__m128i matchEnd;
+						int matchEnd;
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 						if(use_isa >= ISA_LEVEL_AVX3) {
 							__mmask16 match3EqYMaskA = _mm_mask_cmpeq_epi8_mask(
@@ -314,9 +319,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 							__mmask16 match3EqYMaskB = _mm_mask_cmpeq_epi8_mask(
 								match2EqMaskB, _mm_set1_epi8('y'), tmpData3B
 							);
-							// match \r\n=y
-							__m128i match3EndA = _mm_movm_epi8(match3EqYMaskA & match1NlMaskA);
-							__m128i match3EndB = _mm_movm_epi8(match3EqYMaskB & match1NlMaskB);
 							__m128i match34EqYA, match34EqYB;
 # ifdef __AVX512VBMI2__
 							if(use_isa >= ISA_LEVEL_VBMI2) {
@@ -333,9 +335,15 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 							__m128i match4EndA = _mm_ternarylogic_epi32(match34EqYA, match3CrA, match4LfA, 0xF8); // (match3Cr & match4Lf) | match34EqY
 							__m128i match4EndB = _mm_ternarylogic_epi32(match34EqYB, match3CrB, match4LfB, 0xF8);
 							// merge with \r\n. and combine
-							matchEnd = _mm_or_si128(
-								_mm_ternarylogic_epi32(match4EndA, match2NlDotA, match3EndA, 0xEA), // (match4End & match2NlDot) | match3End
-								_mm_ternarylogic_epi32(match4EndB, match2NlDotB, match3EndB, 0xEA)
+							matchEnd = KORTEST16(
+								KOR16(
+									_mm_mask_test_epi8_mask(match2NlDotMaskA, match4EndA, match4EndA),
+									KAND16(match3EqYMaskA, match1NlMaskA)
+								),
+								KOR16(
+									_mm_mask_test_epi8_mask(match2NlDotMaskB, match4EndB, match4EndB),
+									KAND16(match3EqYMaskB, match1NlMaskB)
+								)
 							);
 						} else
 #endif
@@ -360,30 +368,39 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 							__m128i match3EndA = _mm_and_si128(match3EqYA, match1NlA);
 							__m128i match3EndB = _mm_and_si128(match3EqYB, match1NlB);
 							// combine match sequences
-							matchEnd = _mm_or_si128(
+							matchEnd = _mm_movemask_epi8(_mm_or_si128(
 								_mm_or_si128(match4EndA, match3EndA),
 								_mm_or_si128(match4EndB, match3EndB)
-							);
+							));
 						}
 						
-						if(LIKELIHOOD(0.001, _mm_movemask_epi8(matchEnd))) {
+						if(LIKELIHOOD(0.001, matchEnd)) {
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
 							len += i;
 							break;
 						}
 					}
-					mask |= (_mm_movemask_epi8(match2NlDotA) << 2);
-					mask |= (_mm_movemask_epi8(match2NlDotB) << 18) & 0xffffffff;
-					match2NlDotB = _mm_srli_si128(match2NlDotB, 14);
-					if(_USING_FAST_MATCH)
-						minMask = _mm_subs_epu8(_mm_set1_epi8('.'), match2NlDotB);
-					else
-						// this bitiwse trick works because '.'|'\n' == '.'
-						lfCompare = _mm_or_si128(
-							_mm_and_si128(match2NlDotB, _mm_set1_epi8('.')),
-							_mm_set1_epi8('\n')
-						);
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+					if(use_isa >= ISA_LEVEL_AVX3) {
+						mask |= match2NlDotMaskA << 2;
+						mask |= (match2NlDotMaskB << 18) & 0xffffffff;
+						minMask = _mm_maskz_mov_epi8(~(match2NlDotMaskB>>14), _mm_set1_epi8('.'));
+					} else
+#endif
+					{
+						mask |= (_mm_movemask_epi8(match2NlDotA) << 2);
+						mask |= (_mm_movemask_epi8(match2NlDotB) << 18) & 0xffffffff;
+						match2NlDotB = _mm_srli_si128(match2NlDotB, 14);
+						if(_USING_FAST_MATCH)
+							minMask = _mm_subs_epu8(_mm_set1_epi8('.'), match2NlDotB);
+						else
+							// this bitiwse trick works because '.'|'\n' == '.'
+							lfCompare = _mm_or_si128(
+								_mm_and_si128(match2NlDotB, _mm_set1_epi8('.')),
+								_mm_set1_epi8('\n')
+							);
+					}
 				}
 				else if(searchEnd) {
 					bool partialEndFound;
@@ -418,10 +435,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						partialEndFound = _mm_movemask_epi8(_mm_or_si128(match3EqYA, match3EqYB));
 					}
 					if(LIKELIHOOD(0.001, partialEndFound)) {
-						if(_USING_FAST_MATCH) {
-							cmpCrA = _mm_cmpeq_epi8(oDataA, _mm_set1_epi8('\r'));
-							cmpCrB = _mm_cmpeq_epi8(oDataB, _mm_set1_epi8('\r'));
-						}
 						// if the rare case of '=y' is found, do a more precise check
 						bool endFound;
 						
@@ -439,12 +452,16 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 							);
 							
 							endFound = KORTEST16(
-								_mm_mask_test_epi8_mask(match3LfEqYMaskA, cmpCrA, cmpCrA),
-								_mm_mask_test_epi8_mask(match3LfEqYMaskB, cmpCrB, cmpCrB)
+								_mm_mask_cmpeq_epi8_mask(match3LfEqYMaskA, oDataA, _mm_set1_epi8('\r')),
+								_mm_mask_cmpeq_epi8_mask(match3LfEqYMaskB, oDataB, _mm_set1_epi8('\r'))
 							);
 						} else
 #endif
 						{
+							if(_USING_FAST_MATCH) {
+								cmpCrA = _mm_cmpeq_epi8(oDataA, _mm_set1_epi8('\r'));
+								cmpCrB = _mm_cmpeq_epi8(oDataB, _mm_set1_epi8('\r'));
+							}
 							__m128i match1LfA = _mm_cmpeq_epi8(
 								_mm_set1_epi8('\n'),
 								_mm_loadu_si128((__m128i*)(src+i+1))
