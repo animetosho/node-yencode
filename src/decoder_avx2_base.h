@@ -10,6 +10,13 @@
 # define PLATFORM_AMD64 1
 #endif
 
+// GCC (ver 6-10(dev)) fails to optimize pure C version of mask testing, but has this intrinsic; Clang >= 7 optimizes C version fine
+#if defined(__GNUC__) && __GNUC__ >= 7
+# define KORTEST32(a, b) !_kortestz_mask32_u8((a), (b))
+#else
+# define KORTEST32(a, b) ((a) | (b))
+#endif
+
 
 static struct {
 	#pragma pack(16)
@@ -34,63 +41,42 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64
 	) : _mm256_set1_epi8(-42);
-	__m256i lfCompare = _mm256_set1_epi8('\n');
+	__m256i minMask = _mm256_set1_epi8('.');
 	if(_nextMask && isRaw) {
-		lfCompare = _mm256_set_epi8(
-			'\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n',
-			'\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n','\n',_nextMask==2?'.':'\n',_nextMask==1?'.':'\n'
+		minMask = _mm256_set_epi8(
+			'.','.','.','.','.','.','.','.','.','.','.','.','.','.','.','.',
+			'.','.','.','.','.','.','.','.','.','.','.','.','.','.',_nextMask==2?0:'.',_nextMask==1?0:'.'
 		);
 	}
 	for(long i = -len; i; i += sizeof(__m256i)*2) {
-		__m256i dataA = _mm256_load_si256((__m256i *)(src+i));
-		__m256i dataB = _mm256_load_si256((__m256i *)(src+i) + 1);
+		__m256i oDataA = _mm256_load_si256((__m256i *)(src+i));
+		__m256i oDataB = _mm256_load_si256((__m256i *)(src+i) + 1);
 		
 		// search for special chars
-		__m256i cmpEqA = _mm256_cmpeq_epi8(dataA, _mm256_set1_epi8('='));
-		__m256i cmpEqB = _mm256_cmpeq_epi8(dataB, _mm256_set1_epi8('='));
-		__m256i cmpCrA = _mm256_cmpeq_epi8(dataA, _mm256_set1_epi8('\r'));
-		__m256i cmpCrB = _mm256_cmpeq_epi8(dataB, _mm256_set1_epi8('\r'));
-		__m256i cmpA, cmpB;
-#ifdef __AVX512VL__
-		if(use_isa >= ISA_LEVEL_AVX3) {
-			cmpA = _mm256_ternarylogic_epi32(
-				_mm256_cmpeq_epi8(dataA, lfCompare),
-				cmpCrA,
-				cmpEqA,
-				0xFE
-			);
-			cmpB = _mm256_ternarylogic_epi32(
-				_mm256_cmpeq_epi8(dataB, _mm256_set1_epi8('\n')),
-				cmpCrB,
-				cmpEqB,
-				0xFE
-			);
-		} else
-#endif
-		{
-			cmpA = _mm256_or_si256(
-				_mm256_or_si256(
-					_mm256_cmpeq_epi8(dataA, lfCompare),
-					cmpCrA
-				),
-				cmpEqA
-			);
-			cmpB = _mm256_or_si256(
-				_mm256_or_si256(
-					_mm256_cmpeq_epi8(dataB, _mm256_set1_epi8('\n')),
-					cmpCrB
-				),
-				cmpEqB
-			);
-		}
+		__m256i cmpA = _mm256_cmpeq_epi8(oDataA, _mm256_shuffle_epi8(
+			_mm256_set_epi8(
+				-1,'=','\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'.',
+				-1,'=','\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'.'
+			),
+			_mm256_min_epu8(oDataA, minMask)
+		));
+		__m256i cmpB = _mm256_cmpeq_epi8(oDataB, _mm256_shuffle_epi8(
+			_mm256_set_epi8(
+				-1,'=','\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'.',
+				-1,'=','\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'.'
+			),
+			_mm256_min_epu8(oDataB, _mm256_set1_epi8('.'))
+		));
 		
 		// TODO: can OR the vectors together to save generating a mask, but may not be worth it
 		uint64_t mask = (uint32_t)_mm256_movemask_epi8(cmpB); // not the most accurate mask if we have invalid sequences; we fix this up later
 		mask = (mask << 32) | (uint32_t)_mm256_movemask_epi8(cmpA);
-		dataA = _mm256_add_epi8(dataA, yencOffset);
-		dataB = _mm256_add_epi8(dataB, _mm256_set1_epi8(-42));
+		__m256i dataA = _mm256_add_epi8(oDataA, yencOffset);
+		__m256i dataB = _mm256_add_epi8(oDataB, _mm256_set1_epi8(-42));
 		
 		if (mask != 0) {
+			__m256i cmpEqA = _mm256_cmpeq_epi8(oDataA, _mm256_set1_epi8('='));
+			__m256i cmpEqB = _mm256_cmpeq_epi8(oDataB, _mm256_set1_epi8('='));
 			uint64_t maskEq = (uint32_t)_mm256_movemask_epi8(cmpEqB);
 			maskEq = (maskEq << 32) | (uint32_t)_mm256_movemask_epi8(cmpEqA);
 			
@@ -103,6 +89,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				__m256i match2EqB, match2DotB;
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 				__mmask32 match2EqMaskA, match2EqMaskB;
+				__mmask32 match0CrMaskA, match0CrMaskB;
+				__mmask32 match2CrXDtMaskA, match2CrXDtMaskB;
 				if(use_isa >= ISA_LEVEL_AVX3 && searchEnd) {
 					match2EqMaskA = _mm256_cmpeq_epi8_mask(_mm256_set1_epi8('='), tmpData2A);
 					match2EqMaskB = _mm256_cmpeq_epi8_mask(_mm256_set1_epi8('='), tmpData2B);
@@ -113,48 +101,64 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 					match2EqB = _mm256_cmpeq_epi8(_mm256_set1_epi8('='), tmpData2B);
 				}
 				
-				__m256i partialKillDotFound;
+				int partialKillDotFound;
+				__m256i match0CrA, match0CrB;
 				if(isRaw) {
-					match2DotA = _mm256_cmpeq_epi8(tmpData2A, _mm256_set1_epi8('.'));
-					match2DotB = _mm256_cmpeq_epi8(tmpData2B, _mm256_set1_epi8('.'));
 					// find patterns of \r_.
 					
-#ifdef __AVX512VL__
-					if(use_isa >= ISA_LEVEL_AVX3)
-						partialKillDotFound = _mm256_ternarylogic_epi32(
-							_mm256_and_si256(cmpCrA, match2DotA),
-							cmpCrB, match2DotB,
-							0xf8
-						);
-					else
-#endif
-						partialKillDotFound = _mm256_or_si256(
-							_mm256_and_si256(cmpCrA, match2DotA),
-							_mm256_and_si256(cmpCrB, match2DotB)
-						);
-				}
-				
-				if(isRaw && LIKELIHOOD(0.002, _mm256_movemask_epi8(partialKillDotFound))) {
-					// merge matches for \r\n.
-					__m256i match1LfA = _mm256_cmpeq_epi8(
-						_mm256_set1_epi8('\n'),
-						_mm256_loadu_si256((__m256i *)(src+i+1))
-					);
-					__m256i match1LfB = _mm256_cmpeq_epi8(
-						_mm256_set1_epi8('\n'),
-						_mm256_loadu_si256((__m256i *)(src+i+1) + 1)
-					);
-					__m256i match2NlDotA, match1NlA;
-					__m256i match2NlDotB, match1NlB;
-#ifdef __AVX512VL__
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
 					if(use_isa >= ISA_LEVEL_AVX3) {
-						match2NlDotA = _mm256_ternarylogic_epi32(match2DotA, match1LfA, cmpCrA, 0x80);
-						match2NlDotB = _mm256_ternarylogic_epi32(match2DotB, match1LfB, cmpCrB, 0x80);
+						match0CrMaskA = _mm256_cmpeq_epi8_mask(oDataA, _mm256_set1_epi8('\r'));
+						match0CrMaskB = _mm256_cmpeq_epi8_mask(oDataB, _mm256_set1_epi8('\r'));
+						match2CrXDtMaskA = _mm256_mask_cmpeq_epi8_mask(match0CrMaskA, tmpData2A, _mm256_set1_epi8('.'));
+						match2CrXDtMaskB = _mm256_mask_cmpeq_epi8_mask(match0CrMaskB, tmpData2B, _mm256_set1_epi8('.'));
+						partialKillDotFound = KORTEST32(match2CrXDtMaskA, match2CrXDtMaskB);
 					} else
 #endif
 					{
-						match1NlA = _mm256_and_si256(match1LfA, cmpCrA);
-						match1NlB = _mm256_and_si256(match1LfB, cmpCrB);
+						match0CrA = _mm256_cmpeq_epi8(oDataA, _mm256_set1_epi8('\r'));
+						match0CrB = _mm256_cmpeq_epi8(oDataB, _mm256_set1_epi8('\r'));
+						match2DotA = _mm256_cmpeq_epi8(tmpData2A, _mm256_set1_epi8('.'));
+						match2DotB = _mm256_cmpeq_epi8(tmpData2B, _mm256_set1_epi8('.'));
+						partialKillDotFound = _mm256_movemask_epi8(_mm256_or_si256(
+							_mm256_and_si256(match0CrA, match2DotA),
+							_mm256_and_si256(match0CrB, match2DotB)
+						));
+					}
+				}
+				
+				if(isRaw && LIKELIHOOD(0.002, partialKillDotFound)) {
+					// merge matches for \r\n.
+					__m256i match2NlDotA, match1NlA;
+					__m256i match2NlDotB, match1NlB;
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+					__mmask32 match1NlMaskA, match1NlMaskB;
+					if(use_isa >= ISA_LEVEL_AVX3) {
+						match1NlMaskA = _mm256_mask_cmpeq_epi8_mask(
+							match0CrMaskA,
+							_mm256_set1_epi8('\n'),
+							_mm256_loadu_si256((__m256i *)(src+i+1))
+						);
+						match1NlMaskB = _mm256_mask_cmpeq_epi8_mask(
+							match0CrMaskB,
+							_mm256_set1_epi8('\n'),
+							_mm256_loadu_si256((__m256i *)(src+i+1) + 1)
+						);
+						match2NlDotA = _mm256_movm_epi8(match2CrXDtMaskA & match1NlMaskA);
+						match2NlDotB = _mm256_movm_epi8(match2CrXDtMaskB & match1NlMaskB);
+					} else
+#endif
+					{
+						__m256i match1LfA = _mm256_cmpeq_epi8(
+							_mm256_set1_epi8('\n'),
+							_mm256_loadu_si256((__m256i *)(src+i+1))
+						);
+						__m256i match1LfB = _mm256_cmpeq_epi8(
+							_mm256_set1_epi8('\n'),
+							_mm256_loadu_si256((__m256i *)(src+i+1) + 1)
+						);
+						match1NlA = _mm256_and_si256(match1LfA, match0CrA);
+						match1NlB = _mm256_and_si256(match1LfB, match0CrB);
 						match2NlDotA = _mm256_and_si256(
 							_mm256_cmpeq_epi8(_mm256_set1_epi8('.'), _mm256_loadu_si256((__m256i *)(src+i+2))), // match2DotA
 							match1NlA
@@ -195,8 +199,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 								_mm256_loadu_si256((__m256i *)(src+i+3) + 1)
 							);
 							// match \r\n=y
-							__m256i match3EndA = _mm256_maskz_min_epu8(match3EqYMaskA, match1LfA, cmpCrA); // match3EqY & match1Nl
-							__m256i match3EndB = _mm256_maskz_min_epu8(match3EqYMaskB, match1LfB, cmpCrB);
+							__m256i match3EndA = _mm256_movm_epi8(match3EqYMaskA & match1NlMaskA);
+							__m256i match3EndB = _mm256_movm_epi8(match3EqYMaskB & match1NlMaskB);
 							__m256i match34EqYA, match34EqYB;
 # ifdef __AVX512VBMI2__
 							if(use_isa >= ISA_LEVEL_VBMI2) {
@@ -261,20 +265,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 					mask |= (uint64_t)((uint32_t)_mm256_movemask_epi8(match2NlDotA)) << 2;
 					mask |= (uint64_t)((uint32_t)_mm256_movemask_epi8(match2NlDotB)) << 34;
 					match2NlDotB = _mm256_castsi128_si256(_mm_srli_si128(_mm256_extracti128_si256(match2NlDotB, 1), 14));
-#ifdef __AVX512VL__
-					if(use_isa >= ISA_LEVEL_AVX3)
-						lfCompare = _mm256_ternarylogic_epi32(
-							match2NlDotB, _mm256_set1_epi8('\n'), _mm256_set1_epi8('.'), 0xEC
-						);
-					else
-#endif
-					{
-						// this bitiwse trick works because '.'|'\n' == '.'
-						lfCompare = _mm256_or_si256(
-							_mm256_and_si256(match2NlDotB, _mm256_set1_epi8('.')),
-							_mm256_set1_epi8('\n')
-						);
-					}
+					minMask = _mm256_subs_epu8(_mm256_set1_epi8('.'), match2NlDotB);
 				}
 				else if(searchEnd) {
 					bool partialEndFound;
@@ -292,12 +283,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 							_mm256_set1_epi8('y'),
 							_mm256_loadu_si256((__m256i *)(src+i+3) + 1)
 						);
-# if defined(__GNUC__) && __GNUC__ >= 7
-						// GCC (ver 6-10(dev)) fails to optimize pure C version, but has this intrinsic; Clang >= 7 optimizes C version fine
-						partialEndFound = !_kortestz_mask32_u8(match3EqYMaskA, match3EqYMaskB);
-# else
-						partialEndFound = (match3EqYMaskA | match3EqYMaskB);
-# endif
+						partialEndFound = KORTEST32(match3EqYMaskA, match3EqYMaskB);
 					} else
 #endif
 					{
@@ -314,6 +300,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 						partialEndFound = _mm256_movemask_epi8(_mm256_or_si256(match3EqYA, match3EqYB));
 					}
 					if(LIKELIHOOD(0.002, partialEndFound)) {
+						__m256i match0CrA = _mm256_cmpeq_epi8(oDataA, _mm256_set1_epi8('\r'));
+						__m256i match0CrB = _mm256_cmpeq_epi8(oDataB, _mm256_set1_epi8('\r'));
 						bool endFound;
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 						if(use_isa >= ISA_LEVEL_AVX3) {
@@ -328,17 +316,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 								_mm256_loadu_si256((__m256i *)(src+i+1) + 1)
 							);
 							
-# if defined(__GNUC__) && __GNUC__ >= 7
-							endFound = !_kortestz_mask32_u8(
-								_mm256_mask_test_epi8_mask(match3LfEqYMaskA, cmpCrA, cmpCrA),
-								_mm256_mask_test_epi8_mask(match3LfEqYMaskB, cmpCrB, cmpCrB)
+							endFound = KORTEST32(
+								_mm256_mask_test_epi8_mask(match3LfEqYMaskA, match0CrA, match0CrA),
+								_mm256_mask_test_epi8_mask(match3LfEqYMaskB, match0CrB, match0CrB)
 							);
-# else
-							endFound = (
-								_mm256_mask_test_epi8_mask(match3LfEqYMaskA, cmpCrA, cmpCrA) |
-								_mm256_mask_test_epi8_mask(match3LfEqYMaskB, cmpCrB, cmpCrB)
-							);
-# endif
 						} else
 #endif
 						{
@@ -353,11 +334,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 							endFound = _mm256_movemask_epi8(_mm256_or_si256(
 								_mm256_and_si256(
 									match3EqYA,
-									_mm256_and_si256(match1LfA, cmpCrA)
+									_mm256_and_si256(match1LfA, match0CrA)
 								),
 								_mm256_and_si256(
 									match3EqYB,
-									_mm256_and_si256(match1LfB, cmpCrB)
+									_mm256_and_si256(match1LfB, match0CrB)
 								)
 							));
 						}
@@ -366,10 +347,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 							break;
 						}
 					}
-					if(isRaw) lfCompare = _mm256_set1_epi8('\n');
+					if(isRaw) minMask = _mm256_set1_epi8('.');
 				}
 				else if(isRaw) // no \r_. found
-					lfCompare = _mm256_set1_epi8('\n');
+					minMask = _mm256_set1_epi8('.');
 			}
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
@@ -559,7 +540,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 		}
 	}
 	_escFirst = (unsigned char)escFirst;
-	_nextMask = (uint16_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8(lfCompare, _mm256_set1_epi8('.')));
+	_nextMask = ~(uint16_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8(minMask, _mm256_set1_epi8('.')));
 	_mm256_zeroupper();
 }
 #endif
