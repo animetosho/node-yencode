@@ -234,7 +234,6 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	
 	// search for special chars
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
-	// use shuffle to replace 3x cmpeq + ors; ideally, avoid on CPUs with slow shuffle
 	if(use_isa >= ISA_LEVEL_SSSE3) {
 #ifdef __AVX512VL__
 		if(use_isa >= ISA_LEVEL_AVX3) {
@@ -404,7 +403,9 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		col = (long)(shufTotalLen - (m1&1)) + lineSizeOffset-16 -2;
 	} else {
 		__m128i data1;
-#ifdef __SSSE3__
+		if(use_isa < ISA_LEVEL_SSSE3)
+			data = _mm_sub_epi8(oData, _mm_set1_epi8(-42));
+#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
 		if(use_isa >= ISA_LEVEL_SSSE3) {
 			data1 = _mm_shuffle_epi8(data, _mm_set_epi8(
 				13,12,11,10,9,8,7,6,5,4,3,2,1,-1,-1,0
@@ -412,7 +413,6 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		} else
 #endif
 		{
-			data = _mm_sub_epi8(oData, _mm_set1_epi8(-42));
 			data1 = _mm_slli_si128(data, 2);
 			data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(3,2,1,1));
 			data1 = _mm_and_si128(data1, _mm_load_si128((const __m128i*)lookups.maskMixEOL));
@@ -482,7 +482,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		// search for special chars
 		__m128i cmp;
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
-		// use shuffle to replace 3x cmpeq + ors; ideally, avoid on CPUs with slow shuffle
 		if(use_isa >= ISA_LEVEL_SSSE3) {
 			cmp = _mm_cmpeq_epi8(
 				_mm_shuffle_epi8(_mm_set_epi8(
