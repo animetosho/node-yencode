@@ -235,61 +235,23 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	// search for special chars
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
 	if(use_isa >= ISA_LEVEL_SSSE3) {
-#ifdef __AVX512VL__
-		if(use_isa >= ISA_LEVEL_AVX3) {
-			/* // alternative idea, using shuffle+pack, seems to be slower
-			cmp = _mm_shuffle_epi8(_mm_set_epi8(
-				//  \r     \n\t                 \0
-				0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
-			), _mm_min_epu8(
-				data, _mm_set1_epi8(15)
-			));
-			cmp = _mm_ternarylogic_epi32(
-				cmp,
-				_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
-				_mm_cvtusepi32_epi8(_mm_cmpeq_epi8(
-					_mm_shuffle_epi8(oData, _mm_set_epi32(
-						-1,-1,0xff010101, 0xffff0000
-					)),
-					_mm_set_epi32(
-						//                         .\t\s       \t\s
-						0x13131313,0x13131313,0x1304DFF6,0x1313DFF6
-					)
-				)),
-				0xFE
-			);
-			*/
-			
-			cmp = _mm_shuffle_epi8(_mm_set_epi32(
-				//    \r       \n\t                    ..\0
-				0x1313d613,0x13d6e313,0x13131313,0x131304d6
-			), _mm_min_epu8(
-				data, _mm_set1_epi8(15)
-			));
-			cmp = _mm_or_si128(
-				_mm_cmpgt_epi8(_mm_set_epi32(0xe0e0e0e0,0xe0e0e0e0,0xe0e0e0e0,0xe0e0f6f6), cmp),
-				_mm_ternarylogic_epi32(
-					_mm_cmpeq_epi8(oData, _mm_set_epi32(0x1313d613,0x13d6e313,0x13131313,0x131304d6)), // .
-					_mm_cmpeq_epi8(oData, _mm_set_epi32(0xe0e0e0e0,0xe0e0e0e0,0xe0e0e0e0,0xe0e0f6f6)), // \s
-					_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
-					0xFE
-				)
-			);
-			mask = _mm_movemask_epi8(cmp);
-		} else
-#endif
-		{
-			cmp = _mm_cmpeq_epi8(
-				_mm_shuffle_epi8(_mm_set_epi8(
-					'=',-1,'\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'\0'
-				), _mm_min_epu8(data, _mm_set1_epi8(15))),
-				data
-			);
-			mask = _mm_movemask_epi8(cmp);
-			uint16_t lineChars = *(uint16_t*)(es + i);
-			mask |= lookups.eolCharMask[lineChars & 0xff];
-			mask |= lookups.eolCharMask[256 + ((lineChars>>8) & 0xff)];
-		}
+		// match \r, \n, and \0
+		cmp = _mm_cmpeq_epi8(
+			_mm_shuffle_epi8(_mm_set_epi8(
+				'=',-1,'\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'\0'
+			), data),
+			data
+		);
+		// match remaining chars; this works by offsetting the first two chars differently from the others, using a collision free XOR mask
+		cmp = _mm_or_si128(_mm_cmpeq_epi8(
+			_mm_shuffle_epi8(_mm_set_epi8(
+				-1,'\t','=','=',-1,'=','.','\t',' ',-1,-1,-1,-1,-1,' ',-1
+			), _mm_xor_si128(data, _mm_set_epi8(
+				0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,1
+			))),
+			data
+		), cmp);
+		mask = _mm_movemask_epi8(cmp);
 	} else
 #endif
 	{
