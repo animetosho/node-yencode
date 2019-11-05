@@ -148,7 +148,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 		else
 			lfCompare = _mm_insert_epi16(lfCompare, _nextMask == 1 ? 0x0a2e /*".\n"*/ : 0x2e0a /*"\n."*/, 0);
 	}
-	for(long i = -len; i; i += sizeof(__m128i)*2) {
+	long i;
+	for(i = -len; i; i += sizeof(__m128i)*2) {
 		__m128i oDataA = _mm_load_si128((__m128i *)(src+i));
 		__m128i oDataB = _mm_load_si128((__m128i *)(src+i) + 1);
 		
@@ -185,11 +186,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				cmpEqB
 			);
 		}
-
-		uint32_t mask = (unsigned)_mm_movemask_epi8(cmpA) | ((unsigned)_mm_movemask_epi8(cmpB) << 16); // not the most accurate mask if we have invalid sequences; we fix this up later
 		
 		__m128i dataA = _mm_add_epi8(oDataA, yencOffset);
-		__m128i dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
+		uint32_t mask = (unsigned)_mm_movemask_epi8(cmpA) | ((unsigned)_mm_movemask_epi8(cmpB) << 16); // not the most accurate mask if we have invalid sequences; we fix this up later
 		
 		if (LIKELIHOOD(0.42 /* rough guess */, mask != 0)) {
 			if(_USING_FAST_MATCH) {
@@ -212,8 +211,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			if((isRaw || searchEnd) && LIKELIHOOD(0.25, mask != maskEq)) {
 				__m128i tmpData2A = _mm_loadu_si128((__m128i*)(src+i+2));
 				__m128i tmpData2B = _mm_loadu_si128((__m128i*)(src+i+2) + 1);
-				__m128i match2EqA, match2DotA;
-				__m128i match2EqB, match2DotB;
+				__m128i match2EqA, match2EqB;
 				
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 				__mmask16 match2EqMaskA, match2EqMaskB;
@@ -225,15 +223,14 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				} else
 #endif
 				if(searchEnd) {
-#if defined(__SSSE3__) && !defined(__tune_btver1__)
-					if(!isRaw && use_isa >= ISA_LEVEL_SSSE3)
-						match2EqA = _mm_alignr_epi8(cmpEqB, cmpEqA, 2);
-					else
+#if !defined(__tune_btver1__)
+					if(use_isa < ISA_LEVEL_SSSE3)
 #endif
 						match2EqA = _mm_cmpeq_epi8(_mm_set1_epi8('='), tmpData2A);
 					match2EqB = _mm_cmpeq_epi8(_mm_set1_epi8('='), tmpData2B);
 				}
 				int partialKillDotFound;
+				__m128i match2CrXDtA, match2CrXDtB;
 				if(isRaw) {
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 					if(use_isa >= ISA_LEVEL_AVX3) {
@@ -249,12 +246,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 							cmpCrA = _mm_cmpeq_epi8(oDataA, _mm_set1_epi8('\r'));
 							cmpCrB = _mm_cmpeq_epi8(oDataB, _mm_set1_epi8('\r'));
 						}
-						match2DotA = _mm_cmpeq_epi8(tmpData2A, _mm_set1_epi8('.'));
-						match2DotB = _mm_cmpeq_epi8(tmpData2B, _mm_set1_epi8('.'));
-						partialKillDotFound = _mm_movemask_epi8(_mm_or_si128(
-							_mm_and_si128(cmpCrA, match2DotA),
-							_mm_and_si128(cmpCrB, match2DotB)
-						));
+						match2CrXDtA = _mm_and_si128(cmpCrA, _mm_cmpeq_epi8(tmpData2A, _mm_set1_epi8('.')));
+						match2CrXDtB = _mm_and_si128(cmpCrB, _mm_cmpeq_epi8(tmpData2B, _mm_set1_epi8('.')));
+						partialKillDotFound = _mm_movemask_epi8(_mm_or_si128(match2CrXDtA, match2CrXDtB));
 					}
 				}
 				
@@ -284,17 +278,17 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						__m128i match1LfA = _mm_cmpeq_epi8(_mm_set1_epi8('\n'), _mm_loadu_si128((__m128i*)(src+i+1)));
 						__m128i match1LfB = _mm_cmpeq_epi8(_mm_set1_epi8('\n'), _mm_loadu_si128((__m128i*)(src+i+1) + 1));
 						
+						// always recompute cmpCr to avoid register spills above
+#ifdef __GNUC__
+						// nudge compiler into thinking that it can't reuse computed values above
+						asm("" : "+x"(oDataA), "+x"(oDataB));
+#endif
+						cmpCrA = _mm_cmpeq_epi8(oDataA, _mm_set1_epi8('\r'));
+						cmpCrB = _mm_cmpeq_epi8(oDataB, _mm_set1_epi8('\r'));
 						match1NlA = _mm_and_si128(match1LfA, cmpCrA);
 						match1NlB = _mm_and_si128(match1LfB, cmpCrB);
-						// recompute match2Dot to avoid some register spills, though compiler may not oblige
-						match2NlDotA = _mm_and_si128(
-							_mm_cmpeq_epi8(_mm_set1_epi8('.'), _mm_loadu_si128((__m128i*)(src+i+2))),
-							match1NlA
-						);
-						match2NlDotB = _mm_and_si128(
-							_mm_cmpeq_epi8(_mm_set1_epi8('.'), _mm_loadu_si128((__m128i*)(src+i+2) + 1)),
-							match1NlB
-						);
+						match2NlDotA = _mm_and_si128(match2CrXDtA, match1NlA);
+						match2NlDotB = _mm_and_si128(match2CrXDtB, match1NlB);
 					}
 					if(searchEnd) {
 						__m128i tmpData3A = _mm_loadu_si128((__m128i*)(src+i+3));
@@ -348,6 +342,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						} else
 #endif
 						{
+#if defined(__SSSE3__) && !defined(__tune_btver1__)
+							if(use_isa >= ISA_LEVEL_SSSE3)
+								match2EqA = _mm_alignr_epi8(cmpEqB, cmpEqA, 2);
+#endif
 							__m128i match3EqYA = _mm_and_si128(match2EqA, _mm_cmpeq_epi8(_mm_set1_epi8('y'), tmpData3A));
 							__m128i match3EqYB = _mm_and_si128(match2EqB, _mm_cmpeq_epi8(_mm_set1_epi8('y'), tmpData3B));
 							match4EqYA = _mm_slli_epi16(match4EqYA, 8); // TODO: also consider using PBLENDVB here with shifted match3EqY instead
@@ -430,6 +428,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 							_mm_set1_epi8('y'),
 							_mm_loadu_si128((__m128i*)(src+i+3) + 1)
 						);
+#if defined(__SSSE3__) && !defined(__tune_btver1__)
+						if(use_isa >= ISA_LEVEL_SSSE3)
+							match2EqA = _mm_alignr_epi8(cmpEqB, cmpEqA, 2);
+#endif
 						match3EqYA = _mm_and_si128(match2EqA, match3YA);
 						match3EqYB = _mm_and_si128(match2EqB, match3YB);
 						partialEndFound = _mm_movemask_epi8(_mm_or_si128(match3EqYA, match3EqYB));
@@ -458,10 +460,12 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						} else
 #endif
 						{
-							if(_USING_FAST_MATCH) {
-								cmpCrA = _mm_cmpeq_epi8(oDataA, _mm_set1_epi8('\r'));
-								cmpCrB = _mm_cmpeq_epi8(oDataB, _mm_set1_epi8('\r'));
-							}
+							// always recompute cmpCr to avoid register spills above
+#ifdef __GNUC__
+							asm("" : "+x"(oDataA), "+x"(oDataB));
+#endif
+							cmpCrA = _mm_cmpeq_epi8(oDataA, _mm_set1_epi8('\r'));
+							cmpCrB = _mm_cmpeq_epi8(oDataB, _mm_set1_epi8('\r'));
 							__m128i match1LfA = _mm_cmpeq_epi8(
 								_mm_set1_epi8('\n'),
 								_mm_loadu_si128((__m128i*)(src+i+1))
@@ -501,6 +505,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						lfCompare = _mm_set1_epi8('\n');
 				}
 			}
+			
+			__m128i dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
 				// resolve invalid sequences of = to deal with cases like '===='
@@ -647,6 +653,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			}
 #undef LOAD_HALVES
 		} else {
+			__m128i dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
+			
 			STOREU_XMM(p, dataA);
 			STOREU_XMM(p+XMM_SIZE, dataB);
 			p += XMM_SIZE*2;
@@ -655,9 +663,16 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 		}
 	}
 	_escFirst = (unsigned char)escFirst;
-	if(_USING_FAST_MATCH)
-		_nextMask = ~(uint16_t)_mm_movemask_epi8(_mm_cmpeq_epi8(minMask, _mm_set1_epi8('.')));
-	else
-		_nextMask = (uint16_t)_mm_movemask_epi8(_mm_cmpeq_epi8(lfCompare, _mm_set1_epi8('.')));
+	if(isRaw) {
+		if(len != 0) { // have to gone through at least one loop cycle
+			if(src[i-2] == '\r' && src[i-1] == '\n' && src[i] == '.')
+				_nextMask = 1;
+			else if(src[i-1] == '\r' && src[i] == '\n' && src[i+1] == '.')
+				_nextMask = 2;
+			else
+				_nextMask = 0;
+		}
+	} else
+		_nextMask = 0;
 }
 #endif

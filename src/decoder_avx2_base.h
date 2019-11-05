@@ -52,7 +52,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			'.','.','.','.','.','.','.','.','.','.','.','.','.','.',_nextMask==2?0:'.',_nextMask==1?0:'.'
 		);
 	}
-	for(long i = -len; i; i += sizeof(__m256i)*2) {
+	long i;
+	for(i = -len; i; i += sizeof(__m256i)*2) {
 		__m256i oDataA = _mm256_load_si256((__m256i *)(src+i));
 		__m256i oDataB = _mm256_load_si256((__m256i *)(src+i) + 1);
 		
@@ -76,7 +77,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 		uint64_t mask = (uint32_t)_mm256_movemask_epi8(cmpB); // not the most accurate mask if we have invalid sequences; we fix this up later
 		mask = (mask << 32) | (uint32_t)_mm256_movemask_epi8(cmpA);
 		__m256i dataA = _mm256_add_epi8(oDataA, yencOffset);
-		__m256i dataB = _mm256_add_epi8(oDataB, _mm256_set1_epi8(-42));
 		
 		if (mask != 0) {
 			__m256i cmpEqA = _mm256_cmpeq_epi8(oDataA, _mm256_set1_epi8('='));
@@ -86,11 +86,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			
 			// handle \r\n. sequences
 			// RFC3977 requires the first dot on a line to be stripped, due to dot-stuffing
-			if((isRaw || searchEnd) && LIKELIHOOD(0.3, mask != maskEq)) {
+			if((isRaw || searchEnd) && LIKELIHOOD(0.45, mask != maskEq)) {
 				__m256i tmpData2A = _mm256_loadu_si256((__m256i *)(src+i+2));
 				__m256i tmpData2B = _mm256_loadu_si256((__m256i *)(src+i+2) + 1);
-				__m256i match2EqA, match2DotA;
-				__m256i match2EqB, match2DotB;
+				__m256i match2EqA, match2EqB;
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 				__mmask32 match2EqMaskA, match2EqMaskB;
 				__mmask32 match0CrMaskA, match0CrMaskB;
@@ -106,7 +105,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				}
 				
 				int partialKillDotFound;
-				__m256i match0CrA, match0CrB;
+				__m256i match2CrXDtA, match2CrXDtB;
 				if(isRaw) {
 					// find patterns of \r_.
 					
@@ -120,13 +119,16 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 					} else
 #endif
 					{
-						match0CrA = _mm256_cmpeq_epi8(oDataA, _mm256_set1_epi8('\r'));
-						match0CrB = _mm256_cmpeq_epi8(oDataB, _mm256_set1_epi8('\r'));
-						match2DotA = _mm256_cmpeq_epi8(tmpData2A, _mm256_set1_epi8('.'));
-						match2DotB = _mm256_cmpeq_epi8(tmpData2B, _mm256_set1_epi8('.'));
+						match2CrXDtA = _mm256_and_si256(
+							_mm256_cmpeq_epi8(oDataA, _mm256_set1_epi8('\r')),
+							_mm256_cmpeq_epi8(tmpData2A, _mm256_set1_epi8('.'))
+						);
+						match2CrXDtB = _mm256_and_si256(
+							_mm256_cmpeq_epi8(oDataB, _mm256_set1_epi8('\r')),
+							_mm256_cmpeq_epi8(tmpData2B, _mm256_set1_epi8('.'))
+						);
 						partialKillDotFound = _mm256_movemask_epi8(_mm256_or_si256(
-							_mm256_and_si256(match0CrA, match2DotA),
-							_mm256_and_si256(match0CrB, match2DotB)
+							match2CrXDtA, match2CrXDtB
 						));
 					}
 				}
@@ -162,16 +164,14 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 							_mm256_set1_epi8('\n'),
 							_mm256_loadu_si256((__m256i *)(src+i+1) + 1)
 						);
-						match1NlA = _mm256_and_si256(match1LfA, match0CrA);
-						match1NlB = _mm256_and_si256(match1LfB, match0CrB);
-						match2NlDotA = _mm256_and_si256(
-							_mm256_cmpeq_epi8(_mm256_set1_epi8('.'), _mm256_loadu_si256((__m256i *)(src+i+2))), // match2DotA
-							match1NlA
-						);
-						match2NlDotB = _mm256_and_si256(
-							_mm256_cmpeq_epi8(_mm256_set1_epi8('.'), _mm256_loadu_si256((__m256i *)(src+i+2) + 1)), // match2DotB
-							match1NlB
-						);
+#ifdef __GNUC__
+						// force re-computing CR matches (don't reuse from above) to avoid register spilling
+						asm("" : "+x"(oDataA), "+x"(oDataB));
+#endif
+						match1NlA = _mm256_and_si256(match1LfA, _mm256_cmpeq_epi8(oDataA, _mm256_set1_epi8('\r')));
+						match1NlB = _mm256_and_si256(match1LfB, _mm256_cmpeq_epi8(oDataB, _mm256_set1_epi8('\r')));
+						match2NlDotA = _mm256_and_si256(match2CrXDtA, match1NlA);
+						match2NlDotB = _mm256_and_si256(match2CrXDtB, match1NlB);
 					}
 					if(searchEnd) {
 						__m256i tmpData4A = _mm256_loadu_si256((__m256i *)(src+i+4));
@@ -346,6 +346,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 								_mm256_set1_epi8('\n'),
 								_mm256_loadu_si256((__m256i *)(src+i+1) + 1)
 							);
+#ifdef __GNUC__
+							// force re-computing CR matches (don't reuse from above) to avoid register spilling
+							asm("" : "+x"(oDataA), "+x"(oDataB));
+#endif
 							endFound = _mm256_movemask_epi8(_mm256_or_si256(
 								_mm256_and_si256(
 									match3EqYA,
@@ -367,6 +371,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				else if(isRaw) // no \r_. found
 					minMask = _mm256_set1_epi8('.');
 			}
+			
+			__m256i dataB = _mm256_add_epi8(oDataB, _mm256_set1_epi8(-42));
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
 				unsigned long tmp = lookups.eqFix[(maskEq&0xff) & ~(uint64_t)escFirst];
@@ -452,14 +458,12 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 #endif
 				{
 					// << 1 byte
-					// TODO: may be worth re-loading from source than trying to permute
-#if defined(__tune_znver1__) || defined(__tune_bdver4__)
 					cmpEqB = _mm256_cmpeq_epi8(_mm256_set1_epi8('='), _mm256_loadu_si256((__m256i *)(src+i-1) + 1));
+#if defined(__tune_znver1__) || defined(__tune_bdver4__)
 					cmpEqA = _mm256_alignr_epi8(cmpEqA, _mm256_inserti128_si256(
 						_mm256_setzero_si256(), _mm256_castsi256_si128(cmpEqA), 1
 					), 15);
 #else
-					cmpEqB = _mm256_alignr_epi8(cmpEqB, _mm256_permute2x128_si256(cmpEqA, cmpEqB, 0x21), 15);
 					cmpEqA = _mm256_alignr_epi8(cmpEqA, _mm256_permute2x128_si256(cmpEqA, cmpEqA, 0x08), 15);
 #endif
 					dataA = _mm256_add_epi8(
@@ -547,6 +551,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				p += XMM_SIZE*4;
 			}
 		} else {
+			__m256i dataB = _mm256_add_epi8(oDataB, _mm256_set1_epi8(-42));
+			
 			_mm256_storeu_si256((__m256i*)p, dataA);
 			_mm256_storeu_si256((__m256i*)p + 1, dataB);
 			p += sizeof(__m256i)*2;
@@ -555,7 +561,20 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 		}
 	}
 	_escFirst = (unsigned char)escFirst;
-	_nextMask = ~(uint16_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8(minMask, _mm256_set1_epi8('.')));
+	if(isRaw) {
+		// this would be the trivial solution, but requires the compiler holding onto minMask throughout the loop:
+		//_nextMask = ~(uint16_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8(minMask, _mm256_set1_epi8('.')));
+		// instead, just scan the memory to determine what to set nextMask to
+		if(len != 0) { // have to gone through at least one loop cycle
+			if(src[i-2] == '\r' && src[i-1] == '\n' && src[i] == '.')
+				_nextMask = 1;
+			else if(src[i-1] == '\r' && src[i] == '\n' && src[i+1] == '.')
+				_nextMask = 2;
+			else
+				_nextMask = 0;
+		}
+	} else
+		_nextMask = 0;
 	_mm256_zeroupper();
 }
 #endif
