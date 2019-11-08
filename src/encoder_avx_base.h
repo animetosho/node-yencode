@@ -32,7 +32,7 @@ static struct {
 			_X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15), \
 			_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
 			_X2(n,24), _X2(n,25), _X2(n,26), _X2(n,27), _X2(n,28), _X2(n,29), _X2(n,30), _X2(n,31)
-		#define _Y2(n, m) '='*(n==m) + 64*(n==m-1)
+		#define _Y2(n, m) '='*(n==m) + 64*(n==m-1) + 42*(n!=m)
 		#define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
 			_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15), \
 			_Y2(n,16), _Y2(n,17), _Y2(n,18), _Y2(n,19), _Y2(n,20), _Y2(n,21), _Y2(n,22), _Y2(n,23), \
@@ -171,14 +171,13 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 	}
 	while(i < 0) {
 		__m256i data = _mm256_loadu_si256((__m256i *)(es + i));
-		data = _mm256_add_epi8(data, _mm256_set1_epi8(42));
 		i += YMM_SIZE;
 		// search for special chars
 		__m256i cmp = _mm256_cmpeq_epi8(
 			_mm256_shuffle_epi8(_mm256_set_epi8(
-				'=',-1,'\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'\0',
-				'=',-1,'\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'\0'
-			), _mm256_min_epu8(data, _mm256_set1_epi8(15))),
+				'='-42,-128,'\r'-42,-128,-128,'\n'-42,-128,-128,-128,-128,-128,-128,-128,-128,-128,'\0'-42,
+				'='-42,-128,'\r'-42,-128,-128,'\n'-42,-128,-128,-128,-128,-128,-128,-128,-128,-128,'\0'-42
+			), _mm256_adds_epi8(data, _mm256_set1_epi8(80+42))),
 			data
 		);
 		
@@ -194,7 +193,12 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			__m256i data1, data2;
 			__m256i shufMA, shufMB; // not set in VBMI2 path
 			
-			data = _mm256_add_epi8(data, _mm256_and_si256(cmp, _mm256_set1_epi8(64)));
+#if defined(__AVX512VL__)
+			if(use_isa >= ISA_LEVEL_AVX3)
+				data = _mm256_add_epi8(data, _mm256_ternarylogic_epi32(cmp, _mm256_set1_epi8(42), _mm256_set1_epi8(42+64), 0xac));
+			else
+#endif
+				data = _mm256_add_epi8(data, _mm256_blendv_epi8(_mm256_set1_epi8(42), _mm256_set1_epi8(64+42), cmp));
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
 				m2 = mask >> 16;
@@ -293,11 +297,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			long bitIndex;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
-				data = _mm256_mask_expand_epi8(
-					_mm256_set1_epi8('='),
-					KNOT32(mask),
-					_mm256_mask_add_epi8(data, mask, data, _mm256_set1_epi8(64))
-				);
+				data = _mm256_add_epi8(data, _mm256_ternarylogic_epi32(cmp, _mm256_set1_epi8(42), _mm256_set1_epi8(42+64), 0xac));
+				data = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), ~mask, data);
 			} else
 #endif
 			{
@@ -314,7 +315,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 #endif
 					15
 				);
-#if defined(__AVX512VL__) && defined(__AVX512BW__)
+#if defined(__AVX512VL__)
 				if(use_isa >= ISA_LEVEL_AVX3)
 					data = _mm256_ternarylogic_epi32(dataShifted, data, mergeMask, 0xf8); // (data & mergeMask) | dataShifted
 				else

@@ -140,10 +140,10 @@ static void encoder_sse_lut() {
 					nlShuf[j+pNl] = 0xf0 + j;
 					nlMix[j+pNl] = '=';
 					pNl++;
-					if(j+pNl < 16) nlMix[j+pNl] = 64;
+					if(j+pNl < 16) nlMix[j+pNl] = 64+42;
 				}
 			} else {
-				if(j+pNl < 16) nlMix[j+pNl] = 0;
+				if(j+pNl < 16) nlMix[j+pNl] = 42;
 			}
 			expand |= 1<<(j+p);
 			res[j+p] = j;
@@ -168,7 +168,8 @@ static void encoder_sse_lut() {
 		__m128i shuf = _mm_load_si128((__m128i*)res);
 		__m128i maskEsc = _mm_cmpeq_epi8(_mm_and_si128(shuf, _mm_set1_epi8(-16)), _mm_set1_epi8(-16)); // -16 == 0xf0
 		__m128i addMask = _mm_and_si128(_mm_slli_si128(maskEsc, 1), _mm_set1_epi8(64));
-		addMask = _mm_or_si128(addMask, _mm_and_si128(maskEsc, _mm_set1_epi8('=')));
+		addMask = _mm_or_si128(addMask, _mm_and_si128(maskEsc, _mm_set1_epi8('='-42)));
+		addMask = _mm_add_epi8(addMask, _mm_set1_epi8(42));
 		
 		_mm_store_si128(&(lookups.shufMix[i].mix), addMask);
 		_mm_store_si128(lookups.mix + i, _mm_add_epi8(
@@ -225,89 +226,37 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
 
 template<enum YEncDecIsaLevel use_isa>
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
-	__m128i oData = _mm_loadu_si128((__m128i *)(es + i));
-	__m128i data = oData;
-	if(use_isa >= ISA_LEVEL_SSSE3)
-		data = _mm_add_epi8(oData, _mm_set1_epi8(42));
+	__m128i data = _mm_loadu_si128((__m128i *)(es + i));
 	__m128i cmp;
 	unsigned int mask;
 	
 	// search for special chars
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
 	if(use_isa >= ISA_LEVEL_SSSE3) {
-#ifdef __AVX512VL__
-		if(use_isa >= ISA_LEVEL_AVX3) {
-			/* // alternative idea, using shuffle+pack, seems to be slower
-			cmp = _mm_shuffle_epi8(_mm_set_epi8(
-				//  \r     \n\t                 \0
-				0,0,-1,0,0,-1,0,0,0,0,0,0,0,0,0,-1
-			), _mm_min_epu8(
-				data, _mm_set1_epi8(15)
-			));
-			cmp = _mm_ternarylogic_epi32(
-				cmp,
-				_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
-				_mm_cvtusepi32_epi8(_mm_cmpeq_epi8(
-					_mm_shuffle_epi8(oData, _mm_set_epi32(
-						-1,-1,0xff010101, 0xffff0000
-					)),
-					_mm_set_epi32(
-						//                         .\t\s       \t\s
-						0x13131313,0x13131313,0x1304DFF6,0x1313DFF6
-					)
-				)),
-				0xFE
-			);
-			*/
-			
-			cmp = _mm_shuffle_epi8(_mm_set_epi32(
-				//    \r       \n\t                    ..\0
-				0x1313d613,0x13d6e313,0x13131313,0x131304d6
-			), _mm_min_epu8(
-				data, _mm_set1_epi8(15)
-			));
-			cmp = _mm_or_si128(
-				_mm_cmpgt_epi8(_mm_set_epi32(0xe0e0e0e0,0xe0e0e0e0,0xe0e0e0e0,0xe0e0f6f6), cmp),
-				_mm_ternarylogic_epi32(
-					_mm_cmpeq_epi8(oData, _mm_set_epi32(0x1313d613,0x13d6e313,0x13131313,0x131304d6)), // .
-					_mm_cmpeq_epi8(oData, _mm_set_epi32(0xe0e0e0e0,0xe0e0e0e0,0xe0e0e0e0,0xe0e0f6f6)), // \s
-					_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
-					0xFE
-				)
-			);
-			mask = _mm_movemask_epi8(cmp);
-		} else
-#endif
-		{
-			// match \r, \n, and \0
-			cmp = _mm_cmpeq_epi8(
-				_mm_shuffle_epi8(_mm_set_epi8(
-					'=',-1,'\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'\0'
-				), data),
-				data
-			);
-			// match remaining chars; this works by offsetting the first two chars differently from the others, using a collision free XOR mask
-			cmp = _mm_or_si128(_mm_cmpeq_epi8(
-				_mm_shuffle_epi8(_mm_set_epi8(
-					-1,'\t','=','=',-1,'=','.','\t',' ',-1,-1,-1,-1,-1,' ',-1
-				), _mm_xor_si128(data, _mm_set_epi8(
-					0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,1
-				))),
-				data
-			), cmp);
-			mask = _mm_movemask_epi8(cmp);
-		}
+		cmp = _mm_cmpeq_epi8(
+			_mm_shuffle_epi8(_mm_set_epi8(
+				'='-42,-128,' '-42,-128,'.'-42,'\r'-42,-128,' '-42,'\n'-42,'\t'-42,'\r'-42,-128,'\r'-42,'\n'-42,'\t'-42,'\n'-42
+			), _mm_adds_epi8(data, _mm_set_epi8(
+				112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 119, 114
+			))),
+			data
+		);
+		cmp = _mm_or_si128(
+			cmp,
+			_mm_cmpeq_epi8(data, _mm_set1_epi8(-42))
+		);
+		mask = _mm_movemask_epi8(cmp);
 	} else
 #endif
 	{
 		cmp = _mm_or_si128(
 			_mm_or_si128(
-				_mm_cmpeq_epi8(oData, _mm_set1_epi8(-42)),
-				_mm_cmpeq_epi8(oData, _mm_set1_epi8('\n'-42))
+				_mm_cmpeq_epi8(data, _mm_set1_epi8(-42)),
+				_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'-42))
 			),
 			_mm_or_si128(
-				_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
-				_mm_cmpeq_epi8(oData, _mm_set1_epi8('\r'-42))
+				_mm_cmpeq_epi8(data, _mm_set1_epi8('='-42)),
+				_mm_cmpeq_epi8(data, _mm_set1_epi8('\r'-42))
 			)
 		);
 		mask = _mm_movemask_epi8(cmp);
@@ -343,7 +292,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		{
 			if(LIKELIHOOD(0.001, shufALen > XMM_SIZE)) {
 				// overflow case, only bother with first 2 chars
-				data1 = _mm_unpacklo_epi8(oData, oData); // 0011xxxx
+				data1 = _mm_unpacklo_epi8(data, data); // 0011xxxx
 				data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(0,1,1,0)); // 00111100
 				
 				unsigned lut = (m1 & 3)*2;
@@ -410,8 +359,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		col = (long)(shufTotalLen - (m1&1)) + lineSizeOffset-16 -2;
 	} else {
 		__m128i data1;
-		if(use_isa < ISA_LEVEL_SSSE3)
-			data = _mm_sub_epi8(oData, _mm_set1_epi8(-42));
+		data = _mm_sub_epi8(data, _mm_set1_epi8(-42));
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
 		if(use_isa >= ISA_LEVEL_SSSE3) {
 			data1 = _mm_shuffle_epi8(data, _mm_set_epi8(
@@ -480,11 +428,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		}
 	}
 	while(i < 0) {
-		__m128i oData = _mm_loadu_si128((__m128i *)(es + i)); // probably not worth the effort to align
-		__m128i data = oData;
-		if(use_isa >= ISA_LEVEL_SSSE3)
-			data = _mm_add_epi8(oData, _mm_set1_epi8(42));
-		
+		__m128i data = _mm_loadu_si128((__m128i *)(es + i)); // probably not worth the effort to align
 		i += XMM_SIZE;
 		// search for special chars
 		__m128i cmp;
@@ -492,8 +436,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		if(use_isa >= ISA_LEVEL_SSSE3) {
 			cmp = _mm_cmpeq_epi8(
 				_mm_shuffle_epi8(_mm_set_epi8(
-					'=',-1,'\r',-1,-1,'\n',-1,-1,-1,-1,-1,-1,-1,-1,-1,'\0'
-				), _mm_min_epu8(data, _mm_set1_epi8(15))),
+					'='-42,-128,'\r'-42,-128,-128,'\n'-42,-128,-128,-128,-128,-128,-128,-128,-128,-128,'\0'-42
+				), _mm_adds_epi8(data, _mm_set1_epi8(80+42))),
 				data
 			);
 		} else
@@ -501,12 +445,12 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		{
 			cmp = _mm_or_si128(
 				_mm_or_si128(
-					_mm_cmpeq_epi8(oData, _mm_set1_epi8(-42)),
-					_mm_cmpeq_epi8(oData, _mm_set1_epi8('\n'-42))
+					_mm_cmpeq_epi8(data, _mm_set1_epi8(-42)),
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'-42))
 				),
 				_mm_or_si128(
-					_mm_cmpeq_epi8(oData, _mm_set1_epi8('='-42)),
-					_mm_cmpeq_epi8(oData, _mm_set1_epi8('\r'-42))
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('='-42)),
+					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r'-42))
 				)
 			);
 		}
@@ -521,7 +465,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && defined(__POPCNT__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
-				data = _mm_mask_add_epi8(data, mask, data, _mm_set1_epi8(64));
+				data = _mm_sub_epi8(data, _mm_ternarylogic_epi32(cmp, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
 				
 				data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m2], _mm_srli_si128(data, 8));
 				data = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m1], data);
@@ -687,8 +631,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				goto _encode_eol_handle_pre;
 			}
 		} else {
-			if(use_isa < ISA_LEVEL_SSSE3)
-				data = _mm_sub_epi8(oData, _mm_set1_epi8(-42));
+			data = _mm_sub_epi8(data, _mm_set1_epi8(-42));
 			STOREU_XMM(p, data);
 			p += XMM_SIZE;
 			col += XMM_SIZE;
