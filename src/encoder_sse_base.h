@@ -341,7 +341,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 #ifdef __SSSE3__
 		if(use_isa >= ISA_LEVEL_SSSE3) {
 			__m128i shufMB = _mm_load_si128(&(lookups.shufMix[m2].shuf));
-			shufMB = _mm_or_si128(shufMB, _mm_set1_epi8(8));
+			shufMB = _mm_or_si128(shufMB, _mm_set1_epi8(120));
 			data2 = _mm_shuffle_epi8(data, shufMB);
 			__m128i shufMixMB = _mm_load_si128(&(lookups.shufMix[m2].mix));
 			data2 = _mm_add_epi8(data2, shufMixMB);
@@ -436,8 +436,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		if(use_isa >= ISA_LEVEL_SSSE3) {
 			cmp = _mm_cmpeq_epi8(
 				_mm_shuffle_epi8(_mm_set_epi8(
-					'='-42,-128,'\r'-42,-128,-128,'\n'-42,-128,-128,-128,-128,-128,-128,-128,-128,-128,'\0'-42
-				), _mm_adds_epi8(data, _mm_set1_epi8(80+42))),
+					'='-42,'\0'-42,-128,-128,'\r'-42,-128,-128,'\n'-42,-128,-128,-128,-128,-128,-128,-128,-128
+				), _mm_adds_epi8(data, _mm_set1_epi8(120))),
 				data
 			);
 		} else
@@ -478,7 +478,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				shufMB = _mm_load_si128(&(lookups.shufMix[m2].shuf));
 				
 				// second mask processes on second half, so add to the offsets
-				shufMB = _mm_or_si128(shufMB, _mm_set1_epi8(8));
+				shufMB = _mm_or_si128(shufMB, _mm_set1_epi8(120));
 				
 				// expand halves
 				data2 = _mm_shuffle_epi8(data, shufMB);
