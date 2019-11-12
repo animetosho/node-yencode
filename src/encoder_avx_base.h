@@ -101,17 +101,17 @@ static void encoder_avx2_lut() {
 
 
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
+	__m256i magic = _mm256_set_epi8( // vector re-used for lookup-table in main loop
+		'='-42,'='-42,'\r'-42,'\r'-42,'\t'-42,'\n'-42,'\n'-42,'\t'-42,'.'-42,'='-42,' '-42,' '-42,'\0'-42,-'\n',-'\r','\0'-42,
+		'='-42,'='-42,'\r'-42,'\r'-42,'\t'-42,'\n'-42,'\n'-42,'\t'-42,'.'-42,'='-42,' '-42,' '-42,'\0'-42,-'\n',-'\r','\0'-42
+	);
 	__m128i lineChars = _mm_set1_epi16(*(uint16_t*)(es+i)); // unfortunately, _mm_broadcastw_epi16 requires __m128i argument
 	unsigned testChars = _mm_movemask_epi8(_mm_cmpeq_epi8(
-		lineChars,
-		_mm256_castsi256_si128(_mm256_set_epi8( // vector re-used elsewhere
-			'='-42,'='-42,'\r'-42,'\r'-42,'\n'-42,'\n'-42,'='-42,'='-42,'.'-42,'='-42,' '-42,' '-42,'\t'-42,'\t'-42,'\0'-42,'\0'-42,
-			'='-42,'='-42,'\r'-42,'\r'-42,'\n'-42,'\n'-42,'='-42,'='-42,'.'-42,'='-42,' '-42,' '-42,'\t'-42,'\t'-42,'\0'-42,'\0'-42
-		))
+		lineChars, _mm256_castsi256_si128(magic)
 	));
-	if(HEDLEY_UNLIKELY(testChars)) {
-		unsigned esc1stChar = (testChars & 0x5555) != 0;
-		unsigned esc2ndChar = (testChars & 0xaaaa) != 0;
+	if(HEDLEY_UNLIKELY(testChars & 0xfff9)) {
+		unsigned esc1stChar = (testChars & 0x5551) != 0;
+		unsigned esc2ndChar = (testChars & 0xaaa8) != 0;
 		unsigned lut = (esc1stChar + esc2ndChar*2)*2;
 		lineChars = _mm_shuffle_epi8(lineChars, _mm_load_si128((const __m128i*)lookups.maskMixEOL + lut));
 		lineChars = _mm_add_epi8(lineChars, _mm_load_si128((const __m128i*)lookups.maskMixEOL + lut+1));
@@ -120,7 +120,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		p += 4 + esc1stChar + esc2ndChar;
 	} else {
 		lineChars = _mm_and_si128(lineChars, _mm_cvtsi32_si128(0xff0000ff));
-		lineChars = _mm_add_epi8(lineChars, _mm_cvtsi32_si128(0x2a0a0d2a));
+		lineChars = _mm_sub_epi8(lineChars, _mm256_castsi256_si128(magic));
 		*(int*)p = _mm_cvtsi128_si32(lineChars);
 		col = lineSizeOffset;
 		p += 4;
@@ -174,9 +174,9 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 		i += YMM_SIZE;
 		// search for special chars
 		__m256i cmp = _mm256_cmpeq_epi8(
-			_mm256_shuffle_epi8(_mm256_set_epi8( // vector re-used elsewhere
-				'='-42,'='-42,'\r'-42,'\r'-42,'\n'-42,'\n'-42,'='-42,'='-42,'.'-42,'='-42,' '-42,' '-42,'\t'-42,'\t'-42,'\0'-42,'\0'-42,
-				'='-42,'='-42,'\r'-42,'\r'-42,'\n'-42,'\n'-42,'='-42,'='-42,'.'-42,'='-42,' '-42,' '-42,'\t'-42,'\t'-42,'\0'-42,'\0'-42
+			_mm256_shuffle_epi8(_mm256_set_epi8( // vector re-used for EOL matching, so has additional elements
+				'='-42,'='-42,'\r'-42,'\r'-42,'\t'-42,'\n'-42,'\n'-42,'\t'-42,'.'-42,'='-42,' '-42,' '-42,'\0'-42,-'\n',-'\r','\0'-42,
+				'='-42,'='-42,'\r'-42,'\r'-42,'\t'-42,'\n'-42,'\n'-42,'\t'-42,'.'-42,'='-42,' '-42,' '-42,'\0'-42,-'\n',-'\r','\0'-42
 			), _mm256_adds_epi8(data, _mm256_set1_epi8(80+42))),
 			data
 		);
