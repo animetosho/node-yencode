@@ -26,7 +26,6 @@ struct TShufMix {
 
 static struct {
 	struct TShufMix ALIGN_TO(32, shufMix[256]);
-	__m128i ALIGN_TO(16, mix[256]);
 	const unsigned char BitsSetTable256plus8[256];
 	const uint32_t eolLastChar[256];
 	const uint16_t eolFirstMask[256];
@@ -38,8 +37,7 @@ static struct {
 	const int8_t ALIGN_TO(16, expand_maskmix_bsr[16*2*16]);
 #endif
 } lookups = {
-	// shuf/mix lookups
-	{}, {},
+	/*shufMix*/ {},
 	/*BitsSetTable256plus8*/ {
 		#   define B2(n) n+8,     n+9,     n+9,     n+10
 		#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
@@ -144,10 +142,6 @@ static void encoder_sse_lut() {
 		addMask = _mm_add_epi8(addMask, _mm_set1_epi8(42));
 		
 		_mm_store_si128(&(lookups.shufMix[i].mix), addMask);
-		_mm_store_si128(lookups.mix + i, _mm_add_epi8(
-			addMask,
-			_mm_andnot_si128(maskEsc, _mm_set1_epi8(42))
-		));
 	}
 }
 
@@ -274,8 +268,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 				data2 = sse2_expand_bytes(m2, _mm_srli_si128(data, 8));
 				data = sse2_expand_bytes(m1, data);
 				// add in escaped chars
-				__m128i shufMixMA = _mm_load_si128(lookups.mix + m1);
-				__m128i shufMixMB = _mm_load_si128(lookups.mix + m2);
+				__m128i shufMixMA = _mm_load_si128(&(lookups.shufMix[m1].mix));
+				__m128i shufMixMB = _mm_load_si128(&(lookups.shufMix[m2].mix));
 				data = _mm_add_epi8(data, shufMixMA);
 				data2 = _mm_add_epi8(data2, shufMixMB);
 			} else {
@@ -303,7 +297,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 				p[XMM_SIZE] = es[i-1] + 42 + (64 & (mask>>(XMM_SIZE-1-6)));
 				
 				p += XMM_SIZE + 1;
-				col += XMM_SIZE + 1;
+				col = lineSizeOffset+1;
 				
 				return;
 			}
@@ -446,8 +440,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					data2 = sse2_expand_bytes(m2, _mm_srli_si128(data, 8));
 					data = sse2_expand_bytes(m1, data);
 					// add in escaped chars
-					__m128i shufMixMA = _mm_load_si128(lookups.mix + m1);
-					__m128i shufMixMB = _mm_load_si128(lookups.mix + m2);
+					__m128i shufMixMA = _mm_load_si128(&(lookups.shufMix[m1].mix));
+					__m128i shufMixMB = _mm_load_si128(&(lookups.shufMix[m2].mix));
 					data = _mm_add_epi8(data, shufMixMA);
 					data2 = _mm_add_epi8(data2, shufMixMB);
 				} else {
