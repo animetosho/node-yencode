@@ -235,15 +235,16 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	if(use_isa >= ISA_LEVEL_SSSE3) {
 		cmp = _mm_cmpeq_epi8(
 			_mm_shuffle_epi8(_mm_set_epi8(
-				'='-42,-128,' '-42,-128,'.'-42,'\r'-42,-128,' '-42,'\n'-42,'\t'-42,'\r'-42,-128,'\r'-42,'\n'-42,'\t'-42,'\n'-42
-			), _mm_adds_epi8(data, _mm_set_epi8(
-				112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 119, 114
-			))),
+				'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
+			), _mm_adds_epi8(
+				_mm_adds_epu8(data, _mm_set_epi8(
+					0,0,0,0,0,0,0,0,0,0,0,0,0,0,22,24
+				)),
+				_mm_set_epi8(
+					120,120,120,120,120,120,120,120,120,120,120,120,120,120,91,91
+				)
+			)),
 			data
-		);
-		cmp = _mm_or_si128(
-			cmp,
-			_mm_cmpeq_epi8(data, _mm_set1_epi8(-42))
 		);
 		mask = _mm_movemask_epi8(cmp);
 	} else
@@ -436,7 +437,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		if(use_isa >= ISA_LEVEL_SSSE3) {
 			cmp = _mm_cmpeq_epi8(
 				_mm_shuffle_epi8(_mm_set_epi8(
-					'='-42,'\0'-42,-128,-128,'\r'-42,-128,-128,'\n'-42,-128,-128,-128,-128,-128,-128,-128,-128
+					'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
 				), _mm_adds_epi8(data, _mm_set1_epi8(120))),
 				data
 			);
