@@ -31,8 +31,6 @@ static struct {
 	const uint16_t eolFirstMask[256];
 	uint16_t expandMask[256];
 	
-	const int8_t ALIGN_TO(16, perm_expand[33*32]);
-	
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 	const int8_t ALIGN_TO(16, expand_maskmix_lzc[33*2*32]);
 #else
@@ -75,16 +73,6 @@ static struct {
 		_X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15), \
 		_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
 		_X2(n,24), _X2(n,25), _X2(n,26), _X2(n,27), _X2(n,28), _X2(n,29), _X2(n,30), _X2(n,31)
-	
-	/*perm_expand*/ {
-		#define _X2(n,k) (n==k) ? '=' : k-(n<k)
-		_X(31), _X(30), _X(29), _X(28), _X(27), _X(26), _X(25), _X(24),
-		_X(23), _X(22), _X(21), _X(20), _X(19), _X(18), _X(17), _X(16),
-		_X(15), _X(14), _X(13), _X(12), _X(11), _X(10), _X( 9), _X( 8),
-		_X( 7), _X( 6), _X( 5), _X( 4), _X( 3), _X( 2), _X( 1), _X( 0),
-		_X(32)
-		#undef _X2
-	},
 	
 	// for SSE2 expanding
 	#define _X2(n,k) n>k?-1:0
@@ -307,7 +295,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			manyBitsSet = (mask & (mask-1)) != 0;
 		}
 		
-		// likelihood of non-0 = 1-(63/64)^(sizeof(__m128i)*2)
 		if (LIKELIHOOD(0.089, manyBitsSet)) {
 			uint8_t m1 = maskA & 0xFF;
 			uint8_t m2 = maskA >> 8;
@@ -317,7 +304,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			__m128i shuf1A, shuf1B, shuf2A, shuf2B; // only used for SSSE3 path
 			__m128i data1A, data1B, data2A, data2B;
 			
-#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && defined(__POPCNT__)
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
 				dataA = _mm_sub_epi8(dataA, _mm_ternarylogic_epi32(cmpA, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
 				dataB = _mm_sub_epi8(dataB, _mm_ternarylogic_epi32(cmpB, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
@@ -483,7 +470,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				} else
 #endif
 				{
-					// TODO: consider using pshufb to do popcnt
 					unsigned char cnt = lookups.BitsSetTable256plus8[eqMask & 0xff];
 					cnt += lookups.BitsSetTable256plus8[(eqMask>>8) & 0xff];
 					cnt += lookups.BitsSetTable256plus8[(eqMask>>16) & 0xff];
@@ -508,8 +494,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				goto _encode_eol_handle_pre;
 			}
 		} else {
-			if(_PREFER_BRANCHING && !mask) {
-				// TODO: Atom _really_ prefers the add to be done before the `if`
+			if(_PREFER_BRANCHING && LIKELIHOOD(0.663, !mask)) {
 				dataA = _mm_sub_epi8(dataA, _mm_set1_epi8(-42));
 				dataB = _mm_sub_epi8(dataB, _mm_set1_epi8(-42));
 				STOREU_XMM(p, dataA);
@@ -524,28 +509,24 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				}
 				continue;
 			}
-#if defined(__AVX512VBMI__) && defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
-			if(use_isa >= ISA_LEVEL_VBMI2) {
-				bitIndex = _lzcnt_u32(mask);
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+			if(use_isa >= ISA_LEVEL_AVX3) {
 				dataA = _mm_sub_epi8(dataA, _mm_ternarylogic_epi32(cmpA, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
 				dataB = _mm_sub_epi8(dataB, _mm_ternarylogic_epi32(cmpB, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
-				dataB = _mm_mask2_permutex2var_epi8(
-					dataA,
-					_mm_load_si128((__m128i*)lookups.perm_expand + 1 + bitIndex*2),
-					~maskB,
-					dataB
-				);
-				dataA = _mm_mask_expand_epi8(_mm_set1_epi8('='), ~mask, dataA);
-				/*
-				dataA = _mm_mask_shuffle_epi8(
-					_mm_set1_epi8('='),
-					KNOT16(mask),
-					dataA,
-					_mm_maskz_expand_epi8( // TODO: see if loading is worthwhile
-						KNOT16(mask), _mm_set_epi32(0x0f0e0d0c, 0x0b0a0908, 0x07060504, 0x03020100)
-					)
-				);
-				*/
+				
+				uint32_t blendMask = ~(mask-1);
+				dataB = _mm_mask_alignr_epi8(dataB, blendMask>>16, dataB, dataA, 15);
+				dataB = _mm_mask_blend_epi8(maskB, dataB, _mm_set1_epi8('='));
+				
+# if defined(__AVX512VBMI2__)
+				if(use_isa >= ISA_LEVEL_VBMI2)
+					dataA = _mm_mask_expand_epi8(_mm_set1_epi8('='), ~mask, dataA);
+				else
+# endif
+				{
+					dataA = _mm_mask_alignr_epi8(dataA, blendMask, dataA, dataA, 15); // there's no masked shift, so use ALIGNR instead
+					dataA = _mm_mask_blend_epi8(mask, dataA, _mm_set1_epi8('='));
+				}
 			} else
 #endif
 			{
@@ -589,13 +570,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 						_mm_srli_si128(dataAMasked, 15)
 					);
 				
-#ifdef __AVX512VL__
-				if(use_isa >= ISA_LEVEL_AVX3) {
-					dataA = _mm_ternarylogic_epi32(dataAShifted, dataA, mergeMaskA, 0xf8);
-					dataB = _mm_ternarylogic_epi32(dataBShifted, dataB, mergeMaskB, 0xf8);
-					// TODO: consider blending in the '=' character too (don't need to pre-mask the shifted vec)
-				} else
-#endif
 #ifdef __SSE4_1__
 				if(use_isa >= ISA_LEVEL_AVX) {
 					// BLENDV is horrible on Atom, so requiring AVX is likely worth it (exception: gimped Intel SKUs)
@@ -627,9 +601,9 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			col += XMM_SIZE*2 + maskBits;
 			
 			if(LIKELIHOOD(0.3, col >= 0)) {
-#if defined(__AVX512VBMI__) && defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
-				if(use_isa >= ISA_LEVEL_VBMI2)
-					bitIndex = bitIndex +1;
+#if defined(__AVX512VL__)
+				if(use_isa >= ISA_LEVEL_AVX3)
+					bitIndex = _lzcnt_u32(mask) +1;
 				else
 #endif
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
