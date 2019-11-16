@@ -295,10 +295,24 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			}
 		} else {
 			long bitIndex;
-#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
-			if(use_isa >= ISA_LEVEL_VBMI2) {
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+			if(use_isa >= ISA_LEVEL_AVX3) {
 				data = _mm256_add_epi8(data, _mm256_ternarylogic_epi32(cmp, _mm256_set1_epi8(42), _mm256_set1_epi8(42+64), 0xac));
-				data = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), ~mask, data);
+# if defined(__AVX512VBMI2__)
+				if(use_isa >= ISA_LEVEL_VBMI2)
+					data = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), ~mask, data);
+				else
+# endif
+				{
+					data = _mm256_mask_alignr_epi8(
+						data,
+						~(mask-1),
+						data,
+						_mm256_permute2x128_si256(data, data, 8),
+						15
+					);
+					data = _mm256_mask_blend_epi8(mask, data, _mm256_set1_epi8('='));
+				}
 			} else
 #endif
 			{
@@ -315,13 +329,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 #endif
 					15
 				);
-#if defined(__AVX512VL__)
-				if(use_isa >= ISA_LEVEL_AVX3)
-					data = _mm256_ternarylogic_epi32(dataShifted, data, mergeMask, 0xf8); // (data & mergeMask) | dataShifted
-				else
-#endif
-					data = _mm256_blendv_epi8(dataShifted, data, mergeMask);
-				
+				data = _mm256_blendv_epi8(dataShifted, data, mergeMask);
 				data = _mm256_add_epi8(data, _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndex*2 + 1));
 			}
 			// store main + additional char
@@ -331,8 +339,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			col += outputBytes;
 			
 			if(LIKELIHOOD(0.3, col >= 0)) {
-#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
-				if(use_isa >= ISA_LEVEL_VBMI2)
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+				if(use_isa >= ISA_LEVEL_AVX3)
 					bitIndex = _lzcnt_u32(mask);
 #endif
 				
