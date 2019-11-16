@@ -318,18 +318,18 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			{
 				bitIndex = _lzcnt_u32(mask);
 				__m256i mergeMask = _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndex*2);
-				__m256i dataMasked = _mm256_andnot_si256(mergeMask, data);
 				// to deal with the pain of lane crossing, use shift + mask/blend
 				__m256i dataShifted = _mm256_alignr_epi8(
-					dataMasked,
+					data,
 #if defined(__tune_znver1__) || defined(__tune_bdver4__)
-					_mm256_inserti128_si256(_mm256_setzero_si256(), _mm256_castsi256_si128(dataMasked), 1),
+					_mm256_inserti128_si256(_mm256_setzero_si256(), _mm256_castsi256_si128(data), 1),
 #else
-					_mm256_permute2x128_si256(dataMasked, dataMasked, 8),
+					_mm256_permute2x128_si256(data, data, 8),
 #endif
 					15
 				);
 				data = _mm256_blendv_epi8(dataShifted, data, mergeMask);
+				data = _mm256_andnot_si256(cmp, data);
 				data = _mm256_add_epi8(data, _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndex*2 + 1));
 			}
 			// store main + additional char
