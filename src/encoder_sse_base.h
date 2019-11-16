@@ -191,7 +191,7 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
 
 template<enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
-	if(len < XMM_SIZE*4+1 || line_size < XMM_SIZE*4+1) return;
+	if(len < XMM_SIZE*4+1 || line_size < XMM_SIZE) return;
 	
 	// slower CPUs prefer to branch as mispredict penalty is probably small relative to general execution
 #if defined(__tune_atom__) || defined(__tune_silvermont__) || defined(__tune_btver1__)
@@ -651,6 +651,11 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				*(uint32_t*)p = eolChar;
 				p += 3 + (eolChar>>27);
 				col = lineSizeOffset;
+				
+				if(HEDLEY_UNLIKELY(i >= 0)) { // this isn't really a proper check - it's only needed to support short lines; basically, if the line is too short, `i` never gets checked, so we need one somewhere
+					i++;
+					break;
+				}
 				
 				dataA = _mm_loadu_si128((__m128i *)(es + i + 1));
 				dataB = _mm_loadu_si128((__m128i *)(es + i + 1) + 1);
