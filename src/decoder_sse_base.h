@@ -139,6 +139,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 #else
 	const bool _USING_FAST_MATCH = false;
 #endif
+#if defined(__SSE4_1__) && !defined(__tune_silvermont__) && !defined(__tune_goldmont__) && !defined(__tune_goldmont_plus__)
+	const bool _USING_BLEND_ADD = (use_isa >= ISA_LEVEL_AVX && use_isa < ISA_LEVEL_AVX3);
+#else
+	const bool _USING_BLEND_ADD = false;
+#endif
 	
 	__m128i lfCompare = _mm_set1_epi8('\n');
 	__m128i minMask = _mm_set1_epi8('.');
@@ -187,7 +192,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			);
 		}
 		
-		__m128i dataA = _mm_add_epi8(oDataA, yencOffset);
+		__m128i dataA, dataB;
+		if(!_USING_BLEND_ADD)
+			dataA = _mm_add_epi8(oDataA, yencOffset);
 		uint32_t mask = (unsigned)_mm_movemask_epi8(cmpA) | ((unsigned)_mm_movemask_epi8(cmpB) << 16); // not the most accurate mask if we have invalid sequences; we fix this up later
 		
 		if (LIKELIHOOD(0.42 /* rough guess */, mask != 0)) {
@@ -506,7 +513,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				}
 			}
 			
-			__m128i dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
+			if(!_USING_BLEND_ADD)
+				dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
 				// resolve invalid sequences of = to deal with cases like '===='
@@ -523,6 +531,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq <<= 1;
 				mask &= ~maskEq;
+				
+				if(_USING_BLEND_ADD) {
+					dataA = _mm_add_epi8(oDataA, yencOffset);
+					dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
+				}
 				
 				// unescape chars following `=`
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
@@ -572,13 +585,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				} else
 #endif
 				{
-					dataA = _mm_add_epi8(
-						dataA,
-						_mm_and_si128(
-							_mm_slli_si128(cmpEqA, 1),
-							_mm_set1_epi8(-64)
-						)
-					);
 #if defined(__SSSE3__) && !defined(__tune_btver1__)
 					if(use_isa >= ISA_LEVEL_SSSE3)
 						cmpEqB = _mm_alignr_epi8(cmpEqB, cmpEqA, 15);
@@ -588,10 +594,33 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 							_mm_slli_si128(cmpEqB, 1),
 							_mm_srli_si128(cmpEqA, 15)
 						);
-					dataB = _mm_add_epi8(
-						dataB,
-						_mm_and_si128(cmpEqB, _mm_set1_epi8(-64))
-					);
+					cmpEqA = _mm_slli_si128(cmpEqA, 1);
+#if defined(__SSE4_1__)
+					if(_USING_BLEND_ADD) {
+						dataA = _mm_add_epi8(
+							oDataA,
+							_mm_blendv_epi8(
+								yencOffset, _mm_set1_epi8(-42-64), cmpEqA
+							)
+						);
+						dataB = _mm_add_epi8(
+							oDataB,
+							_mm_blendv_epi8(
+								_mm_set1_epi8(-42), _mm_set1_epi8(-42-64), cmpEqB
+							)
+						);
+					} else
+#endif
+					{
+						dataA = _mm_add_epi8(
+							dataA,
+							_mm_and_si128(cmpEqA, _mm_set1_epi8(-64))
+						);
+						dataB = _mm_add_epi8(
+							dataB,
+							_mm_and_si128(cmpEqB, _mm_set1_epi8(-64))
+						);
+					}
 				}
 			}
 			// subtract 64 from first element if escFirst == 1
@@ -653,7 +682,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			}
 #undef LOAD_HALVES
 		} else {
-			__m128i dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
+			if(_USING_BLEND_ADD)
+				dataA = _mm_add_epi8(oDataA, yencOffset);
+			dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
 			
 			STOREU_XMM(p, dataA);
 			STOREU_XMM(p+XMM_SIZE, dataB);
