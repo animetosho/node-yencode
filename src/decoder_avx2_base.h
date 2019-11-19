@@ -76,7 +76,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 		// TODO: can OR the vectors together to save generating a mask, but may not be worth it
 		uint64_t mask = (uint32_t)_mm256_movemask_epi8(cmpB); // not the most accurate mask if we have invalid sequences; we fix this up later
 		mask = (mask << 32) | (uint32_t)_mm256_movemask_epi8(cmpA);
-		__m256i dataA = _mm256_add_epi8(oDataA, yencOffset);
+		__m256i dataA, dataB;
+		if(use_isa >= ISA_LEVEL_AVX3)
+			dataA = _mm256_add_epi8(oDataA, yencOffset);
 		
 		if (mask != 0) {
 			__m256i cmpEqA = _mm256_cmpeq_epi8(oDataA, _mm256_set1_epi8('='));
@@ -372,7 +374,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 					minMask = _mm256_set1_epi8('.');
 			}
 			
-			__m256i dataB = _mm256_add_epi8(oDataB, _mm256_set1_epi8(-42));
+			if(use_isa >= ISA_LEVEL_AVX3)
+				dataB = _mm256_add_epi8(oDataB, _mm256_set1_epi8(-42));
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
 				unsigned long tmp = lookups.eqFix[(maskEq&0xff) & ~(uint64_t)escFirst];
@@ -434,8 +437,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 						_mm256_and_si256(vMaskEqB, _mm256_set1_epi64x(0x8040201008040201ULL)),
 						_mm256_set1_epi64x(0x8040201008040201ULL)
 					);
-					dataA = _mm256_add_epi8(dataA, _mm256_and_si256(vMaskEqA, _mm256_set1_epi8(-64)));
-					dataB = _mm256_add_epi8(dataB, _mm256_and_si256(vMaskEqB, _mm256_set1_epi8(-64)));
+					dataA = _mm256_add_epi8(oDataA, _mm256_blendv_epi8(yencOffset, _mm256_set1_epi8(-42-64), vMaskEqA));
+					dataB = _mm256_add_epi8(oDataB, _mm256_blendv_epi8(_mm256_set1_epi8(-42), _mm256_set1_epi8(-42-64), vMaskEqB));
 				}
 			} else {
 				escFirst = (maskEq >> 63);
@@ -467,17 +470,19 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 					cmpEqA = _mm256_alignr_epi8(cmpEqA, _mm256_permute2x128_si256(cmpEqA, cmpEqA, 0x08), 15);
 #endif
 					dataA = _mm256_add_epi8(
-						dataA,
-						_mm256_and_si256(
-							cmpEqA,
-							_mm256_set1_epi8(-64)
+						oDataA,
+						_mm256_blendv_epi8(
+							yencOffset,
+							_mm256_set1_epi8(-42-64),
+							cmpEqA
 						)
 					);
 					dataB = _mm256_add_epi8(
-						dataB,
-						_mm256_and_si256(
-							cmpEqB,
-							_mm256_set1_epi8(-64)
+						oDataB,
+						_mm256_blendv_epi8(
+							_mm256_set1_epi8(-42),
+							_mm256_set1_epi8(-42-64),
+							cmpEqB
 						)
 					);
 				}
@@ -551,7 +556,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				p += XMM_SIZE*4;
 			}
 		} else {
-			__m256i dataB = _mm256_add_epi8(oDataB, _mm256_set1_epi8(-42));
+			if(use_isa < ISA_LEVEL_AVX3)
+				dataA = _mm256_add_epi8(oDataA, yencOffset);
+			dataB = _mm256_add_epi8(oDataB, _mm256_set1_epi8(-42));
 			
 			_mm256_storeu_si256((__m256i*)p, dataA);
 			_mm256_storeu_si256((__m256i*)p + 1, dataB);
