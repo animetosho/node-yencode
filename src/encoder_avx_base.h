@@ -328,8 +328,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 #endif
 					15
 				);
+				dataShifted = _mm256_andnot_si256(cmp, dataShifted);
 				data = _mm256_blendv_epi8(dataShifted, data, mergeMask);
-				data = _mm256_andnot_si256(cmp, data);
 				data = _mm256_add_epi8(data, _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndex*2 + 1));
 			}
 			// store main + additional char
