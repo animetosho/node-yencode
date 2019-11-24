@@ -33,8 +33,10 @@ static struct {
 	
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 	const int8_t ALIGN_TO(16, expand_maskmix_lzc[33*2*32]);
+	const int8_t ALIGN_TO(16, expand_shufmaskmix_lzc[33*2*32]);
 #else
 	const int8_t ALIGN_TO(16, expand_maskmix_bsr[33*2*32]);
+	const int8_t ALIGN_TO(16, expand_shufmaskmix_bsr[33*2*32]);
 #endif
 } lookups = {
 	/*shufMix*/ {},
@@ -68,20 +70,28 @@ static struct {
 	/*expandMask*/ {},
 	
 	
-	#define _X(n) \
+	#define _MASK(n) \
 		_X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), \
 		_X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15), \
 		_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
 		_X2(n,24), _X2(n,25), _X2(n,26), _X2(n,27), _X2(n,28), _X2(n,29), _X2(n,30), _X2(n,31)
+	#define _SHUFMASK(n) \
+		_X3(n,0), _X3(n,1), _X3(n,2), _X3(n,3), _X3(n,4), _X3(n,5), _X3(n,6), _X3(n,7), \
+		_X3(n,8), _X3(n,9), _X3(n,10), _X3(n,11), _X3(n,12), _X3(n,13), _X3(n,14), _X3(n,15), \
+		_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
+		_X2(n,24), _X2(n,25), _X2(n,26), _X2(n,27), _X2(n,28), _X2(n,29), _X2(n,30), _X2(n,31)
+	// TODO: consider making _MASK work better for ANDN w/ cmp*
 	
-	// for SSE2 expanding
+	
 	#define _X2(n,k) n>k?-1:0
+	#define _X3(n,k) n==k?-1:(k-(n<k))
 	#define _Y2(n, m) n==m ? '=' : 42+64*(n==m-1)
-	#define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
+	#define _MIX(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
 		_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15), \
 		_Y2(n,16), _Y2(n,17), _Y2(n,18), _Y2(n,19), _Y2(n,20), _Y2(n,21), _Y2(n,22), _Y2(n,23), \
 		_Y2(n,24), _Y2(n,25), _Y2(n,26), _Y2(n,27), _Y2(n,28), _Y2(n,29), _Y2(n,30), _Y2(n,31)
-	#define _XY(n) _X(n), _Y(n)
+	#define _XY(n) _MASK(n), _MIX(n)
+	#define _ZY(n) _SHUFMASK(n), _MIX(n)
 	
 	#if defined(__LZCNT__) && defined(__tune_amdfam10__)
 	/*expand_maskmix_lzc*/ {
@@ -91,6 +101,13 @@ static struct {
 		_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0),
 		_XY(32)
 	},
+	/*expand_shufmaskmix_lzc*/ {
+		_ZY(31), _ZY(30), _ZY(29), _ZY(28), _ZY(27), _ZY(26), _ZY(25), _ZY(24),
+		_ZY(23), _ZY(22), _ZY(21), _ZY(20), _ZY(19), _ZY(18), _ZY(17), _ZY(16),
+		_ZY(15), _ZY(14), _ZY(13), _ZY(12), _ZY(11), _ZY(10), _ZY( 9), _ZY( 8),
+		_ZY( 7), _ZY( 6), _ZY( 5), _ZY( 4), _ZY( 3), _ZY( 2), _ZY( 1), _ZY( 0),
+		_ZY(32)
+	},
 	#else
 	/*expand_maskmix_bsr*/ {
 		_XY(32),
@@ -98,13 +115,23 @@ static struct {
 		_XY( 8), _XY( 9), _XY(10), _XY(11), _XY(12), _XY(13), _XY(14), _XY(15),
 		_XY(16), _XY(17), _XY(18), _XY(19), _XY(20), _XY(21), _XY(22), _XY(23),
 		_XY(24), _XY(25), _XY(26), _XY(27), _XY(28), _XY(29), _XY(30), _XY(31)
+	},
+	/*expand_shufmaskmix_bsr*/ {
+		_ZY(32),
+		_ZY( 0), _ZY( 1), _ZY( 2), _ZY( 3), _ZY( 4), _ZY( 5), _ZY( 6), _ZY( 7),
+		_ZY( 8), _ZY( 9), _ZY(10), _ZY(11), _ZY(12), _ZY(13), _ZY(14), _ZY(15),
+		_ZY(16), _ZY(17), _ZY(18), _ZY(19), _ZY(20), _ZY(21), _ZY(22), _ZY(23),
+		_ZY(24), _ZY(25), _ZY(26), _ZY(27), _ZY(28), _ZY(29), _ZY(30), _ZY(31)
 	}
 	#endif
 	#undef _XY
-	#undef _Y
+	#undef _ZY
+	#undef _MIX
 	#undef _Y2
-	#undef _X
+	#undef _MASK
+	#undef _SHUFMASK
 	#undef _X2
+	#undef _X3
 };
 
 
@@ -509,6 +536,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				}
 				continue;
 			}
+			// shortcut for common case of only 1 bit set
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
 				dataA = _mm_sub_epi8(dataA, _mm_ternarylogic_epi32(cmpA, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
@@ -537,47 +565,72 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					maskBits = (mask != 0);
 				if(_PREFER_BRANCHING) maskBits = 1;
 				
-				// shortcut for common case of only 1 bit set
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 				// lzcnt is faster than bsf on AMD
 				bitIndex = _lzcnt_u32(mask);
-				const __m128i* entries = (const __m128i*)lookups.expand_maskmix_lzc;
-				entries += bitIndex*4;
 #else
 				_BSR_VAR(bitIndex, mask);
 				bitIndex |= maskBits-1; // if(mask == 0) bitIndex = -1;
-				const __m128i* entries = (const __m128i*)lookups.expand_maskmix_bsr + 4;
-				entries += bitIndex*4;
 #endif
+				const __m128i* entries;
 				
-				// TODO: can first vector use shuffle instead of mask-blend?
-				__m128i mergeMaskA = _mm_load_si128(entries+0);
-				__m128i mergeMaskB = _mm_load_si128(entries+1);
-				__m128i mixValsA = _mm_load_si128(entries+2);
-				__m128i mixValsB = _mm_load_si128(entries+3);
-				__m128i dataAMasked = _mm_andnot_si128(mergeMaskA, dataA);
-				__m128i dataBMasked = _mm_andnot_si128(mergeMaskB, dataB);
-				__m128i dataAShifted = _mm_slli_si128(dataAMasked, 1);
-				__m128i dataBShifted;
-				
-#if defined(__SSSE3__) && !defined(__tune_btver1__)
-				if(use_isa >= ISA_LEVEL_SSSE3)
-					dataBShifted = _mm_alignr_epi8(dataBMasked, dataAMasked, 15);
-				else
-#endif
-					dataBShifted = _mm_or_si128(
-						_mm_slli_si128(dataBMasked, 1),
-						_mm_srli_si128(dataAMasked, 15)
-					);
-				
-#ifdef __SSE4_1__
-				if(use_isa >= ISA_LEVEL_AVX) {
-					// BLENDV is horrible on Atom, so requiring AVX is likely worth it (exception: gimped Intel SKUs)
-					dataA = _mm_blendv_epi8(dataAShifted, dataA, mergeMaskA);
-					dataB = _mm_blendv_epi8(dataBShifted, dataB, mergeMaskB);
+#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
+				if(use_isa >= ISA_LEVEL_SSSE3) {
+# if defined(__LZCNT__) && defined(__tune_amdfam10__)
+					entries = (const __m128i*)lookups.expand_shufmaskmix_lzc;
+# else
+					entries = (const __m128i*)lookups.expand_shufmaskmix_bsr + 4;
+# endif
+					entries += bitIndex*4;
+					
+					__m128i shufMaskA = _mm_load_si128(entries+0);
+					__m128i mergeMaskB = _mm_load_si128(entries+1);
+					__m128i dataBShifted = _mm_alignr_epi8(dataB, dataA, 15);
+					dataBShifted = _mm_andnot_si128(cmpB, dataBShifted);
+					
+					dataA = _mm_shuffle_epi8(dataA, shufMaskA);
+					
+# if defined(__SSE4_1__) && !defined(__tune_silvermont__) && !defined(__tune_goldmont__) && !defined(__tune_goldmont_plus__)
+					// unsure if worth on: Jaguar/Puma (3|2), Core2 (2|2)
+					if(use_isa >= ISA_LEVEL_AVX) {
+						dataB = _mm_blendv_epi8(dataBShifted, dataB, mergeMaskB);
+					} else
+# endif
+					{
+						dataB = _mm_or_si128(
+							_mm_and_si128(mergeMaskB, dataB),
+							_mm_andnot_si128(mergeMaskB, dataBShifted)
+						);
+					}
 				} else
 #endif
 				{
+					
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
+					entries = (const __m128i*)lookups.expand_maskmix_lzc;
+#else
+					entries = (const __m128i*)lookups.expand_maskmix_bsr + 4;
+#endif
+					entries += bitIndex*4;
+					
+					__m128i mergeMaskA = _mm_load_si128(entries+0);
+					__m128i mergeMaskB = _mm_load_si128(entries+1);
+					// TODO: consider deferring mask operation? (does require an extra ANDN but may help with L1 latency)
+					__m128i dataAMasked = _mm_andnot_si128(mergeMaskA, dataA);
+					__m128i dataBMasked = _mm_andnot_si128(mergeMaskB, dataB);
+					__m128i dataAShifted = _mm_slli_si128(dataAMasked, 1);
+					__m128i dataBShifted;
+					
+#if defined(__SSSE3__) && !defined(__tune_btver1__)
+					if(use_isa >= ISA_LEVEL_SSSE3)
+						dataBShifted = _mm_alignr_epi8(dataBMasked, dataAMasked, 15);
+					else
+#endif
+						dataBShifted = _mm_or_si128(
+							_mm_slli_si128(dataBMasked, 1),
+							_mm_srli_si128(dataAMasked, 15)
+						);
+					
 					// alternatively `_mm_xor_si128(dataAMasked, dataA)` if compiler wants to load mergeMask* again
 					dataB = _mm_or_si128(
 						_mm_and_si128(mergeMaskB, dataB), dataBShifted
@@ -587,8 +640,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					);
 				}
 				// add escape chars
-				dataA = _mm_add_epi8(dataA, mixValsA);
-				dataB = _mm_add_epi8(dataB, mixValsB);
+				dataA = _mm_add_epi8(dataA, _mm_load_si128(entries+2));
+				dataB = _mm_add_epi8(dataB, _mm_load_si128(entries+3));
 			}
 			
 			// store main part
