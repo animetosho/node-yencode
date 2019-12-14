@@ -140,7 +140,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 	const bool _USING_FAST_MATCH = false;
 #endif
 #if defined(__SSE4_1__) && !defined(__tune_silvermont__) && !defined(__tune_goldmont__) && !defined(__tune_goldmont_plus__)
-	const bool _USING_BLEND_ADD = (use_isa >= ISA_LEVEL_AVX && use_isa < ISA_LEVEL_AVX3);
+	const bool _USING_BLEND_ADD = (use_isa >= ISA_LEVEL_AVX);
 #else
 	const bool _USING_BLEND_ADD = false;
 #endif
@@ -582,10 +582,19 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				escFirst = (maskEq >> 31);
 				
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
-				// using mask-add seems to be faster when doing complex checks, slower otherwise, maybe due to higher register pressure?
-				if(use_isa >= ISA_LEVEL_AVX3 && (isRaw || searchEnd)) {
-					dataA = _mm_mask_add_epi8(dataA, (__mmask16)(maskEq << 1), dataA, _mm_set1_epi8(-64));
-					dataB = _mm_mask_add_epi8(dataB, (__mmask16)(maskEq >> 15), dataB, _mm_set1_epi8(-64));
+				if(use_isa >= ISA_LEVEL_AVX3) {
+					dataA = _mm_add_epi8(
+						oDataA,
+						_mm_ternarylogic_epi32(
+							_mm_slli_si128(cmpEqA, 1), yencOffset, _mm_set1_epi8(-42-64), 0xac
+						)
+					);
+					dataB = _mm_add_epi8(
+						oDataB,
+						_mm_ternarylogic_epi32(
+							_mm_alignr_epi8(cmpEqB, cmpEqA, 15), _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac
+						)
+					);
 				} else
 #endif
 #if defined(__SSE4_1__)
