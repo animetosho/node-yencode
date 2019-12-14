@@ -588,40 +588,26 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 			if(LIKELIHOOD(0.3, col >= 0)) {
 				// we overflowed - find correct position to revert back to
 				long revert = col;
-				uint32_t eqMask2 = (expandLUT[m4] << shuf3Len) | expandLUT[m3];
-				long pastMid = col - (shuf3Len+shuf4Len);
+				long len2ndHalf = shuf3Len+shuf4Len;
+				long pastMid = col - len2ndHalf;
+				uint32_t eqMaskHalf;
 				if(HEDLEY_UNLIKELY(pastMid >= 0)) {
-					uint32_t eqMask1 = (expandLUT[m2] << shuf1Len) | expandLUT[m1];
-					eqMask1 >>= shufTotalLen - col -1;
-					revert += eqMask1 & 1;
-					
-#ifdef __aarch64__
-					uint64_t eqMask = ((uint64_t)eqMask2 << 32) | (uint64_t)eqMask1;
-					uint8x8_t vCnt = vcnt_u8(vreinterpret_u8_u64(vmov_n_u64(eqMask)));
-					uint8_t cnt = vaddv_u8(vCnt);
-#else
-					uint32x2_t vCnt = vmov_n_u32(eqMask2);
-					vCnt = vset_lane_u32(eqMask1, vCnt, 1);
-					uint8x8_t vCnt_ = vcnt_u8(vreinterpret_u8_u32(vCnt));
-					vCnt_ = vpadd_u8(vCnt_, vCnt_);
-					uint32_t cnt = vget_lane_u32(vreinterpret_u32_u8(vCnt_), 0);
-					cnt += cnt >> 16;
-					cnt += cnt >> 8;
-					cnt &= 0xff;
-#endif
-					i += cnt;
+					eqMaskHalf = (expandLUT[m2] << shuf1Len) | expandLUT[m1];
+					eqMaskHalf >>= shufTotalLen - col -1;
+					i += len2ndHalf - 16;
 				} else {
-					eqMask2 >>= -pastMid -1; // == ~pastMid
-					revert += eqMask2 & 1;
-					
-					// count bits in eqMask
-					uint8x8_t vCnt = vcnt_u8(vreinterpret_u8_u32(vmov_n_u32(eqMask2)));
-					uint32_t cnt = vget_lane_u32(vreinterpret_u32_u8(vCnt), 0);
-					cnt += cnt >> 16;
-					cnt += cnt >> 8;
-					cnt &= 0xff;
-					i += cnt;
+					eqMaskHalf = (expandLUT[m4] << shuf3Len) | expandLUT[m3];
+					eqMaskHalf >>= -pastMid -1; // == ~pastMid
 				}
+				revert += eqMaskHalf & 1;
+				
+				// count bits in eqMask
+				uint8x8_t vCnt = vcnt_u8(vreinterpret_u8_u32(vmov_n_u32(eqMaskHalf)));
+				uint32_t cnt = vget_lane_u32(vreinterpret_u32_u8(vCnt), 0);
+				cnt += cnt >> 16;
+				cnt += cnt >> 8;
+				cnt &= 0xff;
+				i += cnt;
 				
 				p -= revert;
 				i -= revert;
