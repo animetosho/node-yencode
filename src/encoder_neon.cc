@@ -101,28 +101,22 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	uint8x16_t dataA = oDataA;
 	uint8x16_t dataB = oDataB;
 #ifdef __aarch64__
-	dataA = vaddq_u8(oDataA, vdupq_n_u8(42));
+	uint8x16_t cmpA = vreinterpretq_u8_s8(vqtbx2q_s8(
+		vdupq_n_s8('='-42),
+		(int8x16x2_t){'\0'-42,-128,-128,'\0'-42,'\t'-42,'\n'-42,'\r'-42,'\t'-42,'\n'-42,'\r'-42,-128,-128,'\0'-42,-128,-128,-128, ' '-42,'\n'-42,'\r'-42,' '-42,-128,-128,-128,-128,-128,-128,'.'-42,-128,-128,-128,'='-42,-128},
+		vreinterpretq_u8_s8(vhaddq_s8(vreinterpretq_s8_u8(dataA), (int8x16_t){42,48,66,66, 66,66,66,66, 66,66,66,66, 66,66,66,66}))
+	));
+	cmpA = vceqq_u8(cmpA, dataA);
+	
 	dataB = vaddq_u8(oDataB, vdupq_n_u8(42));
-	uint8x16_t cmpA = vqtbx1q_u8(
-		vceqq_u8(oDataA, vdupq_n_u8('='-42)),
-		//          \0                \t\n    \r
-		(uint8x16_t){3,0,0,0,0,0,0,0,0,2,3,0,0,3,0,0},
-		dataA
-	);
 	uint8x16_t cmpB = vqtbx1q_u8(
 		vceqq_u8(oDataB, vdupq_n_u8('='-42)),
 		//            \0                    \n      \r
 		(uint8x16_t){255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
 		dataB
 	);
-	cmpA = vorrq_u8(cmpA, vqtbl1q_u8( // ORR+TBL seems to work better than TBX, maybe due to long TBL/X latency?
-		//          \s                           .  
-		(uint8x16_t){2,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0},
-		vaddq_u8(oDataA, vdupq_n_u8(42-32))
-	));
-	cmpA = vcgtq_u8(cmpA, (uint8x16_t){1,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2});
 # ifdef YENC_NEON_FAST_ONECHAR_EOL
-	dataA = vaddq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
+	dataA = vaddq_u8(dataA, vbslq_u8(cmpA, vdupq_n_u8(64+42), vdupq_n_u8(42)));
 	dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
 # endif
 #else
@@ -227,7 +221,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		uint8x16_t data1A = vqsubq_u8(shuf1, vdupq_n_u8(64));
 #ifdef __aarch64__
 # ifndef YENC_NEON_FAST_ONECHAR_EOL
-		dataA = vaddq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
+		dataA = vaddq_u8(dataA, vbslq_u8(cmpA, vdupq_n_u8(64+42), vdupq_n_u8(42)));
 		dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
 # endif
 		data1A = vqtbx1q_u8(data1A, dataA, shuf1);
@@ -346,6 +340,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 #else
 		uint8x16_t data1;
 # ifdef __aarch64__
+		dataA = vaddq_u8(dataA, vdupq_n_u8(42));
 		data1 = vqtbx1q_u8((uint8x16_t){0,'\r','\n',0,0,0,0,0,0,0,0,0,0,0,0,0}, dataA, (uint8x16_t){0,16,16,1,2,3,4,5,6,7,8,9,10,11,12,13});
 # else
 		dataA = vsubq_u8(dataA, vdupq_n_u8(-42));
