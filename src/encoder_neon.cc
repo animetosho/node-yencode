@@ -4,6 +4,16 @@
 #include "encoder.h"
 #include "encoder_common.h"
 
+// Clang wrongly assumes alignment on vst1q_u8_x2, and ARMv7 GCC doesn't support the function, so effectively, it can only be used in ARMv8 compilers
+#if defined(__aarch64__) && (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 9))
+# define vst1q_u8_x2_unaligned vst1q_u8_x2
+#else
+HEDLEY_ALWAYS_INLINE void vst1q_u8_x2_unaligned(uint8_t* p, uint8x16x2_t data) {
+	vst1q_u8(p, data.val[0]);
+	vst1q_u8(p+16, data.val[1]);
+}
+#endif
+
 
 // whether to skew the fast/slow path towards the fast path
 // this enables the fast path to handle single character escapes, which means the fast path becomes slower, but it chosen more frequently
@@ -331,10 +341,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			vtbx1_u8(shufBh, vget_high_u8(dataB), shufBh)
 		);
 # endif
-		vst1q_u8(p, dataA);
-		p += sizeof(uint8x16_t);
-		vst1q_u8(p, dataB);
-		p += sizeof(uint8x16_t) - 1;
+		vst1q_u8_x2_unaligned(p, ((uint8x16x2_t){dataA, dataB}));
+		p += sizeof(uint8x16_t)*2 - 1;
 		p += (mask != 0);
 		col = lineSizeOffset + (mask != 0);
 #else
@@ -409,6 +417,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 		}
 	}
 	while(i < 0) {
+		// for unaligned loads, separate loads seem to be faster than vld1q_u8_x2 on Cortex A53; unsure if this applies elsewhere
 		uint8x16_t dataA = vld1q_u8(es + i);
 		uint8x16_t dataB = vld1q_u8(es + i + sizeof(uint8x16_t));
 		i += sizeof(uint8x16_t)*2;
@@ -667,10 +676,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 					vtbx2_u8(shufAh, {vget_low_u8(dataA), vget_high_u8(dataA)}, shufAh)
 				);
 # endif
-				vst1q_u8(p, dataA);
-				p += sizeof(uint8x16_t);
-				vst1q_u8(p, outDataB);
-				p += sizeof(uint8x16_t);
+				vst1q_u8_x2_unaligned(p, ((uint8x16x2_t){dataA, outDataB}));
+				p += sizeof(uint8x16_t)*2;
 				// write last byte
 				*p = vgetq_lane_u8(dataB, 15);
 				p += (mask != 0);
@@ -680,10 +687,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 				dataA = vsubq_u8(dataA, vdupq_n_u8(-42));
 				dataB = vsubq_u8(dataB, vdupq_n_u8(-42));
 # endif
-				vst1q_u8(p, dataA);
-				p += sizeof(uint8x16_t);
-				vst1q_u8(p, dataB);
-				p += sizeof(uint8x16_t);
+				vst1q_u8_x2_unaligned(p, ((uint8x16x2_t){dataA, dataB}));
+				p += sizeof(uint8x16_t)*2;
 #endif
 				col += sizeof(uint8x16_t)*2;
 			}

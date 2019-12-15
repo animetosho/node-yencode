@@ -11,6 +11,24 @@ uint8_t eqFixLUT[256];
 
 
 
+#if !defined(__clang__)
+HEDLEY_ALWAYS_INLINE uint8x16x4_t vld1q_u8_x4(const uint8_t* p) {
+	uint8x16x4_t ret;
+	ret.val[0] = vld1q_u8(p);
+	ret.val[1] = vld1q_u8(p+16);
+	ret.val[2] = vld1q_u8(p+32);
+	ret.val[3] = vld1q_u8(p+48);
+	return ret;
+}
+HEDLEY_ALWAYS_INLINE void vst1q_u8_x4(uint8_t* p, uint8x16x4_t data) {
+	vst1q_u8(p, data.val[0]);
+	vst1q_u8(p+16, data.val[1]);
+	vst1q_u8(p+32, data.val[2]);
+	vst1q_u8(p+48, data.val[3]);
+}
+#endif
+
+
 static bool neon_vect_is_nonzero(uint8x16_t v) {
 	return !!(vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(v))), 0));
 }
@@ -34,10 +52,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 		nextMaskMix[nextMask-1] = nextMask;
 	uint8x16_t yencOffset = escFirst ? (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42} : vdupq_n_u8(42);
 	for(long i = -len; i; i += sizeof(uint8x16_t)*4) {
-		uint8x16_t dataA = vld1q_u8(src+i);
-		uint8x16_t dataB = vld1q_u8(src+i+sizeof(uint8x16_t));
-		uint8x16_t dataC = vld1q_u8(src+i+sizeof(uint8x16_t)*2);
-		uint8x16_t dataD = vld1q_u8(src+i+sizeof(uint8x16_t)*3);
+		uint8x16x4_t data = vld1q_u8_x4(src+i);
+		uint8x16_t dataA = data.val[0];
+		uint8x16_t dataB = data.val[1];
+		uint8x16_t dataC = data.val[2];
+		uint8x16_t dataD = data.val[3];
 		
 		// search for special chars
 		uint8x16_t cmpEqA = vceqq_u8(dataA, vdupq_n_u8('=')),
@@ -389,10 +408,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			dataB = vsubq_u8(dataB, vdupq_n_u8(42));
 			dataC = vsubq_u8(dataC, vdupq_n_u8(42));
 			dataD = vsubq_u8(dataD, vdupq_n_u8(42));
-			vst1q_u8(p, dataA);
-			vst1q_u8(p+sizeof(uint8x16_t), dataB);
-			vst1q_u8(p+sizeof(uint8x16_t)*2, dataC);
-			vst1q_u8(p+sizeof(uint8x16_t)*3, dataD);
+			vst1q_u8_x4(p, ((uint8x16x4_t){dataA, dataB, dataC, dataD}));
 			p += sizeof(uint8x16_t)*4;
 			escFirst = 0;
 			yencOffset = vdupq_n_u8(42);
