@@ -127,7 +127,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	);
 # ifdef YENC_NEON_FAST_ONECHAR_EOL
 	dataA = vaddq_u8(dataA, vbslq_u8(cmpA, vdupq_n_u8(64+42), vdupq_n_u8(42)));
-	dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
+	dataB = vorrq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
 # endif
 #else
 	uint8x16_t cmpA = vorrq_u8(
@@ -232,7 +232,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 #ifdef __aarch64__
 # ifndef YENC_NEON_FAST_ONECHAR_EOL
 		dataA = vaddq_u8(dataA, vbslq_u8(cmpA, vdupq_n_u8(64+42), vdupq_n_u8(42)));
-		dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
+		dataB = vorrq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
 # endif
 		data1A = vqtbx1q_u8(data1A, dataA, shuf1);
 		uint8x16_t data2A = vqtbx1q_u8(shuf2, vextq_u8(dataA, dataA, 8), shuf2);
@@ -441,8 +441,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 		);
 		
 # ifdef YENC_NEON_FAST_ONECHAR_MAIN
-		dataA = vaddq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
-		dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
+		dataA = vorrq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
+		dataB = vorrq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
 # endif
 #else
 		// the ARMv8 strategy may be worth it here with 2x vtbx2's, but both GCC-9 and Clang-9 generate poor assembly for it, so it performs worse than the following
@@ -537,8 +537,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 			// expand halves
 #ifdef __aarch64__
 # ifndef YENC_NEON_FAST_ONECHAR_MAIN
-			dataA = vaddq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
-			dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
+			dataA = vorrq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
+			dataB = vorrq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
 # endif
 			uint8x16_t data1A = vqtbx1q_u8(shuf1, dataA, shuf1);
 			uint8x16_t data2A = vqtbx1q_u8(shuf2, vextq_u8(dataA, dataA, 8), shuf2);
