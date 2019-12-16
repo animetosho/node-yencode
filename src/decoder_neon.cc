@@ -18,6 +18,25 @@
 # define vld1q_u8_align(p, n) vld1q_u8(p)
 #endif
 
+
+// for compilers that lack these functions
+#if defined(__clang__) || (defined(__GNUC__) && (defined(__aarch64__) && __GNUC__ >= 8))
+# define vld1q_u8_x2_align(p, n) vld1q_u8_x2((uint8_t*)__builtin_assume_aligned(p, n))
+#else
+HEDLEY_ALWAYS_INLINE uint8x16x2_t vld1q_u8_x2_align(const uint8_t* p, int n) {
+	return (uint8x16x2_t){vld1q_u8_align(p, n), vld1q_u8_align(p+16, n)};
+}
+#endif
+// Clang wrongly assumes alignment on vld1q_u8_x2, and ARMv7 GCC doesn't support the function, so effectively, it can only be used in ARMv8 compilers
+#if defined(__aarch64__) && (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 9))
+# define vst1q_u8_x2_unaligned vst1q_u8_x2
+#else
+HEDLEY_ALWAYS_INLINE void vst1q_u8_x2_unaligned(uint8_t* p, uint8x16x2_t data) {
+	vst1q_u8(p, data.val[0]);
+	vst1q_u8(p+16, data.val[1]);
+}
+#endif
+
 #ifdef YENC_DEC_USE_THINTABLE
 uint64_t ALIGN_TO(8, compactLUT[256]);
 #else
@@ -75,8 +94,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 	}
 #endif
 	for(long i = -len; i; i += sizeof(uint8x16_t)*2) {
-		uint8x16_t dataA = vld1q_u8_align(src+i, 16);
-		uint8x16_t dataB = vld1q_u8_align(src+i+sizeof(uint8x16_t), 16);
+		uint8x16x2_t data = vld1q_u8_x2_align(src+i, 32);
+		uint8x16_t dataA = data.val[0];
+		uint8x16_t dataB = data.val[1];
 		
 		// search for special chars
 		uint8x16_t cmpEqA = vceqq_u8(dataA, vdupq_n_u8('=')),
@@ -436,8 +456,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 		} else {
 			dataA = vsubq_u8(dataA, yencOffset);
 			dataB = vsubq_u8(dataB, vdupq_n_u8(42));
-			vst1q_u8(p, dataA);
-			vst1q_u8(p+sizeof(uint8x16_t), dataB);
+			vst1q_u8_x2_unaligned(p, ((uint8x16x2_t){dataA, dataB}));
 			p += sizeof(uint8x16_t)*2;
 			escFirst = 0;
 #ifdef __aarch64__

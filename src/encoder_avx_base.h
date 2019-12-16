@@ -394,34 +394,55 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			bitIndex = _lzcnt_u32(maskA) + _lzcnt_u32(maskB);
 			bitIndex += (maskA != 0)*32;
 #endif
-#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
-			if(use_isa >= ISA_LEVEL_VBMI2) {
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+			if(use_isa >= ISA_LEVEL_AVX3) {
+
 				dataA = _mm256_add_epi8(dataA, _mm256_ternarylogic_epi32(cmpA, _mm256_set1_epi8(42), _mm256_set1_epi8(42+64), 0xac));
 				dataB = _mm256_add_epi8(dataB, _mm256_ternarylogic_epi32(cmpB, _mm256_set1_epi8(42), _mm256_set1_epi8(42+64), 0xac));
-				
-				dataB = _mm256_mask2_permutex2var_epi8(
-					dataA,
-					_mm256_load_si256((__m256i*)lookups.perm_expand + bitIndex),
-					~maskB,
-					dataB
-				);
-				dataA = _mm256_mask_expand_epi8(
-					_mm256_set1_epi8('='),
-					~maskA,
-					dataA
-				);
+# if defined(__AVX512VBMI2__)
+				if(use_isa >= ISA_LEVEL_VBMI2) {
+					dataB = _mm256_mask2_permutex2var_epi8(
+						dataA,
+						_mm256_load_si256((__m256i*)lookups.perm_expand + bitIndex),
+						~maskB,
+						dataB
+					);
+					dataA = _mm256_mask_expand_epi8(
+						_mm256_set1_epi8('='),
+						~maskA,
+						dataA
+					);
+				} else
+# endif
+				{
+					dataB = _mm256_mask_alignr_epi8(
+						dataA,
+						~(mask-1),
+						dataB,
+						_mm256_permute2x128_si256(dataA, dataB, 8),
+						15
+					);
+					dataB = _mm256_mask_blend_epi8(mask, dataA, _mm256_set1_epi8('='));
+					dataA = _mm256_mask_alignr_epi8(
+						dataA,
+						~(mask-1),
+						dataA,
+						_mm256_permute2x128_si256(dataA, dataA, 8),
+						15
+					);
+					dataA = _mm256_mask_blend_epi8(mask, dataA, _mm256_set1_epi8('='));
+				}
 			} else
 #endif
 			{
+				bitIndex = _lzcnt_u32(mask);
 				__m256i mergeMaskA = _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndex*4);
 				__m256i mergeMaskB = _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndex*4 + 1);
-				__m256i dataAMasked = _mm256_andnot_si256(mergeMaskA, dataA);
-				__m256i dataBMasked = _mm256_andnot_si256(mergeMaskB, dataB);
 				// to deal with the pain of lane crossing, use shift + mask/blend
 				__m256i dataAShifted = _mm256_alignr_epi8(
-					dataAMasked,
+					dataA,
 #if defined(__tune_znver1__) || defined(__tune_bdver4__)
-					_mm256_inserti128_si256(_mm256_setzero_si256(), _mm256_castsi256_si128(dataAMasked), 1),
+					_mm256_inserti128_si256(_mm256_setzero_si256(), _mm256_castsi256_si128(dataA), 1),
 #else
 					_mm256_permute2x128_si256(dataAMasked, dataAMasked, 8),
 #endif
@@ -453,8 +474,13 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			p += outputBytes;
 			col += outputBytes;
 			
-			if(col >= 0) {
+			if(LIKELIHOOD(0.3, col >= 0)) {
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+				if(use_isa >= ISA_LEVEL_AVX3)
+					bitIndex = _lzcnt_u32(mask);
+#endif
 				bitIndex++;
+				
 				if(HEDLEY_UNLIKELY(col == bitIndex)) {
 					// this is an escape character, so line will need to overflow
 					p--;

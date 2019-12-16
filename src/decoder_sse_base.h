@@ -139,6 +139,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 #else
 	const bool _USING_FAST_MATCH = false;
 #endif
+#if defined(__SSE4_1__) && !defined(__tune_silvermont__) && !defined(__tune_goldmont__) && !defined(__tune_goldmont_plus__)
+	const bool _USING_BLEND_ADD = (use_isa >= ISA_LEVEL_AVX);
+#else
+	const bool _USING_BLEND_ADD = false;
+#endif
 	
 	__m128i lfCompare = _mm_set1_epi8('\n');
 	__m128i minMask = _mm_set1_epi8('.');
@@ -187,7 +192,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			);
 		}
 		
-		__m128i dataA = _mm_add_epi8(oDataA, yencOffset);
+		__m128i dataA, dataB;
+		if(!_USING_BLEND_ADD)
+			dataA = _mm_add_epi8(oDataA, yencOffset);
 		uint32_t mask = (unsigned)_mm_movemask_epi8(cmpA) | ((unsigned)_mm_movemask_epi8(cmpB) << 16); // not the most accurate mask if we have invalid sequences; we fix this up later
 		
 		if (LIKELIHOOD(0.42 /* rough guess */, mask != 0)) {
@@ -506,7 +513,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				}
 			}
 			
-			__m128i dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
+			if(!_USING_BLEND_ADD)
+				dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
 				// resolve invalid sequences of = to deal with cases like '===='
@@ -523,6 +531,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq <<= 1;
 				mask &= ~maskEq;
+				
+				if(_USING_BLEND_ADD) {
+					dataA = _mm_add_epi8(oDataA, yencOffset);
+					dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
+				}
 				
 				// unescape chars following `=`
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
@@ -558,6 +571,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 							lookups.eqAdd + ((maskEq>>8)&0xff)
 						)
 					);
+					
+					yencOffset = _mm_xor_si128(_mm_set1_epi8(-42), 
+						_mm_slli_epi16(_mm_cvtsi32_si128(escFirst), 6)
+					);
 				}
 			} else {
 				// no invalid = sequences found - we can cut out some things from above
@@ -565,20 +582,55 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 				escFirst = (maskEq >> 31);
 				
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
-				// using mask-add seems to be faster when doing complex checks, slower otherwise, maybe due to higher register pressure?
-				if(use_isa >= ISA_LEVEL_AVX3 && (isRaw || searchEnd)) {
-					dataA = _mm_mask_add_epi8(dataA, (__mmask16)(maskEq << 1), dataA, _mm_set1_epi8(-64));
-					dataB = _mm_mask_add_epi8(dataB, (__mmask16)(maskEq >> 15), dataB, _mm_set1_epi8(-64));
+				if(use_isa >= ISA_LEVEL_AVX3) {
+					dataA = _mm_add_epi8(
+						oDataA,
+						_mm_ternarylogic_epi32(
+							_mm_slli_si128(cmpEqA, 1), yencOffset, _mm_set1_epi8(-42-64), 0xac
+						)
+					);
+					dataB = _mm_add_epi8(
+						oDataB,
+						_mm_ternarylogic_epi32(
+							_mm_alignr_epi8(cmpEqB, cmpEqA, 15), _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac
+						)
+					);
+				} else
+#endif
+#if defined(__SSE4_1__)
+				if(_USING_BLEND_ADD) {
+					/* // the following strategy seems more ideal, however, both GCC and Clang go bonkers over it and spill more registers
+					cmpEqA = _mm_blendv_epi8(_mm_set1_epi8(-42), _mm_set1_epi8(-42-64), cmpEqA);
+					cmpEqB = _mm_blendv_epi8(_mm_set1_epi8(-42), _mm_set1_epi8(-42-64), cmpEqB);
+					dataB = _mm_add_epi8(oDataB, _mm_alignr_epi8(cmpEqB, cmpEqA, 15));
+					dataA = _mm_add_epi8(oDataA, _mm_and_si128(
+						_mm_alignr_epi8(cmpEqA, _mm_set1_epi8(-42), 15),
+						yencOffset
+					));
+					yencOffset = _mm_alignr_epi8(_mm_set1_epi8(-42), cmpEqB, 15);
+					*/
+					
+					dataA = _mm_add_epi8(
+						oDataA,
+						_mm_blendv_epi8(
+							yencOffset, _mm_set1_epi8(-42-64), _mm_slli_si128(cmpEqA, 1)
+						)
+					);
+					dataB = _mm_add_epi8(
+						oDataB,
+						_mm_blendv_epi8(
+							_mm_set1_epi8(-42), _mm_set1_epi8(-42-64), _mm_alignr_epi8(cmpEqB, cmpEqA, 15)
+						)
+					);
+					yencOffset = _mm_xor_si128(_mm_set1_epi8(-42), 
+						_mm_slli_epi16(_mm_cvtsi32_si128(escFirst), 6)
+					);
 				} else
 #endif
 				{
-					dataA = _mm_add_epi8(
-						dataA,
-						_mm_and_si128(
-							_mm_slli_si128(cmpEqA, 1),
-							_mm_set1_epi8(-64)
-						)
-					);
+					cmpEqA = _mm_and_si128(cmpEqA, _mm_set1_epi8(-64));
+					cmpEqB = _mm_and_si128(cmpEqB, _mm_set1_epi8(-64));
+					yencOffset = _mm_add_epi8(_mm_set1_epi8(-42), _mm_srli_si128(cmpEqB, 15));
 #if defined(__SSSE3__) && !defined(__tune_btver1__)
 					if(use_isa >= ISA_LEVEL_SSSE3)
 						cmpEqB = _mm_alignr_epi8(cmpEqB, cmpEqA, 15);
@@ -588,23 +640,17 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 							_mm_slli_si128(cmpEqB, 1),
 							_mm_srli_si128(cmpEqA, 15)
 						);
-					dataB = _mm_add_epi8(
-						dataB,
-						_mm_and_si128(cmpEqB, _mm_set1_epi8(-64))
-					);
+					cmpEqA = _mm_slli_si128(cmpEqA, 1);
+					dataA = _mm_add_epi8(dataA, cmpEqA);
+					dataB = _mm_add_epi8(dataB, cmpEqB);
 				}
 			}
 			// subtract 64 from first element if escFirst == 1
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
 				yencOffset = _mm_mask_add_epi8(_mm_set1_epi8(-42), (__mmask16)escFirst, _mm_set1_epi8(-42), _mm_set1_epi8(-64));
-			} else
-#endif
-			{
-				yencOffset = _mm_xor_si128(_mm_set1_epi8(-42), 
-					_mm_slli_epi16(_mm_cvtsi32_si128(escFirst), 6)
-				);
 			}
+#endif
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
 #ifdef __SSSE3__
@@ -653,7 +699,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			}
 #undef LOAD_HALVES
 		} else {
-			__m128i dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
+			if(_USING_BLEND_ADD)
+				dataA = _mm_add_epi8(oDataA, yencOffset);
+			dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
 			
 			STOREU_XMM(p, dataA);
 			STOREU_XMM(p+XMM_SIZE, dataB);

@@ -4,6 +4,16 @@
 #include "encoder.h"
 #include "encoder_common.h"
 
+// Clang wrongly assumes alignment on vst1q_u8_x2, and ARMv7 GCC doesn't support the function, so effectively, it can only be used in ARMv8 compilers
+#if defined(__aarch64__) && (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 9))
+# define vst1q_u8_x2_unaligned vst1q_u8_x2
+#else
+HEDLEY_ALWAYS_INLINE void vst1q_u8_x2_unaligned(uint8_t* p, uint8x16x2_t data) {
+	vst1q_u8(p, data.val[0]);
+	vst1q_u8(p+16, data.val[1]);
+}
+#endif
+
 
 // whether to skew the fast/slow path towards the fast path
 // this enables the fast path to handle single character escapes, which means the fast path becomes slower, but it chosen more frequently
@@ -101,29 +111,23 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	uint8x16_t dataA = oDataA;
 	uint8x16_t dataB = oDataB;
 #ifdef __aarch64__
-	dataA = vaddq_u8(oDataA, vdupq_n_u8(42));
+	uint8x16_t cmpA = vreinterpretq_u8_s8(vqtbx2q_s8(
+		vdupq_n_s8('='-42),
+		(int8x16x2_t){'\0'-42,-128,-128,'\0'-42,'\t'-42,'\n'-42,'\r'-42,'\t'-42,'\n'-42,'\r'-42,-128,-128,'\0'-42,-128,-128,-128, ' '-42,'\n'-42,'\r'-42,' '-42,-128,-128,-128,-128,-128,-128,'.'-42,-128,-128,-128,'='-42,-128},
+		vreinterpretq_u8_s8(vhaddq_s8(vreinterpretq_s8_u8(dataA), (int8x16_t){42,48,66,66, 66,66,66,66, 66,66,66,66, 66,66,66,66}))
+	));
+	cmpA = vceqq_u8(cmpA, dataA);
+	
 	dataB = vaddq_u8(oDataB, vdupq_n_u8(42));
-	uint8x16_t cmpA = vqtbx1q_u8(
-		vceqq_u8(oDataA, vdupq_n_u8('='-42)),
-		//          \0                \t\n    \r
-		(uint8x16_t){3,0,0,0,0,0,0,0,0,2,3,0,0,3,0,0},
-		dataA
-	);
 	uint8x16_t cmpB = vqtbx1q_u8(
 		vceqq_u8(oDataB, vdupq_n_u8('='-42)),
 		//            \0                    \n      \r
 		(uint8x16_t){255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
 		dataB
 	);
-	cmpA = vorrq_u8(cmpA, vqtbl1q_u8( // ORR+TBL seems to work better than TBX, maybe due to long TBL/X latency?
-		//          \s                           .  
-		(uint8x16_t){2,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0},
-		vaddq_u8(oDataA, vdupq_n_u8(42-32))
-	));
-	cmpA = vcgtq_u8(cmpA, (uint8x16_t){1,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2});
 # ifdef YENC_NEON_FAST_ONECHAR_EOL
-	dataA = vaddq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
-	dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
+	dataA = vaddq_u8(dataA, vbslq_u8(cmpA, vdupq_n_u8(64+42), vdupq_n_u8(42)));
+	dataB = vorrq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
 # endif
 #else
 	uint8x16_t cmpA = vorrq_u8(
@@ -227,8 +231,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		uint8x16_t data1A = vqsubq_u8(shuf1, vdupq_n_u8(64));
 #ifdef __aarch64__
 # ifndef YENC_NEON_FAST_ONECHAR_EOL
-		dataA = vaddq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
-		dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
+		dataA = vaddq_u8(dataA, vbslq_u8(cmpA, vdupq_n_u8(64+42), vdupq_n_u8(42)));
+		dataB = vorrq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
 # endif
 		data1A = vqtbx1q_u8(data1A, dataA, shuf1);
 		uint8x16_t data2A = vqtbx1q_u8(shuf2, vextq_u8(dataA, dataA, 8), shuf2);
@@ -337,15 +341,14 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 			vtbx1_u8(shufBh, vget_high_u8(dataB), shufBh)
 		);
 # endif
-		vst1q_u8(p, dataA);
-		p += sizeof(uint8x16_t);
-		vst1q_u8(p, dataB);
-		p += sizeof(uint8x16_t) - 1;
+		vst1q_u8_x2_unaligned(p, ((uint8x16x2_t){dataA, dataB}));
+		p += sizeof(uint8x16_t)*2 - 1;
 		p += (mask != 0);
 		col = lineSizeOffset + (mask != 0);
 #else
 		uint8x16_t data1;
 # ifdef __aarch64__
+		dataA = vaddq_u8(dataA, vdupq_n_u8(42));
 		data1 = vqtbx1q_u8((uint8x16_t){0,'\r','\n',0,0,0,0,0,0,0,0,0,0,0,0,0}, dataA, (uint8x16_t){0,16,16,1,2,3,4,5,6,7,8,9,10,11,12,13});
 # else
 		dataA = vsubq_u8(dataA, vdupq_n_u8(-42));
@@ -414,6 +417,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 		}
 	}
 	while(i < 0) {
+		// for unaligned loads, separate loads seem to be faster than vld1q_u8_x2 on Cortex A53; unsure if this applies elsewhere
 		uint8x16_t dataA = vld1q_u8(es + i);
 		uint8x16_t dataB = vld1q_u8(es + i + sizeof(uint8x16_t));
 		i += sizeof(uint8x16_t)*2;
@@ -437,8 +441,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 		);
 		
 # ifdef YENC_NEON_FAST_ONECHAR_MAIN
-		dataA = vaddq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
-		dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
+		dataA = vorrq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
+		dataB = vorrq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
 # endif
 #else
 		// the ARMv8 strategy may be worth it here with 2x vtbx2's, but both GCC-9 and Clang-9 generate poor assembly for it, so it performs worse than the following
@@ -533,8 +537,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 			// expand halves
 #ifdef __aarch64__
 # ifndef YENC_NEON_FAST_ONECHAR_MAIN
-			dataA = vaddq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
-			dataB = vaddq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
+			dataA = vorrq_u8(dataA, vandq_u8(cmpA, vdupq_n_u8(64)));
+			dataB = vorrq_u8(dataB, vandq_u8(cmpB, vdupq_n_u8(64)));
 # endif
 			uint8x16_t data1A = vqtbx1q_u8(shuf1, dataA, shuf1);
 			uint8x16_t data2A = vqtbx1q_u8(shuf2, vextq_u8(dataA, dataA, 8), shuf2);
@@ -588,40 +592,26 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 			if(LIKELIHOOD(0.3, col >= 0)) {
 				// we overflowed - find correct position to revert back to
 				long revert = col;
-				uint32_t eqMask2 = (expandLUT[m4] << shuf3Len) | expandLUT[m3];
-				long pastMid = col - (shuf3Len+shuf4Len);
+				long len2ndHalf = shuf3Len+shuf4Len;
+				long pastMid = col - len2ndHalf;
+				uint32_t eqMaskHalf;
 				if(HEDLEY_UNLIKELY(pastMid >= 0)) {
-					uint32_t eqMask1 = (expandLUT[m2] << shuf1Len) | expandLUT[m1];
-					eqMask1 >>= shufTotalLen - col -1;
-					revert += eqMask1 & 1;
-					
-#ifdef __aarch64__
-					uint64_t eqMask = ((uint64_t)eqMask2 << 32) | (uint64_t)eqMask1;
-					uint8x8_t vCnt = vcnt_u8(vreinterpret_u8_u64(vmov_n_u64(eqMask)));
-					uint8_t cnt = vaddv_u8(vCnt);
-#else
-					uint32x2_t vCnt = vmov_n_u32(eqMask2);
-					vCnt = vset_lane_u32(eqMask1, vCnt, 1);
-					uint8x8_t vCnt_ = vcnt_u8(vreinterpret_u8_u32(vCnt));
-					vCnt_ = vpadd_u8(vCnt_, vCnt_);
-					uint32_t cnt = vget_lane_u32(vreinterpret_u32_u8(vCnt_), 0);
-					cnt += cnt >> 16;
-					cnt += cnt >> 8;
-					cnt &= 0xff;
-#endif
-					i += cnt;
+					eqMaskHalf = (expandLUT[m2] << shuf1Len) | expandLUT[m1];
+					eqMaskHalf >>= shufTotalLen - col -1;
+					i += len2ndHalf - 16;
 				} else {
-					eqMask2 >>= -pastMid -1; // == ~pastMid
-					revert += eqMask2 & 1;
-					
-					// count bits in eqMask
-					uint8x8_t vCnt = vcnt_u8(vreinterpret_u8_u32(vmov_n_u32(eqMask2)));
-					uint32_t cnt = vget_lane_u32(vreinterpret_u32_u8(vCnt), 0);
-					cnt += cnt >> 16;
-					cnt += cnt >> 8;
-					cnt &= 0xff;
-					i += cnt;
+					eqMaskHalf = (expandLUT[m4] << shuf3Len) | expandLUT[m3];
+					eqMaskHalf >>= -pastMid -1; // == ~pastMid
 				}
+				revert += eqMaskHalf & 1;
+				
+				// count bits in eqMask
+				uint8x8_t vCnt = vcnt_u8(vreinterpret_u8_u32(vmov_n_u32(eqMaskHalf)));
+				uint32_t cnt = vget_lane_u32(vreinterpret_u32_u8(vCnt), 0);
+				cnt += cnt >> 16;
+				cnt += cnt >> 8;
+				cnt &= 0xff;
+				i += cnt;
 				
 				p -= revert;
 				i -= revert;
@@ -686,10 +676,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 					vtbx2_u8(shufAh, {vget_low_u8(dataA), vget_high_u8(dataA)}, shufAh)
 				);
 # endif
-				vst1q_u8(p, dataA);
-				p += sizeof(uint8x16_t);
-				vst1q_u8(p, outDataB);
-				p += sizeof(uint8x16_t);
+				vst1q_u8_x2_unaligned(p, ((uint8x16x2_t){dataA, outDataB}));
+				p += sizeof(uint8x16_t)*2;
 				// write last byte
 				*p = vgetq_lane_u8(dataB, 15);
 				p += (mask != 0);
@@ -699,10 +687,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 				dataA = vsubq_u8(dataA, vdupq_n_u8(-42));
 				dataB = vsubq_u8(dataB, vdupq_n_u8(-42));
 # endif
-				vst1q_u8(p, dataA);
-				p += sizeof(uint8x16_t);
-				vst1q_u8(p, dataB);
-				p += sizeof(uint8x16_t);
+				vst1q_u8_x2_unaligned(p, ((uint8x16x2_t){dataA, dataB}));
+				p += sizeof(uint8x16_t)*2;
 #endif
 				col += sizeof(uint8x16_t)*2;
 			}

@@ -26,23 +26,20 @@ struct TShufMix {
 
 static struct {
 	struct TShufMix ALIGN_TO(32, shufMix[256]);
-	struct TShufMix ALIGN_TO(32, nlShufMix[256]);
-	__m128i ALIGN_TO(16, mix[256]);
-	__m128i ALIGN_TO(16, nlMix[256]);
 	const unsigned char BitsSetTable256plus8[256];
-	const uint16_t eolCharMask[512];
+	const uint32_t eolLastChar[256];
+	const uint16_t eolFirstMask[256];
 	uint16_t expandMask[256];
 	
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
-	const int8_t ALIGN_TO(16, expand_maskmix_lzc[32*2*16]);
+	const int8_t ALIGN_TO(16, expand_maskmix_lzc[33*2*32]);
+	const int8_t ALIGN_TO(16, expand_shufmaskmix_lzc[33*2*32]);
 #else
-	const int8_t ALIGN_TO(16, expand_maskmix_bsr[16*2*16]);
+	const int8_t ALIGN_TO(16, expand_maskmix_bsr[33*2*32]);
+	const int8_t ALIGN_TO(16, expand_shufmaskmix_bsr[33*2*32]);
 #endif
-	
-	const uint32_t ALIGN_TO(32, maskMixEOL[4*8]);
 } lookups = {
-	// shuf/mix lookups
-	{}, {}, {}, {},
+	/*shufMix*/ {},
 	/*BitsSetTable256plus8*/ {
 		#   define B2(n) n+8,     n+9,     n+9,     n+10
 		#   define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
@@ -52,75 +49,89 @@ static struct {
 		#undef B4
 		#undef B6
 	},
-	/*eolCharMask*/ {
-		#define _B1(n) _B(n), _B(n+1), _B(n+2), _B(n+3)
-		#define _B2(n) _B1(n), _B1(n+4), _B1(n+8), _B1(n+12)
-		#define _B3(n) _B2(n), _B2(n+16), _B2(n+32), _B2(n+48)
-		#define _BX _B3(0), _B3(64), _B3(128), _B3(192)
-		#define _B(n) ((n == 214+'\t' || n == 214+' ') ? 1 : 0)
-			_BX,
-		#undef _B
-		#define _B(n) ((n == 214+'\t' || n == 214+' ' || n == '.'-42) ? 2 : 0)
+	#define _B1(n) _B(n), _B(n+1), _B(n+2), _B(n+3)
+	#define _B2(n) _B1(n), _B1(n+4), _B1(n+8), _B1(n+12)
+	#define _B3(n) _B2(n), _B2(n+16), _B2(n+32), _B2(n+48)
+	#define _BX _B3(0), _B3(64), _B3(128), _B3(192)
+	/*eolLastChar*/ {
+		#define _B(n) ((n == 214+'\t' || n == 214+' ' || n == 214+'\0' || n == 214+'\n' || n == 214+'\r' || n == '='-42) ? (((n+42+64)&0xff)<<8)+0x0a0d003d : ((n+42)&0xff)+0x0a0d00)
 			_BX
 		#undef _B
-		#undef _B1
-		#undef _B2
-		#undef _B3
-		#undef _BX
 	},
+	/*eolFirstMask*/ {
+		#define _B(n) ((n == 214+'\t' || n == 214+' ' || n == '.'-42) ? 1 : 0)
+			_BX
+		#undef _B
+	},
+	#undef _B1
+	#undef _B2
+	#undef _B3
+	#undef _BX
 	/*expandMask*/ {},
 	
 	
-	// for SSE2 expanding
+	#define _MASK(n) \
+		_X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), \
+		_X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15), \
+		_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
+		_X2(n,24), _X2(n,25), _X2(n,26), _X2(n,27), _X2(n,28), _X2(n,29), _X2(n,30), _X2(n,31)
+	#define _SHUFMASK(n) \
+		_X3(n,0), _X3(n,1), _X3(n,2), _X3(n,3), _X3(n,4), _X3(n,5), _X3(n,6), _X3(n,7), \
+		_X3(n,8), _X3(n,9), _X3(n,10), _X3(n,11), _X3(n,12), _X3(n,13), _X3(n,14), _X3(n,15), \
+		_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
+		_X2(n,24), _X2(n,25), _X2(n,26), _X2(n,27), _X2(n,28), _X2(n,29), _X2(n,30), _X2(n,31)
+	// TODO: consider making _MASK work better for ANDN w/ cmp*
+	
+	
 	#define _X2(n,k) n>k?-1:0
-	#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), _X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15)
+	#define _X3(n,k) n==k?-1:(k-(n<k))
 	#define _Y2(n, m) n==m ? '=' : 42+64*(n==m-1)
-	#define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
-		_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15)
-	#define _XY(n) _X(n), _Y(n)
+	#define _MIX(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
+		_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15), \
+		_Y2(n,16), _Y2(n,17), _Y2(n,18), _Y2(n,19), _Y2(n,20), _Y2(n,21), _Y2(n,22), _Y2(n,23), \
+		_Y2(n,24), _Y2(n,25), _Y2(n,26), _Y2(n,27), _Y2(n,28), _Y2(n,29), _Y2(n,30), _Y2(n,31)
+	#define _XY(n) _MASK(n), _MIX(n)
+	#define _ZY(n) _SHUFMASK(n), _MIX(n)
 	
 	#if defined(__LZCNT__) && defined(__tune_amdfam10__)
 	/*expand_maskmix_lzc*/ {
-		// 512 bytes of padding; this allows us to save doing a subtraction in-loop
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		
+		_XY(31), _XY(30), _XY(29), _XY(28), _XY(27), _XY(26), _XY(25), _XY(24),
+		_XY(23), _XY(22), _XY(21), _XY(20), _XY(19), _XY(18), _XY(17), _XY(16),
 		_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8),
-		_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0)
+		_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0),
+		_XY(32)
+	},
+	/*expand_shufmaskmix_lzc*/ {
+		_ZY(31), _ZY(30), _ZY(29), _ZY(28), _ZY(27), _ZY(26), _ZY(25), _ZY(24),
+		_ZY(23), _ZY(22), _ZY(21), _ZY(20), _ZY(19), _ZY(18), _ZY(17), _ZY(16),
+		_ZY(15), _ZY(14), _ZY(13), _ZY(12), _ZY(11), _ZY(10), _ZY( 9), _ZY( 8),
+		_ZY( 7), _ZY( 6), _ZY( 5), _ZY( 4), _ZY( 3), _ZY( 2), _ZY( 1), _ZY( 0),
+		_ZY(32)
 	},
 	#else
 	/*expand_maskmix_bsr*/ {
+		_XY(32),
 		_XY( 0), _XY( 1), _XY( 2), _XY( 3), _XY( 4), _XY( 5), _XY( 6), _XY( 7),
-		_XY( 8), _XY( 9), _XY(10), _XY(11), _XY(12), _XY(13), _XY(14), _XY(15)
+		_XY( 8), _XY( 9), _XY(10), _XY(11), _XY(12), _XY(13), _XY(14), _XY(15),
+		_XY(16), _XY(17), _XY(18), _XY(19), _XY(20), _XY(21), _XY(22), _XY(23),
+		_XY(24), _XY(25), _XY(26), _XY(27), _XY(28), _XY(29), _XY(30), _XY(31)
 	},
+	/*expand_shufmaskmix_bsr*/ {
+		_ZY(32),
+		_ZY( 0), _ZY( 1), _ZY( 2), _ZY( 3), _ZY( 4), _ZY( 5), _ZY( 6), _ZY( 7),
+		_ZY( 8), _ZY( 9), _ZY(10), _ZY(11), _ZY(12), _ZY(13), _ZY(14), _ZY(15),
+		_ZY(16), _ZY(17), _ZY(18), _ZY(19), _ZY(20), _ZY(21), _ZY(22), _ZY(23),
+		_ZY(24), _ZY(25), _ZY(26), _ZY(27), _ZY(28), _ZY(29), _ZY(30), _ZY(31)
+	}
 	#endif
 	#undef _XY
-	#undef _Y
+	#undef _ZY
+	#undef _MIX
 	#undef _Y2
-	#undef _X
+	#undef _MASK
+	#undef _SHUFMASK
 	#undef _X2
-	
-	/*maskMixEOL*/ {
-		0xff0000ff, ~0U, ~0U, ~0U,    0x0000ffff, ~0U, ~0U, ~0U, // first row not looked up, so reuse it for other purposes
-		
-		0x0000ff00, 0x000000ff, 0, 0,    0x0a0d6a3d, 0x0000002a, 0, 0,
-		0x000000ff, 0x000000ff, 0, 0,    0x3d0a0d2a, 0x0000006a, 0, 0,
-		0x0000ff00, 0x0000ff00, 0, 0,    0x0a0d6a3d, 0x00006a3d, 0, 0
-	}
+	#undef _X3
 };
 
 
@@ -128,36 +139,16 @@ static void encoder_sse_lut() {
 	for(int i=0; i<256; i++) {
 		int k = i;
 		uint8_t* res = (uint8_t*)(&(lookups.shufMix[i].shuf));
-		uint8_t* nlShuf = (uint8_t*)(&(lookups.nlShufMix[i].shuf));
-		uint8_t* nlMix  = (uint8_t*)(&(lookups.nlShufMix[i].mix));
 		uint16_t expand = 0;
-		int p = 0, pNl = 0;
+		int p = 0;
 		for(int j=0; j<8; j++) {
 			if(k & 1) {
 				res[j+p] = 0xf0 + j;
 				p++;
-				if(j+pNl < 16) {
-					nlShuf[j+pNl] = 0xf0 + j;
-					nlMix[j+pNl] = '=';
-					pNl++;
-					if(j+pNl < 16) nlMix[j+pNl] = 64+42;
-				}
-			} else {
-				if(j+pNl < 16) nlMix[j+pNl] = 42;
 			}
 			expand |= 1<<(j+p);
 			res[j+p] = j;
-			if(j+pNl < 16) nlShuf[j+pNl] = j;
 			k >>= 1;
-			
-			if(j == 0) {
-				// insert newline
-				nlShuf[pNl+1] = 0xff;
-				nlShuf[pNl+2] = 0xff;
-				nlMix[pNl+1] = '\r';
-				nlMix[pNl+2] = '\n';
-				pNl += 2;
-			}
 		}
 		for(; p<8; p++)
 			res[8+p] = 8+p +0x40; // +0x40 is an arbitrary value to make debugging slightly easier?  the top bit cannot be set
@@ -172,17 +163,6 @@ static void encoder_sse_lut() {
 		addMask = _mm_add_epi8(addMask, _mm_set1_epi8(42));
 		
 		_mm_store_si128(&(lookups.shufMix[i].mix), addMask);
-		_mm_store_si128(lookups.mix + i, _mm_add_epi8(
-			addMask,
-			_mm_andnot_si128(maskEsc, _mm_set1_epi8(42))
-		));
-		
-		__m128i mix = _mm_load_si128((__m128i*)nlMix);
-		__m128i plainChars = _mm_cmpeq_epi8(_mm_and_si128(mix, _mm_set1_epi8(-1-64)), _mm_setzero_si128());
-		_mm_store_si128(lookups.nlMix + i, _mm_add_epi8(
-			mix,
-			_mm_and_si128(plainChars, _mm_set1_epi8(42))
-		));
 	}
 }
 
@@ -206,12 +186,12 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
 		// get highest bit
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 		unsigned long bitIndex = _lzcnt_u32(mask);
-		__m128i mergeMask = _mm_load_si128((const __m128i*)lookups.expand_maskmix_lzc + bitIndex*2);
+		__m128i mergeMask = _mm_load_si128((const __m128i*)lookups.expand_maskmix_lzc + bitIndex*4);
 		mask ^= 0x80000000U>>bitIndex;
 #else
 		// TODO: consider LUT for when BSR is slow
 		unsigned long _BSR_VAR(bitIndex, mask);
-		__m128i mergeMask = _mm_load_si128((const __m128i*)lookups.expand_maskmix_bsr + bitIndex*2);
+		__m128i mergeMask = _mm_load_si128((const __m128i*)lookups.expand_maskmix_bsr + (bitIndex+1)*4);
 		mask ^= 1<<bitIndex;
 #endif
 		// perform expansion
@@ -225,197 +205,36 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
 
 
 template<enum YEncDecIsaLevel use_isa>
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
-	__m128i data = _mm_loadu_si128((__m128i *)(es + i));
-	__m128i cmp;
-	unsigned int mask;
-	
-	// search for special chars
-#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
-	if(use_isa >= ISA_LEVEL_SSSE3) {
-		cmp = _mm_cmpeq_epi8(
-			_mm_shuffle_epi8(_mm_set_epi8(
-				'='-42,-128,' '-42,-128,'.'-42,'\r'-42,-128,' '-42,'\n'-42,'\t'-42,'\r'-42,-128,'\r'-42,'\n'-42,'\t'-42,'\n'-42
-			), _mm_adds_epi8(data, _mm_set_epi8(
-				112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112, 119, 114
-			))),
-			data
-		);
-		cmp = _mm_or_si128(
-			cmp,
-			_mm_cmpeq_epi8(data, _mm_set1_epi8(-42))
-		);
-		mask = _mm_movemask_epi8(cmp);
-	} else
-#endif
-	{
-		cmp = _mm_or_si128(
-			_mm_or_si128(
-				_mm_cmpeq_epi8(data, _mm_set1_epi8(-42)),
-				_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'-42))
-			),
-			_mm_or_si128(
-				_mm_cmpeq_epi8(data, _mm_set1_epi8('='-42)),
-				_mm_cmpeq_epi8(data, _mm_set1_epi8('\r'-42))
-			)
-		);
-		mask = _mm_movemask_epi8(cmp);
-		
-		uint16_t lineChars = *(uint16_t*)(es + i);
-		mask |= lookups.eolCharMask[lineChars & 0xff];
-		mask |= lookups.eolCharMask[256 + ((lineChars>>8) & 0xff)];
-	}
-	
-	if (LIKELIHOOD(0.2227, mask != 0)) {
-		uint8_t m1 = mask & 0xFF;
-		uint8_t m2 = mask >> 8;
-		__m128i data1;
-		
-		unsigned int shufALen;
-#if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
-		if(use_isa >= ISA_LEVEL_AVX)
-			shufALen = popcnt32(m1) + 10;
-		else
-#endif
-			shufALen = lookups.BitsSetTable256plus8[m1] + 2;
-		
-		// TODO: is VBMI2 worthwhile here?
-#ifdef __SSSE3__
-		if(use_isa >= ISA_LEVEL_SSSE3) {
-			__m128i shufMA = _mm_load_si128(&(lookups.nlShufMix[m1].shuf));
-			data1 = _mm_shuffle_epi8(data, shufMA);
-			// add in escaped chars
-			__m128i shufMixMA = _mm_load_si128(&(lookups.nlShufMix[m1].mix));
-			data1 = _mm_add_epi8(data1, shufMixMA);
-		} else
-#endif
-		{
-			if(LIKELIHOOD(0.001, shufALen > XMM_SIZE)) {
-				// overflow case, only bother with first 2 chars
-				data1 = _mm_unpacklo_epi8(data, data); // 0011xxxx
-				data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(0,1,1,0)); // 00111100
-				
-				unsigned lut = (m1 & 3)*2;
-				data1 = _mm_and_si128(data1, _mm_load_si128((const __m128i*)lookups.maskMixEOL + lut));
-				data1 = _mm_add_epi8(data1, _mm_load_si128((const __m128i*)lookups.maskMixEOL + lut+1));
-			} else {
-				// regular expansion, except first byte
-				data1 = sse2_expand_bytes(m1 & 0xfe, data);
-				// expand for newline
-				if(LIKELIHOOD(0.02, m1 & 1)) {
-					data1 = _mm_slli_si128(data1, 3);
-					data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(3,2,1,1));
-					// try to get compiler to not waste a register on this mask
-					data1 = _mm_and_si128(data1, _mm_load_si128((const __m128i*)lookups.maskMixEOL + 1));
-				} else {
-					data1 = _mm_slli_si128(data1, 2);
-					data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(3,2,1,1));
-					data1 = _mm_and_si128(data1, _mm_load_si128((const __m128i*)lookups.maskMixEOL));
-				}
-				
-				__m128i shufMixMA = _mm_load_si128(lookups.nlMix + m1);
-				data1 = _mm_add_epi8(data1, shufMixMA);
-			}
-		}
-		
-		if(LIKELIHOOD(0.001, shufALen > XMM_SIZE)) {
-			// unlikely special case, which would cause vectors to be overflowed
-			// we'll just handle this by only dealing with the first 2 characters, and let main loop handle the rest
-			// at least one of the first 2 chars is guaranteed to need escaping
-			_mm_storel_epi64((__m128i*)p, data1);
-			col = lineSizeOffset + ((m1 & 2)>>1) - 16+2;
-			p += 4 + (m1 & 1) + ((m1 & 2)>>1);
-			i += 2;
-			return;
-		}
-		
-		__m128i data2;
-		unsigned int shufTotalLen;
-#if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
-		if(use_isa >= ISA_LEVEL_AVX)
-			shufTotalLen = popcnt32(mask) + 18;
-		else
-#endif
-			shufTotalLen = shufALen + lookups.BitsSetTable256plus8[m2];
-		
-#ifdef __SSSE3__
-		if(use_isa >= ISA_LEVEL_SSSE3) {
-			__m128i shufMB = _mm_load_si128(&(lookups.shufMix[m2].shuf));
-			shufMB = _mm_or_si128(shufMB, _mm_set1_epi8(120));
-			data2 = _mm_shuffle_epi8(data, shufMB);
-			__m128i shufMixMB = _mm_load_si128(&(lookups.shufMix[m2].mix));
-			data2 = _mm_add_epi8(data2, shufMixMB);
-		} else
-#endif
-		{
-			data2 = sse2_expand_bytes(m2, _mm_srli_si128(data, 8));
-			__m128i shufMixMB = _mm_load_si128(lookups.mix + m2);
-			data2 = _mm_add_epi8(data2, shufMixMB);
-		}
-		
-		STOREU_XMM(p, data1);
-		STOREU_XMM(p+shufALen, data2);
-		p += shufTotalLen;
-		col = (long)(shufTotalLen - (m1&1)) + lineSizeOffset-16 -2;
-	} else {
-		__m128i data1;
-		data = _mm_sub_epi8(data, _mm_set1_epi8(-42));
-#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
-		if(use_isa >= ISA_LEVEL_SSSE3) {
-			data1 = _mm_shuffle_epi8(data, _mm_set_epi8(
-				13,12,11,10,9,8,7,6,5,4,3,2,1,-1,-1,0
-			));
-		} else
-#endif
-		{
-			data1 = _mm_slli_si128(data, 2);
-			data1 = _mm_shufflelo_epi16(data1, _MM_SHUFFLE(3,2,1,1));
-			data1 = _mm_and_si128(data1, _mm_load_si128((const __m128i*)lookups.maskMixEOL));
-		}
-		data1 = _mm_or_si128(data1, _mm_cvtsi32_si128(0x0a0d00));
-		STOREU_XMM(p, data1);
-		*(uint16_t*)(p+XMM_SIZE) = _mm_extract_epi16(data, 7);
-		p += XMM_SIZE+2;
-		col = lineSizeOffset;
-		
-	}
-	
-	i += XMM_SIZE;
-	// TODO: check col >= 0 if we want to support short lines
-}
-
-
-template<enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
-	if(len < XMM_SIZE*2 || line_size < XMM_SIZE*2) return;
+	if(len < XMM_SIZE*4+1 || line_size < XMM_SIZE) return;
+	
+	// slower CPUs prefer to branch as mispredict penalty is probably small relative to general execution
+#if defined(__tune_atom__) || defined(__tune_silvermont__) || defined(__tune_btver1__)
+	const bool _PREFER_BRANCHING = true;
+#else
+	const bool _PREFER_BRANCHING = (use_isa < ISA_LEVEL_SSSE3);
+#endif
+	
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
-	long lineSizeOffset = -line_size +16; // line size plus vector length
+	long lineSizeOffset = -line_size +1;
 	//long col = *colOffset - line_size +1; // for some reason, this causes GCC-8 to spill an extra register, causing the main loop to run ~5% slower, so use the alternative version below
-	long col = *colOffset + lineSizeOffset - 15;
+	long col = *colOffset + lineSizeOffset;
 	
 	// offset position to enable simpler loop condition checking
-	const int INPUT_OFFSET = XMM_SIZE + XMM_SIZE -1; // EOL handling performs a full 128b read, -1 to change <= to <
+	const int INPUT_OFFSET = XMM_SIZE*4+1 -1; // EOL handling performs a full 128b read, -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
-	if (LIKELIHOOD(0.999, col == -line_size+1)) {
-		uint8_t c = es[i++];
-		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
-			*(uint16_t*)p = escapedLUT[c];
-			p += 2;
-			col += 2;
-		} else {
-			*(p++) = c + 42;
-			col += 1;
-		}
-	}
 	if(LIKELIHOOD(0.001, col >= 0)) {
-		if(col == 0)
-			encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
-		else {
-			uint8_t c = es[i++];
+		uint8_t c = es[i++];
+		if(col == 0) {
+			uint32_t eolChar = lookups.eolLastChar[c];
+			*(uint32_t*)p = eolChar;
+			p += 3 + (eolChar>>27);
+			col = -line_size+1;
+		} else {
 			if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
 				*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 				p += 4;
@@ -427,164 +246,219 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			}
 		}
 	}
-	while(i < 0) {
-		__m128i data = _mm_loadu_si128((__m128i *)(es + i)); // probably not worth the effort to align
-		i += XMM_SIZE;
+	if (LIKELIHOOD(0.999, col == -line_size+1)) {
+		uint8_t c = es[i++];
+		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
+			*(uint16_t*)p = escapedLUT[c];
+			p += 2;
+			col += 2;
+		} else {
+			*(p++) = c + 42;
+			col += 1;
+		}
+	}
+	do {
+		__m128i dataA = _mm_loadu_si128((__m128i *)(es + i)); // probably not worth the effort to align
+		__m128i dataB = _mm_loadu_si128((__m128i *)(es + i) +1);
+		
+		i += XMM_SIZE*2;
 		// search for special chars
-		__m128i cmp;
+		__m128i cmpA, cmpB;
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
 		if(use_isa >= ISA_LEVEL_SSSE3) {
-			cmp = _mm_cmpeq_epi8(
+			cmpA = _mm_cmpeq_epi8(
 				_mm_shuffle_epi8(_mm_set_epi8(
-					'='-42,'\0'-42,-128,-128,'\r'-42,-128,-128,'\n'-42,-128,-128,-128,-128,-128,-128,-128,-128
-				), _mm_adds_epi8(data, _mm_set1_epi8(120))),
-				data
+					'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
+				), _mm_adds_epi8(dataA, _mm_set1_epi8(120))),
+				dataA
+			);
+			cmpB = _mm_cmpeq_epi8(
+				_mm_shuffle_epi8(_mm_set_epi8(
+					'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
+				), _mm_adds_epi8(dataB, _mm_set1_epi8(120))),
+				dataB
 			);
 		} else
 #endif
 		{
-			cmp = _mm_or_si128(
+			cmpA = _mm_or_si128(
 				_mm_or_si128(
-					_mm_cmpeq_epi8(data, _mm_set1_epi8(-42)),
-					_mm_cmpeq_epi8(data, _mm_set1_epi8('\n'-42))
+					_mm_cmpeq_epi8(dataA, _mm_set1_epi8(-42)),
+					_mm_cmpeq_epi8(dataA, _mm_set1_epi8('\n'-42))
 				),
 				_mm_or_si128(
-					_mm_cmpeq_epi8(data, _mm_set1_epi8('='-42)),
-					_mm_cmpeq_epi8(data, _mm_set1_epi8('\r'-42))
+					_mm_cmpeq_epi8(dataA, _mm_set1_epi8('='-42)),
+					_mm_cmpeq_epi8(dataA, _mm_set1_epi8('\r'-42))
+				)
+			);
+			cmpB = _mm_or_si128(
+				_mm_or_si128(
+					_mm_cmpeq_epi8(dataB, _mm_set1_epi8(-42)),
+					_mm_cmpeq_epi8(dataB, _mm_set1_epi8('\n'-42))
+				),
+				_mm_or_si128(
+					_mm_cmpeq_epi8(dataB, _mm_set1_epi8('='-42)),
+					_mm_cmpeq_epi8(dataB, _mm_set1_epi8('\r'-42))
 				)
 			);
 		}
 		
-		unsigned int mask = _mm_movemask_epi8(cmp);
-		// likelihood of non-0 = 1-(63/64)^(sizeof(__m128i))
-		if (LIKELIHOOD(0.2227, mask != 0)) { // seems to always be faster than _mm_test_all_zeros, possibly because http://stackoverflow.com/questions/34155897/simd-sse-how-to-check-that-all-vector-elements-are-non-zero#comment-62475316
-			uint8_t m1 = mask & 0xFF;
-			uint8_t m2 = mask >> 8;
-			__m128i shufMA, shufMB; // only used for SSSE3 path
-			__m128i data2;
+		unsigned maskA = _mm_movemask_epi8(cmpA);
+		unsigned maskB = _mm_movemask_epi8(cmpB);
+		
+		_encode_loop_branch:
+		uint32_t mask = (maskB<<16) | maskA;
+		long bitIndex; // because you can't goto past variable declarations...
+		long maskBits;
+		
+		bool manyBitsSet;
+#if defined(__POPCNT__) && !defined(__tune_btver1__)
+		if(use_isa >= ISA_LEVEL_AVX) {
+			maskBits = popcnt32(mask);
+			manyBitsSet = maskBits > 1;
+		} else
+#endif
+		{
+			manyBitsSet = (mask & (mask-1)) != 0;
+		}
+		
+		if (LIKELIHOOD(0.089, manyBitsSet)) {
+			uint8_t m1 = maskA & 0xFF;
+			uint8_t m2 = maskA >> 8;
+			uint8_t m3 = maskB & 0xFF;
+			uint8_t m4 = maskB >> 8;
+			unsigned int shuf1Len, shuf2Len, shuf3Len, shufTotalLen;
+			__m128i shuf1A, shuf1B, shuf2A, shuf2B; // only used for SSSE3 path
+			__m128i data1A, data1B, data2A, data2B;
 			
-#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__) && defined(__POPCNT__)
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
-				data = _mm_sub_epi8(data, _mm_ternarylogic_epi32(cmp, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
+				dataA = _mm_sub_epi8(dataA, _mm_ternarylogic_epi32(cmpA, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
+				dataB = _mm_sub_epi8(dataB, _mm_ternarylogic_epi32(cmpB, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
 				
-				data2 = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m2], _mm_srli_si128(data, 8));
-				data = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m1], data);
+				data2A = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m2], _mm_srli_si128(dataA, 8));
+				data1A = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m1], dataA);
+				data2B = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m4], _mm_srli_si128(dataB, 8));
+				data1B = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m3], dataB);
 			} else
 #endif
 #ifdef __SSSE3__
 			if(use_isa >= ISA_LEVEL_SSSE3) {
 				// perform lookup for shuffle mask
-				shufMA = _mm_load_si128(&(lookups.shufMix[m1].shuf));
-				shufMB = _mm_load_si128(&(lookups.shufMix[m2].shuf));
+				shuf1A = _mm_load_si128(&(lookups.shufMix[m1].shuf));
+				shuf2A = _mm_load_si128(&(lookups.shufMix[m2].shuf));
+				shuf1B = _mm_load_si128(&(lookups.shufMix[m3].shuf));
+				shuf2B = _mm_load_si128(&(lookups.shufMix[m4].shuf));
 				
 				// second mask processes on second half, so add to the offsets
-				shufMB = _mm_or_si128(shufMB, _mm_set1_epi8(120));
+				shuf2A = _mm_or_si128(shuf2A, _mm_set1_epi8(120));
+				shuf2B = _mm_or_si128(shuf2B, _mm_set1_epi8(120));
 				
 				// expand halves
-				data2 = _mm_shuffle_epi8(data, shufMB);
-				data = _mm_shuffle_epi8(data, shufMA);
+				data2A = _mm_shuffle_epi8(dataA, shuf2A);
+				data1A = _mm_shuffle_epi8(dataA, shuf1A);
+				data2B = _mm_shuffle_epi8(dataB, shuf2B);
+				data1B = _mm_shuffle_epi8(dataB, shuf1B);
 				
 				// add in escaped chars
-				__m128i shufMixMA = _mm_load_si128(&(lookups.shufMix[m1].mix));
-				__m128i shufMixMB = _mm_load_si128(&(lookups.shufMix[m2].mix));
-				data = _mm_add_epi8(data, shufMixMA);
-				data2 = _mm_add_epi8(data2, shufMixMB);
+				data1A = _mm_add_epi8(data1A, _mm_load_si128(&(lookups.shufMix[m1].mix)));
+				data2A = _mm_add_epi8(data2A, _mm_load_si128(&(lookups.shufMix[m2].mix)));
+				data1B = _mm_add_epi8(data1B, _mm_load_si128(&(lookups.shufMix[m3].mix)));
+				data2B = _mm_add_epi8(data2B, _mm_load_si128(&(lookups.shufMix[m4].mix)));
 			} else
 #endif
 			{
-				if(HEDLEY_UNLIKELY(mask & (mask-1))) {
-					data2 = sse2_expand_bytes(m2, _mm_srli_si128(data, 8));
-					data = sse2_expand_bytes(m1, data);
-					// add in escaped chars
-					__m128i shufMixMA = _mm_load_si128(lookups.mix + m1);
-					__m128i shufMixMB = _mm_load_si128(lookups.mix + m2);
-					data = _mm_add_epi8(data, shufMixMA);
-					data2 = _mm_add_epi8(data2, shufMixMB);
+				// TODO: consider 1 bit shortcuts
+				if(maskA) {
+					data1A = sse2_expand_bytes(m1, dataA);
+					data2A = sse2_expand_bytes(m2, _mm_srli_si128(dataA, 8));
+					data1A = _mm_add_epi8(data1A, _mm_load_si128(&(lookups.shufMix[m1].mix)));
+					data2A = _mm_add_epi8(data2A, _mm_load_si128(&(lookups.shufMix[m2].mix)));
+					shuf1Len = lookups.BitsSetTable256plus8[m1];
+					shuf2Len = shuf1Len + lookups.BitsSetTable256plus8[m2];
+					STOREU_XMM(p, data1A);
+					STOREU_XMM(p+shuf1Len, data2A);
+					p += shuf2Len;
 				} else {
-					// shortcut for common case of only 1 bit set
-#if defined(__LZCNT__) && defined(__tune_amdfam10__)
-					// lzcnt is faster than bsf on AMD
-					long bitIndex = _lzcnt_u32(mask);
-					__m128i mergeMask = _mm_load_si128((const __m128i*)lookups.expand_maskmix_lzc + bitIndex*2);
-					__m128i mixVals = _mm_load_si128((const __m128i*)lookups.expand_maskmix_lzc + bitIndex*2 + 1);
-#else
-					long _BSR_VAR(bitIndex, mask);
-					__m128i mergeMask = _mm_load_si128((const __m128i*)lookups.expand_maskmix_bsr + bitIndex*2);
-					__m128i mixVals = _mm_load_si128((const __m128i*)lookups.expand_maskmix_bsr + bitIndex*2 + 1);
-#endif
-					data = _mm_or_si128(
-						_mm_and_si128(mergeMask, data),
-						_mm_slli_si128(_mm_andnot_si128(mergeMask, data), 1)
-					);
-					// add escape chars
-					data = _mm_add_epi8(data, mixVals);
-					
-					// store main part
-					STOREU_XMM(p, data);
-					// store final char
-					p[XMM_SIZE] = es[i-1] + 42 + (64 & (mask>>(XMM_SIZE-1-6)));
-					
-					p += XMM_SIZE + 1;
-					col += XMM_SIZE + 1;
-					
-					if(LIKELIHOOD(0.15, col >= 0)) {
-#if defined(__LZCNT__) && defined(__tune_amdfam10__)
-						bitIndex = bitIndex-16 +1;
-#else
-						bitIndex = 15-bitIndex +1;
-#endif
-						if(HEDLEY_UNLIKELY(col == bitIndex)) {
-							// this is an escape character, so line will need to overflow
-							p--;
-						} else {
-							i += (col > bitIndex);
-						}
-						p -= col;
-						i -= col;
-						goto _encode_eol_handle_pre;
-					}
-					continue;
+					dataA = _mm_sub_epi8(dataA, _mm_set1_epi8(-42));
+					STOREU_XMM(p, dataA);
+					p += XMM_SIZE;
+					shuf1Len = 8;
+					shuf2Len = 16;
 				}
-				
+				if(maskB) {
+					data1B = sse2_expand_bytes(m3, dataB);
+					data2B = sse2_expand_bytes(m4, _mm_srli_si128(dataB, 8));
+					data1B = _mm_add_epi8(data1B, _mm_load_si128(&(lookups.shufMix[m3].mix)));
+					data2B = _mm_add_epi8(data2B, _mm_load_si128(&(lookups.shufMix[m4].mix)));
+					shuf3Len = lookups.BitsSetTable256plus8[m3];
+					unsigned int shuf4Len = shuf3Len + lookups.BitsSetTable256plus8[m4];
+					STOREU_XMM(p, data1B);
+					STOREU_XMM(p+shuf3Len, data2B);
+					p += shuf4Len;
+					shuf3Len += shuf2Len;
+					shufTotalLen = shuf2Len + shuf4Len;
+				} else {
+					dataB = _mm_sub_epi8(dataB, _mm_set1_epi8(-42));
+					STOREU_XMM(p, dataB);
+					p += XMM_SIZE;
+					shuf3Len = shuf2Len + 8;
+					shufTotalLen = shuf2Len + 16;
+				}
 			}
 			
-			// store out
-			unsigned int shufALen, shufTotalLen;
-#if defined(__POPCNT__) && (defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__))
-			if(use_isa >= ISA_LEVEL_AVX) {
-				shufALen = popcnt32(m1) + 8;
-				shufTotalLen = popcnt32(mask) + 16;
-			} else
+			if(use_isa >= ISA_LEVEL_SSSE3) {
+				// store out
+#if defined(__POPCNT__) && !defined(__tune_btver1__)
+				if(use_isa >= ISA_LEVEL_AVX) {
+					// TODO: check/tweak these
+					shuf2Len = popcnt32(maskA) + 16;
+# if defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__)
+					shuf1Len = popcnt32(m1) + 8;
+					shuf3Len = popcnt32(m3) + shuf2Len + 8;
+# else
+					shuf1Len = lookups.BitsSetTable256plus8[m1];
+					shuf3Len = lookups.BitsSetTable256plus8[m3] + shuf2Len;
+# endif
+					shufTotalLen = maskBits + XMM_SIZE*2;
+				} else
 #endif
-			{
-				shufALen = lookups.BitsSetTable256plus8[m1];
-				shufTotalLen = shufALen + lookups.BitsSetTable256plus8[m2];
+				{
+					shuf1Len = lookups.BitsSetTable256plus8[m1];
+					shuf2Len = shuf1Len + lookups.BitsSetTable256plus8[m2];
+					shuf3Len = shuf2Len + lookups.BitsSetTable256plus8[m3];
+					shufTotalLen = shuf3Len + lookups.BitsSetTable256plus8[m4];
+				}
+				STOREU_XMM(p, data1A);
+				STOREU_XMM(p+shuf1Len, data2A);
+				STOREU_XMM(p+shuf2Len, data1B);
+				STOREU_XMM(p+shuf3Len, data2B);
+				p += shufTotalLen;
 			}
-			STOREU_XMM(p, data);
-			STOREU_XMM(p+shufALen, data2);
-			p += shufTotalLen;
 			col += shufTotalLen;
 			
-			if(LIKELIHOOD(0.15 /*guess, using 128b lines*/, col >= 0)) {
-				uint32_t eqMask;
+			if(LIKELIHOOD(0.3 /*guess, using 128b lines*/, col >= 0)) {
+				// TODO: optimize for 32-bit?
+				uint64_t eqMask;
 				// from experimentation, it doesn't seem like it's worth trying to branch here, i.e. it isn't worth trying to avoid a pmovmskb+shift+or by checking overflow amount
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
-					eqMask = (lookups.expandMask[m2] << shufALen) | lookups.expandMask[m1];
-#if defined(__GNUC__)
+					eqMask =
+					  ((uint64_t)lookups.expandMask[m4] << shuf3Len)
+					  | ((uint64_t)lookups.expandMask[m3] << shuf2Len)
+					  | ((uint64_t)lookups.expandMask[m2] << shuf1Len)
+					  | (uint64_t)lookups.expandMask[m1];
+					
+#if defined(__GNUC__) && defined(PLATFORM_AMD64)
 					// be careful to avoid partial flag stalls on Intel P6 CPUs (SHR+ADC will likely stall)
 # if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
 					if(use_isa >= ISA_LEVEL_VBMI2)
 # endif
 					{
 						asm(
-							"shrl $1, %[eqMask] \n" // can eliminate this shift in x64 by using shrq, but is a little fiddly...
-							"shrl %%cl, %[eqMask] \n"
-# ifdef PLATFORM_AMD64
+							"shrq $1, %[eqMask] \n"
+							"shrq %%cl, %[eqMask] \n"
 							"adcq %[col], %[p] \n"
-# else
-							"adcl %[col], %[p] \n"
-# endif
-							: [eqMask]"+q"(eqMask), [p]"+r"(p)
+							: [eqMask]"+r"(eqMask), [p]"+r"(p)
 							: "c"(shufTotalLen - col - 1), [col]"r"(~col)
 						);
 					}
@@ -603,21 +477,37 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 							i++;
 					}
 				} else {
-					eqMask = ((unsigned)_mm_movemask_epi8(shufMB) << shufALen) | (unsigned)_mm_movemask_epi8(shufMA);
+					eqMask =
+					  ((uint64_t)_mm_movemask_epi8(shuf2B) << shuf3Len)
+					  | ((uint64_t)_mm_movemask_epi8(shuf1B) << shuf2Len)
+					  | ((uint64_t)_mm_movemask_epi8(shuf2A) << shuf1Len)
+					  | (uint64_t)_mm_movemask_epi8(shuf1A);
 					eqMask >>= shufTotalLen - col -1;
 				}
 				
 				unsigned int bitCount;
 #if defined(__POPCNT__)
-				if(use_isa >= ISA_LEVEL_AVX)
-					bitCount = popcnt32(eqMask);
-				else
+				if(use_isa >= ISA_LEVEL_AVX) {
+#ifdef PLATFORM_AMD64
+					bitCount = (unsigned)_mm_popcnt_u64(eqMask);
+#else
+					bitCount = popcnt32(eqMask & 0xffffffff);
+					bitCount += popcnt32(eqMask >> 32);
+#endif
+				} else
 #endif
 				{
 					unsigned char cnt = lookups.BitsSetTable256plus8[eqMask & 0xff];
 					cnt += lookups.BitsSetTable256plus8[(eqMask>>8) & 0xff];
 					cnt += lookups.BitsSetTable256plus8[(eqMask>>16) & 0xff];
 					cnt += lookups.BitsSetTable256plus8[(eqMask>>24) & 0xff];
+					if(HEDLEY_UNLIKELY(eqMask >> 32)) {
+						cnt += lookups.BitsSetTable256plus8[(eqMask>>32) & 0xff];
+						cnt += lookups.BitsSetTable256plus8[(eqMask>>40) & 0xff];
+						cnt += lookups.BitsSetTable256plus8[(eqMask>>48) & 0xff];
+						cnt += lookups.BitsSetTable256plus8[(eqMask>>56) & 0xff];
+						cnt -= 32;
+					}
 					bitCount = cnt-32;
 				}
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
@@ -631,19 +521,227 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				goto _encode_eol_handle_pre;
 			}
 		} else {
-			data = _mm_sub_epi8(data, _mm_set1_epi8(-42));
-			STOREU_XMM(p, data);
-			p += XMM_SIZE;
-			col += XMM_SIZE;
-			if(LIKELIHOOD(0.15, col >= 0)) {
+			if(_PREFER_BRANCHING && LIKELIHOOD(0.663, !mask)) {
+				dataA = _mm_sub_epi8(dataA, _mm_set1_epi8(-42));
+				dataB = _mm_sub_epi8(dataB, _mm_set1_epi8(-42));
+				STOREU_XMM(p, dataA);
+				STOREU_XMM(p+XMM_SIZE, dataB);
+				p += XMM_SIZE*2;
+				col += XMM_SIZE*2;
+				if(LIKELIHOOD(0.15, col >= 0)) {
+					p -= col;
+					i -= col;
+					
+					goto _encode_eol_handle_pre;
+				}
+				continue;
+			}
+			// shortcut for common case of only 1 bit set
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+			if(use_isa >= ISA_LEVEL_AVX3) {
+				dataA = _mm_sub_epi8(dataA, _mm_ternarylogic_epi32(cmpA, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
+				dataB = _mm_sub_epi8(dataB, _mm_ternarylogic_epi32(cmpB, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
+				
+				uint32_t blendMask = ~(mask-1);
+				dataB = _mm_mask_alignr_epi8(dataB, blendMask>>16, dataB, dataA, 15);
+				dataB = _mm_mask_blend_epi8(maskB, dataB, _mm_set1_epi8('='));
+				
+# if defined(__AVX512VBMI2__)
+				if(use_isa >= ISA_LEVEL_VBMI2)
+					dataA = _mm_mask_expand_epi8(_mm_set1_epi8('='), ~mask, dataA);
+				else
+# endif
+				{
+					dataA = _mm_mask_alignr_epi8(dataA, blendMask, dataA, dataA, 15); // there's no masked shift, so use ALIGNR instead
+					dataA = _mm_mask_blend_epi8(mask, dataA, _mm_set1_epi8('='));
+				}
+			} else
+#endif
+			{
+				
+#if !defined(__tune_btver1__)
+				if(use_isa < ISA_LEVEL_AVX)
+#endif
+					maskBits = (mask != 0);
+				if(_PREFER_BRANCHING) maskBits = 1;
+				
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
+				// lzcnt is faster than bsf on AMD
+				bitIndex = _lzcnt_u32(mask);
+#else
+				_BSR_VAR(bitIndex, mask);
+				bitIndex |= maskBits-1; // if(mask == 0) bitIndex = -1;
+#endif
+				const __m128i* entries;
+				
+#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
+				if(use_isa >= ISA_LEVEL_SSSE3) {
+# if defined(__LZCNT__) && defined(__tune_amdfam10__)
+					entries = (const __m128i*)lookups.expand_shufmaskmix_lzc;
+# else
+					entries = (const __m128i*)lookups.expand_shufmaskmix_bsr + 4;
+# endif
+					entries += bitIndex*4;
+					
+					__m128i shufMaskA = _mm_load_si128(entries+0);
+					__m128i mergeMaskB = _mm_load_si128(entries+1);
+					__m128i dataBShifted = _mm_alignr_epi8(dataB, dataA, 15);
+					dataBShifted = _mm_andnot_si128(cmpB, dataBShifted);
+					
+					dataA = _mm_shuffle_epi8(dataA, shufMaskA);
+					
+# if defined(__SSE4_1__) && !defined(__tune_silvermont__) && !defined(__tune_goldmont__) && !defined(__tune_goldmont_plus__)
+					// unsure if worth on: Jaguar/Puma (3|2), Core2 (2|2)
+					if(use_isa >= ISA_LEVEL_AVX) {
+						dataB = _mm_blendv_epi8(dataBShifted, dataB, mergeMaskB);
+					} else
+# endif
+					{
+						dataB = _mm_or_si128(
+							_mm_and_si128(mergeMaskB, dataB),
+							_mm_andnot_si128(mergeMaskB, dataBShifted)
+						);
+					}
+				} else
+#endif
+				{
+					
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
+					entries = (const __m128i*)lookups.expand_maskmix_lzc;
+#else
+					entries = (const __m128i*)lookups.expand_maskmix_bsr + 4;
+#endif
+					entries += bitIndex*4;
+					
+					__m128i mergeMaskA = _mm_load_si128(entries+0);
+					__m128i mergeMaskB = _mm_load_si128(entries+1);
+					// TODO: consider deferring mask operation? (does require an extra ANDN but may help with L1 latency)
+					__m128i dataAMasked = _mm_andnot_si128(mergeMaskA, dataA);
+					__m128i dataBMasked = _mm_andnot_si128(mergeMaskB, dataB);
+					__m128i dataAShifted = _mm_slli_si128(dataAMasked, 1);
+					__m128i dataBShifted;
+					
+#if defined(__SSSE3__) && !defined(__tune_btver1__)
+					if(use_isa >= ISA_LEVEL_SSSE3)
+						dataBShifted = _mm_alignr_epi8(dataBMasked, dataAMasked, 15);
+					else
+#endif
+						dataBShifted = _mm_or_si128(
+							_mm_slli_si128(dataBMasked, 1),
+							_mm_srli_si128(dataAMasked, 15)
+						);
+					
+					// alternatively `_mm_xor_si128(dataAMasked, dataA)` if compiler wants to load mergeMask* again
+					dataB = _mm_or_si128(
+						_mm_and_si128(mergeMaskB, dataB), dataBShifted
+					);
+					dataA = _mm_or_si128(
+						_mm_and_si128(mergeMaskA, dataA), dataAShifted
+					);
+				}
+				// add escape chars
+				dataA = _mm_add_epi8(dataA, _mm_load_si128(entries+2));
+				dataB = _mm_add_epi8(dataB, _mm_load_si128(entries+3));
+			}
+			
+			// store main part
+			STOREU_XMM(p, dataA);
+			STOREU_XMM(p+XMM_SIZE, dataB);
+			// store final char
+			p[XMM_SIZE*2] = es[i-1] + 42 + (64 & (mask>>(XMM_SIZE*2-1-6)));
+			
+			p += XMM_SIZE*2 + maskBits;
+			col += XMM_SIZE*2 + maskBits;
+			
+			if(LIKELIHOOD(0.3, col >= 0)) {
+#if defined(__AVX512VL__)
+				if(use_isa >= ISA_LEVEL_AVX3)
+					bitIndex = _lzcnt_u32(mask) +1;
+				else
+#endif
+#if defined(__LZCNT__) && defined(__tune_amdfam10__)
+				bitIndex = bitIndex +1;
+#else
+				bitIndex = 31-bitIndex +1;
+#endif
+				if(HEDLEY_UNLIKELY(col == bitIndex)) {
+					// this is an escape character, so line will need to overflow
+					p--;
+				} else {
+					i += (col > bitIndex);
+				}
 				p -= col;
 				i -= col;
 				
 				_encode_eol_handle_pre:
-				encode_eol_handle_pre<use_isa>(es, i, p, col, lineSizeOffset);
+				uint32_t eolChar = lookups.eolLastChar[es[i]];
+				*(uint32_t*)p = eolChar;
+				p += 3 + (eolChar>>27);
+				col = lineSizeOffset;
+				
+				if(HEDLEY_UNLIKELY(i >= 0)) { // this isn't really a proper check - it's only needed to support short lines; basically, if the line is too short, `i` never gets checked, so we need one somewhere
+					i++;
+					break;
+				}
+				
+				dataA = _mm_loadu_si128((__m128i *)(es + i + 1));
+				dataB = _mm_loadu_si128((__m128i *)(es + i + 1) + 1);
+				// search for special chars (EOL)
+#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
+				if(use_isa >= ISA_LEVEL_SSSE3) {
+					cmpA = _mm_cmpeq_epi8(
+						_mm_shuffle_epi8(_mm_set_epi8(
+							'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
+						), _mm_adds_epi8(
+							_mm_adds_epu8(dataA, _mm_set_epi8(
+								0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,22
+							)),
+							_mm_set_epi8(
+								120,120,120,120,120,120,120,120,120,120,120,120,120,120,120,91
+							)
+						)),
+						dataA
+					);
+					maskA = _mm_movemask_epi8(cmpA);
+					cmpB = _mm_cmpeq_epi8(
+						_mm_shuffle_epi8(_mm_set_epi8(
+							'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
+						), _mm_adds_epi8(dataB, _mm_set1_epi8(120))),
+						dataB
+					);
+				} else
+#endif
+				{
+					cmpA = _mm_or_si128(
+						_mm_or_si128(
+							_mm_cmpeq_epi8(dataA, _mm_set1_epi8(-42)),
+							_mm_cmpeq_epi8(dataA, _mm_set1_epi8('\n'-42))
+						),
+						_mm_or_si128(
+							_mm_cmpeq_epi8(dataA, _mm_set1_epi8('='-42)),
+							_mm_cmpeq_epi8(dataA, _mm_set1_epi8('\r'-42))
+						)
+					);
+					maskA = _mm_movemask_epi8(cmpA);
+					maskA |= lookups.eolFirstMask[es[i+1]];
+					cmpB = _mm_or_si128(
+						_mm_or_si128(
+							_mm_cmpeq_epi8(dataB, _mm_set1_epi8(-42)),
+							_mm_cmpeq_epi8(dataB, _mm_set1_epi8('\n'-42))
+						),
+						_mm_or_si128(
+							_mm_cmpeq_epi8(dataB, _mm_set1_epi8('='-42)),
+							_mm_cmpeq_epi8(dataB, _mm_set1_epi8('\r'-42))
+						)
+					);
+				}
+				i += XMM_SIZE*2 + 1;
+				maskB = _mm_movemask_epi8(cmpB);
+				goto _encode_loop_branch;
 			}
+			
 		}
-	}
+	} while(i < 0);
 	
 	*colOffset = col + line_size -1;
 	dest = p;
