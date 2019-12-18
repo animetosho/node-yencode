@@ -27,7 +27,7 @@ static struct {
 	uint32_t expand[65536]; // biggish 256KB table (but still smaller than the 2MB table)
 } lookups = {
 	/*expand_mergemix*/ {
-		#define _X2(n,k) n>k?-1:0
+		#define _X2(n,k) n>=k?-1:0
 		#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), \
 			_X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15), \
 			_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
@@ -181,6 +181,13 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			data
 		);
 		
+#if defined(__AVX512VL__)
+		if(use_isa >= ISA_LEVEL_AVX3) {
+			data = _mm256_add_epi8(data, _mm256_set1_epi8(42));
+			data = _mm256_ternarylogic_epi32(data, cmp, _mm256_set1_epi8(64), 0xf8); // data | (cmp & 64)
+		}
+#endif
+		
 		uint32_t mask = _mm256_movemask_epi8(cmp);
 		unsigned int maskBits = popcnt32(mask);
 		unsigned int outputBytes = maskBits+YMM_SIZE;
@@ -193,12 +200,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			__m256i data1, data2;
 			__m256i shufMA, shufMB; // not set in VBMI2 path
 			
-#if defined(__AVX512VL__)
-			if(use_isa >= ISA_LEVEL_AVX3)
-				data = _mm256_add_epi8(data, _mm256_ternarylogic_epi32(cmp, _mm256_set1_epi8(42), _mm256_set1_epi8(42+64), 0xac));
-			else
-#endif
-				data = _mm256_add_epi8(data, _mm256_blendv_epi8(_mm256_set1_epi8(42), _mm256_set1_epi8(64+42), cmp));
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
 				m2 = mask >> 16;
@@ -215,6 +216,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			} else
 #endif
 			{
+				if(use_isa < ISA_LEVEL_AVX3)
+					data = _mm256_add_epi8(data, _mm256_blendv_epi8(_mm256_set1_epi8(42), _mm256_set1_epi8(42+64), cmp));
 				m2 = (mask >> 11) & 0x1fffe0;
 				
 				// duplicate halves
@@ -297,21 +300,19 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			long bitIndex;
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
-				data = _mm256_add_epi8(data, _mm256_ternarylogic_epi32(cmp, _mm256_set1_epi8(42), _mm256_set1_epi8(42+64), 0xac));
 # if defined(__AVX512VBMI2__)
-				if(use_isa >= ISA_LEVEL_VBMI2)
+				if(use_isa >= ISA_LEVEL_VBMI2) {
 					data = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), ~mask, data);
-				else
+					p[YMM_SIZE] = es[i-1] + 42 + (64 & (mask>>(YMM_SIZE-1-6)));
+					// alternative to above line (fewer instructions), which seems to be roughly similar in performance
+					//_mm_storeu_si128((__m128i*)(p+1+XMM_SIZE), _mm256_extracti128_si256(data, 1));
+				} else
 # endif
 				{
-					data = _mm256_mask_alignr_epi8(
-						data,
-						~(mask-1),
-						data,
-						_mm256_permute2x128_si256(data, data, 8),
-						15
-					);
-					data = _mm256_mask_blend_epi8(mask, data, _mm256_set1_epi8('='));
+					__m256i swapped = _mm256_permute4x64_epi64(data, _MM_SHUFFLE(1,0,3,2));
+					p[YMM_SIZE] = _mm256_extract_epi8(swapped, 15);
+					data = _mm256_mask_alignr_epi8(data, ~(mask-1), data, swapped, 15);
+					data = _mm256_ternarylogic_epi32(data, cmp, _mm256_set1_epi8('='), 0xb8); // (data & ~cmp) | (cmp & '=')
 				}
 			} else
 #endif
@@ -321,20 +322,16 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				// to deal with the pain of lane crossing, use shift + mask/blend
 				__m256i dataShifted = _mm256_alignr_epi8(
 					data,
-#if defined(__tune_znver1__) || defined(__tune_bdver4__)
-					_mm256_inserti128_si256(_mm256_setzero_si256(), _mm256_castsi256_si128(data), 1),
-#else
-					_mm256_permute2x128_si256(data, data, 8),
-#endif
+					_mm256_inserti128_si256(data, _mm256_castsi256_si128(data), 1),
 					15
 				);
-				dataShifted = _mm256_andnot_si256(cmp, dataShifted);
+				data = _mm256_andnot_si256(cmp, data);
 				data = _mm256_blendv_epi8(dataShifted, data, mergeMask);
 				data = _mm256_add_epi8(data, _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndex*2 + 1));
+				p[YMM_SIZE] = es[i-1] + 42 + (64 & (mask>>(YMM_SIZE-1-6)));
 			}
 			// store main + additional char
 			_mm256_storeu_si256((__m256i*)p, data);
-			p[YMM_SIZE] = es[i-1] + 42 + (64 & (mask>>(YMM_SIZE-1-6)));
 			p += outputBytes;
 			col += outputBytes;
 			
