@@ -270,14 +270,14 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		if(use_isa >= ISA_LEVEL_SSSE3) {
 			cmpA = _mm_cmpeq_epi8(
 				_mm_shuffle_epi8(_mm_set_epi8(
-					'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
-				), _mm_adds_epi8(dataA, _mm_set1_epi8(120))),
+					'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
+				), _mm_abs_epi8(dataA)),
 				dataA
 			);
 			cmpB = _mm_cmpeq_epi8(
 				_mm_shuffle_epi8(_mm_set_epi8(
-					'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
-				), _mm_adds_epi8(dataB, _mm_set1_epi8(120))),
+					'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
+				), _mm_abs_epi8(dataB)),
 				dataB
 			);
 		} else
@@ -355,8 +355,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				shuf2B = _mm_load_si128(&(lookups.shufMix[m4].shuf));
 				
 				// second mask processes on second half, so add to the offsets
-				shuf2A = _mm_or_si128(shuf2A, _mm_set1_epi8(120));
-				shuf2B = _mm_or_si128(shuf2B, _mm_set1_epi8(120));
+				shuf2A = _mm_or_si128(shuf2A, _mm_set1_epi8(88));
+				shuf2B = _mm_or_si128(shuf2B, _mm_set1_epi8(88));
 				
 				// expand halves
 				data2A = _mm_shuffle_epi8(dataA, shuf2A);
@@ -701,22 +701,17 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				if(use_isa >= ISA_LEVEL_SSSE3) {
 					cmpA = _mm_cmpeq_epi8(
 						_mm_shuffle_epi8(_mm_set_epi8(
-							'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
+							'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
 						), _mm_adds_epi8(
-							_mm_adds_epu8(dataA, _mm_set_epi8(
-								0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,22
-							)),
-							_mm_set_epi8(
-								120,120,120,120,120,120,120,120,120,120,120,120,120,120,120,91
-							)
+							_mm_abs_epi8(dataA), _mm_cvtsi32_si128(88)
 						)),
 						dataA
 					);
 					maskA = _mm_movemask_epi8(cmpA);
 					cmpB = _mm_cmpeq_epi8(
 						_mm_shuffle_epi8(_mm_set_epi8(
-							'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
-						), _mm_adds_epi8(dataB, _mm_set1_epi8(120))),
+							'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
+						), _mm_abs_epi8(dataB)),
 						dataB
 					);
 				} else
