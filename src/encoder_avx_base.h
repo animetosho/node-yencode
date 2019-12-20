@@ -26,7 +26,6 @@ static struct {
 	__m256i ALIGN_TO(32, shufExpand[65536]); // huge 2MB table
 	const uint32_t ALIGN_TO(32, maskMixEOL[4*8]);
 	uint32_t expand[65536]; // biggish 256KB table (but still smaller than the 2MB table)
-	const int8_t ALIGN_TO(32, perm_expand[65*32]);
 } lookups = {
 	/*expand_mergemix*/ {
 		#define _X2(n,k) n>=k?-1:0
@@ -61,25 +60,7 @@ static struct {
 		0xffffff00, 0xffffff01, 0, 0,    0x3d0a0d2a, 0x0000006a, 0, 0,
 		0xffff00ff, 0xffff01ff, 0, 0,    0x0a0d6a3d, 0x00006a3d, 0, 0
 	},
-	/*expand*/ {},
-	/*perm_expand*/ {
-		#define _X2(n,k) (n==k) ? '=' : k-(n<k)
-		#define _X(n) _X2(n,32), _X2(n,33), _X2(n,34), _X2(n,35), _X2(n,36), _X2(n,37), _X2(n,38), _X2(n,39), \
-			_X2(n,40), _X2(n,41), _X2(n,42), _X2(n,43), _X2(n,44), _X2(n,45), _X2(n,46), _X2(n,47), \
-			_X2(n,48), _X2(n,49), _X2(n,50), _X2(n,51), _X2(n,52), _X2(n,53), _X2(n,54), _X2(n,55), \
-			_X2(n,56), _X2(n,57), _X2(n,58), _X2(n,59), _X2(n,60), _X2(n,61), _X2(n,62), _X2(n,63)
-		_X(63), _X(62), _X(61), _X(60), _X(59), _X(58), _X(57), _X(56),
-		_X(55), _X(54), _X(53), _X(52), _X(51), _X(50), _X(49), _X(48),
-		_X(47), _X(46), _X(45), _X(44), _X(43), _X(42), _X(41), _X(40),
-		_X(39), _X(38), _X(37), _X(36), _X(35), _X(34), _X(33), _X(32),
-		_X(31), _X(30), _X(29), _X(28), _X(27), _X(26), _X(25), _X(24),
-		_X(23), _X(22), _X(21), _X(20), _X(19), _X(18), _X(17), _X(16),
-		_X(15), _X(14), _X(13), _X(12), _X(11), _X(10), _X( 9), _X( 8),
-		_X( 7), _X( 6), _X( 5), _X( 4), _X( 3), _X( 2), _X( 1), _X( 0),
-		_X(64)
-		#undef _X2
-		#undef _X
-	}
+	/*expand*/ {}
 };
 
 
