@@ -276,7 +276,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				if(use_isa < ISA_LEVEL_AVX3) {
 					dataA = _mm256_add_epi8(dataA, _mm256_blendv_epi8(_mm256_set1_epi8(42), _mm256_set1_epi8(42+64), cmpA));
 					dataB = _mm256_add_epi8(dataB, _mm256_blendv_epi8(_mm256_set1_epi8(42), _mm256_set1_epi8(42+64), cmpB));
-				|
+				}
+				
 				m2 = (mask >> 11) & 0x1fffe0;
 				m3 = (mask >> 27) & 0x1fffe0;
 				m4 = (mask >> 43) & 0x1fffe0;
@@ -393,6 +394,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 		} else {
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
+				// store last byte
 				_mm256_mask_storeu_epi8(p+YMM_SIZE+1, 1<<31, dataB);
 				
 				uint64_t blendMask = ~(mask-1);
@@ -430,9 +432,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				// to deal with the pain of lane crossing, use shift + mask/blend
 				__m256i dataAShifted = _mm256_alignr_epi8(
 					dataA,
-
 					_mm256_inserti128_si256(dataA, _mm256_castsi256_si128(dataA), 1),
-#else
 					15
 				);
 				__m256i dataBShifted = _mm256_alignr_epi8(
