@@ -354,6 +354,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				goto _encode_eol_handle_pre;
 			}
 		} else {
+			maskBitsA += YMM_SIZE;
+			maskBitsB += YMM_SIZE;
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
 # if defined(__AVX512VBMI2__)
@@ -361,12 +363,12 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 					_mm256_mask_storeu_epi8(p+1, 1<<31, dataA);
 					dataA = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), ~maskA, dataA);
 					_mm256_storeu_si256((__m256i*)p, dataA);
-					p += YMM_SIZE + maskBitsA;
+					p += maskBitsA;
 					
 					_mm256_mask_storeu_epi8(p+1, 1<<31, dataB);
 					dataB = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), ~maskB, dataB);
 					_mm256_storeu_si256((__m256i*)p, dataB);
-					p += YMM_SIZE + maskBitsB;
+					p += maskBitsB;
 				} else
 # endif
 				{
@@ -374,13 +376,13 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 					dataA = _mm256_mask_alignr_epi8(dataA, ~(maskA-1), dataA, _mm256_permute4x64_epi64(dataA, _MM_SHUFFLE(1,0,3,2)), 15);
 					dataA = _mm256_ternarylogic_epi32(dataA, cmpA, _mm256_set1_epi8('='), 0xb8); // (data & ~cmp) | (cmp & '=')
 					_mm256_storeu_si256((__m256i*)p, dataA);
-					p += YMM_SIZE + maskBitsA;
+					p += maskBitsA;
 					
 					_mm256_mask_storeu_epi8(p+1, 1<<31, dataB);
 					dataB = _mm256_mask_alignr_epi8(dataB, ~(maskB-1), dataB, _mm256_permute4x64_epi64(dataB, _MM_SHUFFLE(1,0,3,2)), 15);
 					dataB = _mm256_ternarylogic_epi32(dataB, cmpB, _mm256_set1_epi8('='), 0xb8);
 					_mm256_storeu_si256((__m256i*)p, dataB);
-					p += YMM_SIZE + maskBitsB;
+					p += maskBitsB;
 				}
 			} else
 #endif
@@ -401,7 +403,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				dataA = _mm256_add_epi8(dataA, _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndexA*2 + 1));
 				_mm256_storeu_si256((__m256i*)p, dataA);
 				p[YMM_SIZE] = es[i-1-YMM_SIZE] + 42 + (64 & (maskA>>(YMM_SIZE-1-6)));
-				p += YMM_SIZE + maskBitsA;
+				p += maskBitsA;
 				
 				dataShifted = _mm256_alignr_epi8(
 					dataB,
@@ -413,17 +415,17 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				dataB = _mm256_add_epi8(dataB, _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndexB*2 + 1));
 				_mm256_storeu_si256((__m256i*)p, dataB);
 				p[YMM_SIZE] = es[i-1] + 42 + (64 & (maskB>>(YMM_SIZE-1-6)));
-				p += YMM_SIZE + maskBitsB;
+				p += maskBitsB;
 			}
-			col += YMM_SIZE*2 + maskBitsA + maskBitsB;
+			col += maskBitsA + maskBitsB;
 			
 			if(col >= 0) {
-				if(HEDLEY_UNLIKELY(col >= 1 + YMM_SIZE + maskBitsB)) {
+				if(HEDLEY_UNLIKELY(col > maskBitsB)) {
 					if(use_isa >= ISA_LEVEL_AVX3)
 						bitIndexA = _lzcnt_u32(maskA);
-					bitIndexA += 1 + YMM_SIZE + maskBitsB;
+					bitIndexA += 1 + maskBitsB;
 					
-					i += maskBitsB;
+					i += maskBitsB - YMM_SIZE;
 					if(HEDLEY_UNLIKELY(col == bitIndexA)) {
 						// this is an escape character, so line will need to overflow
 						p--;
