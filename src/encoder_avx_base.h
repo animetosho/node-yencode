@@ -29,7 +29,7 @@ static struct {
 	const int8_t ALIGN_TO(32, perm_expand[65*32]);
 } lookups = {
 	/*expand_mergemix*/ {
-		#define _X2(n,k) n>k?-1:0
+		#define _X2(n,k) n>=k?-1:0
 		#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), \
 			_X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15), \
 			_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
@@ -221,6 +221,15 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			dataB
 		);
 		
+#if defined(__AVX512VL__)
+		if(use_isa >= ISA_LEVEL_AVX3) {
+			dataA = _mm256_add_epi8(dataA, _mm256_set1_epi8(42));
+			dataA = _mm256_ternarylogic_epi32(dataA, cmpA, _mm256_set1_epi8(64), 0xf8); // data | (cmp & 64)
+			dataB = _mm256_add_epi8(dataB, _mm256_set1_epi8(42));
+			dataB = _mm256_ternarylogic_epi32(dataB, cmpB, _mm256_set1_epi8(64), 0xf8); // data | (cmp & 64)
+		}
+#endif
+		
 		uint32_t maskA = (uint32_t)_mm256_movemask_epi8(cmpA);
 		uint32_t maskB = (uint32_t)_mm256_movemask_epi8(cmpB);
 		uint64_t mask = ((uint64_t)maskB << 32) | (uint64_t)maskA;
@@ -242,16 +251,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			__m256i shuf1A, shuf1B; // not set in VBMI2 path
 			__m256i shuf2A, shuf2B; // not set in VBMI2 path
 			
-#if defined(__AVX512VL__)
-			if(use_isa >= ISA_LEVEL_AVX3) {
-				dataA = _mm256_add_epi8(dataA, _mm256_ternarylogic_epi32(cmpA, _mm256_set1_epi8(42), _mm256_set1_epi8(42+64), 0xac));
-				dataB = _mm256_add_epi8(dataB, _mm256_ternarylogic_epi32(cmpB, _mm256_set1_epi8(42), _mm256_set1_epi8(42+64), 0xac));
-			} else
-#endif
-			{
-				dataA = _mm256_add_epi8(dataA, _mm256_blendv_epi8(_mm256_set1_epi8(42), _mm256_set1_epi8(64+42), cmpA));
-				dataB = _mm256_add_epi8(dataB, _mm256_blendv_epi8(_mm256_set1_epi8(42), _mm256_set1_epi8(64+42), cmpB));
-			}
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
 				m2 = maskA >> 16;
@@ -274,6 +273,10 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			} else
 #endif
 			{
+				if(use_isa < ISA_LEVEL_AVX3) {
+					dataA = _mm256_add_epi8(dataA, _mm256_blendv_epi8(_mm256_set1_epi8(42), _mm256_set1_epi8(42+64), cmpA));
+					dataB = _mm256_add_epi8(dataB, _mm256_blendv_epi8(_mm256_set1_epi8(42), _mm256_set1_epi8(42+64), cmpB));
+				|
 				m2 = (mask >> 11) & 0x1fffe0;
 				m3 = (mask >> 27) & 0x1fffe0;
 				m4 = (mask >> 43) & 0x1fffe0;
@@ -390,9 +393,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 		} else {
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
-
-				dataA = _mm256_add_epi8(dataA, _mm256_ternarylogic_epi32(cmpA, _mm256_set1_epi8(42), _mm256_set1_epi8(42+64), 0xac));
-				dataB = _mm256_add_epi8(dataB, _mm256_ternarylogic_epi32(cmpB, _mm256_set1_epi8(42), _mm256_set1_epi8(42+64), 0xac));
+				_mm256_mask_storeu_epi8(p+YMM_SIZE+1, 1<<31, dataB);
 				
 				uint64_t blendMask = ~(mask-1);
 				dataB = _mm256_mask_alignr_epi8(
@@ -410,14 +411,10 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				} else
 # endif
 				{
-					dataA = _mm256_mask_alignr_epi8(
-						dataA,
-						blendMask,
-						dataA,
-						_mm256_permute2x128_si256(dataA, dataA, 8),
-						15
-					);
-					dataA = _mm256_mask_blend_epi8(mask, dataA, _mm256_set1_epi8('='));
+					__m256i swapped = _mm256_permute4x64_epi64(dataA, _MM_SHUFFLE(1,0,3,2));
+					//p[YMM_SIZE*2] = _mm256_extract_epi8(swapped, 15); // = 3 uops on SKX/ICL, but masked store is 2 uops
+					dataA = _mm256_mask_alignr_epi8(dataA, blendMask, dataA, swapped, 15);
+					dataA = _mm256_ternarylogic_epi32(dataA, cmpA, _mm256_set1_epi8('='), 0xb8); // (data & ~cmp) | (cmp & '=')
 				}
 			} else
 #endif
@@ -433,11 +430,9 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				// to deal with the pain of lane crossing, use shift + mask/blend
 				__m256i dataAShifted = _mm256_alignr_epi8(
 					dataA,
-#if defined(__tune_znver1__) || defined(__tune_bdver4__)
-					_mm256_inserti128_si256(_mm256_setzero_si256(), _mm256_castsi256_si128(dataA), 1),
+
+					_mm256_inserti128_si256(dataA, _mm256_castsi256_si128(dataA), 1),
 #else
-					_mm256_permute2x128_si256(dataA, dataA, 8),
-#endif
 					15
 				);
 				__m256i dataBShifted = _mm256_alignr_epi8(
@@ -445,18 +440,18 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 					_mm256_permute2x128_si256(dataA, dataB, 0x21),
 					15
 				);
-				dataAShifted = _mm256_andnot_si256(cmpA, dataAShifted);
-				dataBShifted = _mm256_andnot_si256(cmpB, dataBShifted);
+				dataA = _mm256_andnot_si256(cmpA, dataA);
+				dataB = _mm256_andnot_si256(cmpB, dataB);
 				dataA = _mm256_blendv_epi8(dataAShifted, dataA, mergeMaskA);
 				dataB = _mm256_blendv_epi8(dataBShifted, dataB, mergeMaskB);
 				
 				dataA = _mm256_add_epi8(dataA, _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndex*4 + 2));
 				dataB = _mm256_add_epi8(dataB, _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndex*4 + 3));
+				p[YMM_SIZE*2] = es[i-1] + 42 + (64 & (mask>>(YMM_SIZE-1-6)));
 			}
 			// store main + additional char
 			_mm256_storeu_si256((__m256i*)p, dataA);
 			_mm256_storeu_si256((__m256i*)p + 1, dataB);
-			p[YMM_SIZE*2] = es[i-1] + 42 + (64 & (mask>>(YMM_SIZE*2-1-6)));
 			p += outputBytes;
 			col += outputBytes;
 			

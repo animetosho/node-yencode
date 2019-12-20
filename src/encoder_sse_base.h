@@ -71,67 +71,69 @@ static struct {
 	
 	
 	#define _MASK(n) \
-		_X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), \
-		_X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15), \
-		_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
-		_X2(n,24), _X2(n,25), _X2(n,26), _X2(n,27), _X2(n,28), _X2(n,29), _X2(n,30), _X2(n,31)
+		_M1(n,0), _M1(n,1), _M1(n,2), _M1(n,3), _M1(n,4), _M1(n,5), _M1(n,6), _M1(n,7), \
+		_M1(n,8), _M1(n,9), _M1(n,10), _M1(n,11), _M1(n,12), _M1(n,13), _M1(n,14), _M1(n,15), \
+		_M1(n,16), _M1(n,17), _M1(n,18), _M1(n,19), _M1(n,20), _M1(n,21), _M1(n,22), _M1(n,23), \
+		_M1(n,24), _M1(n,25), _M1(n,26), _M1(n,27), _M1(n,28), _M1(n,29), _M1(n,30), _M1(n,31)
 	#define _SHUFMASK(n) \
-		_X3(n,0), _X3(n,1), _X3(n,2), _X3(n,3), _X3(n,4), _X3(n,5), _X3(n,6), _X3(n,7), \
-		_X3(n,8), _X3(n,9), _X3(n,10), _X3(n,11), _X3(n,12), _X3(n,13), _X3(n,14), _X3(n,15), \
-		_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
-		_X2(n,24), _X2(n,25), _X2(n,26), _X2(n,27), _X2(n,28), _X2(n,29), _X2(n,30), _X2(n,31)
+		_S1(n,0), _S1(n,1), _S1(n,2), _S1(n,3), _S1(n,4), _S1(n,5), _S1(n,6), _S1(n,7), \
+		_S1(n,8), _S1(n,9), _S1(n,10), _S1(n,11), _S1(n,12), _S1(n,13), _S1(n,14), _S1(n,15), \
+		_M2(n,16), _M2(n,17), _M2(n,18), _M2(n,19), _M2(n,20), _M2(n,21), _M2(n,22), _M2(n,23), \
+		_M2(n,24), _M2(n,25), _M2(n,26), _M2(n,27), _M2(n,28), _M2(n,29), _M2(n,30), _M2(n,31)
 	// TODO: consider making _MASK work better for ANDN w/ cmp*
 	
 	
-	#define _X2(n,k) n>k?-1:0
-	#define _X3(n,k) n==k?-1:(k-(n<k))
-	#define _Y2(n, m) n==m ? '=' : 42+64*(n==m-1)
-	#define _MIX(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
-		_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15), \
-		_Y2(n,16), _Y2(n,17), _Y2(n,18), _Y2(n,19), _Y2(n,20), _Y2(n,21), _Y2(n,22), _Y2(n,23), \
-		_Y2(n,24), _Y2(n,25), _Y2(n,26), _Y2(n,27), _Y2(n,28), _Y2(n,29), _Y2(n,30), _Y2(n,31)
-	#define _XY(n) _MASK(n), _MIX(n)
-	#define _ZY(n) _SHUFMASK(n), _MIX(n)
+	#define _M1(n,k) n>k?-1:0
+	#define _M2(n,k) n>=k?-1:0
+	#define _S1(n,k) n==k?-1:(k-(n<k))
+	#define _X1(n, m) n==m ? '=' : 42+64*(n==m-1)
+	#define _MIX(n) _X1(n,0), _X1(n,1), _X1(n,2), _X1(n,3), _X1(n,4), _X1(n,5), _X1(n,6), _X1(n,7), \
+		_X1(n,8), _X1(n,9), _X1(n,10), _X1(n,11), _X1(n,12), _X1(n,13), _X1(n,14), _X1(n,15), \
+		_X1(n,16), _X1(n,17), _X1(n,18), _X1(n,19), _X1(n,20), _X1(n,21), _X1(n,22), _X1(n,23), \
+		_X1(n,24), _X1(n,25), _X1(n,26), _X1(n,27), _X1(n,28), _X1(n,29), _X1(n,30), _X1(n,31)
+	#define _MX(n) _MASK(n), _MIX(n)
+	#define _SX(n) _SHUFMASK(n), _MIX(n)
 	
 	#if defined(__LZCNT__) && defined(__tune_amdfam10__)
 	/*expand_maskmix_lzc*/ {
-		_XY(31), _XY(30), _XY(29), _XY(28), _XY(27), _XY(26), _XY(25), _XY(24),
-		_XY(23), _XY(22), _XY(21), _XY(20), _XY(19), _XY(18), _XY(17), _XY(16),
-		_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8),
-		_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0),
-		_XY(32)
+		_MX(31), _MX(30), _MX(29), _MX(28), _MX(27), _MX(26), _MX(25), _MX(24),
+		_MX(23), _MX(22), _MX(21), _MX(20), _MX(19), _MX(18), _MX(17), _MX(16),
+		_MX(15), _MX(14), _MX(13), _MX(12), _MX(11), _MX(10), _MX( 9), _MX( 8),
+		_MX( 7), _MX( 6), _MX( 5), _MX( 4), _MX( 3), _MX( 2), _MX( 1), _MX( 0),
+		_MX(32)
 	},
 	/*expand_shufmaskmix_lzc*/ {
-		_ZY(31), _ZY(30), _ZY(29), _ZY(28), _ZY(27), _ZY(26), _ZY(25), _ZY(24),
-		_ZY(23), _ZY(22), _ZY(21), _ZY(20), _ZY(19), _ZY(18), _ZY(17), _ZY(16),
-		_ZY(15), _ZY(14), _ZY(13), _ZY(12), _ZY(11), _ZY(10), _ZY( 9), _ZY( 8),
-		_ZY( 7), _ZY( 6), _ZY( 5), _ZY( 4), _ZY( 3), _ZY( 2), _ZY( 1), _ZY( 0),
-		_ZY(32)
+		_SX(31), _SX(30), _SX(29), _SX(28), _SX(27), _SX(26), _SX(25), _SX(24),
+		_SX(23), _SX(22), _SX(21), _SX(20), _SX(19), _SX(18), _SX(17), _SX(16),
+		_SX(15), _SX(14), _SX(13), _SX(12), _SX(11), _SX(10), _SX( 9), _SX( 8),
+		_SX( 7), _SX( 6), _SX( 5), _SX( 4), _SX( 3), _SX( 2), _SX( 1), _SX( 0),
+		_SX(32)
 	},
 	#else
 	/*expand_maskmix_bsr*/ {
-		_XY(32),
-		_XY( 0), _XY( 1), _XY( 2), _XY( 3), _XY( 4), _XY( 5), _XY( 6), _XY( 7),
-		_XY( 8), _XY( 9), _XY(10), _XY(11), _XY(12), _XY(13), _XY(14), _XY(15),
-		_XY(16), _XY(17), _XY(18), _XY(19), _XY(20), _XY(21), _XY(22), _XY(23),
-		_XY(24), _XY(25), _XY(26), _XY(27), _XY(28), _XY(29), _XY(30), _XY(31)
+		_MX(32),
+		_MX( 0), _MX( 1), _MX( 2), _MX( 3), _MX( 4), _MX( 5), _MX( 6), _MX( 7),
+		_MX( 8), _MX( 9), _MX(10), _MX(11), _MX(12), _MX(13), _MX(14), _MX(15),
+		_MX(16), _MX(17), _MX(18), _MX(19), _MX(20), _MX(21), _MX(22), _MX(23),
+		_MX(24), _MX(25), _MX(26), _MX(27), _MX(28), _MX(29), _MX(30), _MX(31)
 	},
 	/*expand_shufmaskmix_bsr*/ {
-		_ZY(32),
-		_ZY( 0), _ZY( 1), _ZY( 2), _ZY( 3), _ZY( 4), _ZY( 5), _ZY( 6), _ZY( 7),
-		_ZY( 8), _ZY( 9), _ZY(10), _ZY(11), _ZY(12), _ZY(13), _ZY(14), _ZY(15),
-		_ZY(16), _ZY(17), _ZY(18), _ZY(19), _ZY(20), _ZY(21), _ZY(22), _ZY(23),
-		_ZY(24), _ZY(25), _ZY(26), _ZY(27), _ZY(28), _ZY(29), _ZY(30), _ZY(31)
+		_SX(32),
+		_SX( 0), _SX( 1), _SX( 2), _SX( 3), _SX( 4), _SX( 5), _SX( 6), _SX( 7),
+		_SX( 8), _SX( 9), _SX(10), _SX(11), _SX(12), _SX(13), _SX(14), _SX(15),
+		_SX(16), _SX(17), _SX(18), _SX(19), _SX(20), _SX(21), _SX(22), _SX(23),
+		_SX(24), _SX(25), _SX(26), _SX(27), _SX(28), _SX(29), _SX(30), _SX(31)
 	}
 	#endif
-	#undef _XY
-	#undef _ZY
+	#undef _MX
+	#undef _SX
 	#undef _MIX
-	#undef _Y2
+	#undef _X1
 	#undef _MASK
 	#undef _SHUFMASK
-	#undef _X2
-	#undef _X3
+	#undef _M1
+	#undef _M2
+	#undef _S1
 };
 
 
@@ -268,14 +270,14 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		if(use_isa >= ISA_LEVEL_SSSE3) {
 			cmpA = _mm_cmpeq_epi8(
 				_mm_shuffle_epi8(_mm_set_epi8(
-					'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
-				), _mm_adds_epi8(dataA, _mm_set1_epi8(120))),
+					'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
+				), _mm_abs_epi8(dataA)),
 				dataA
 			);
 			cmpB = _mm_cmpeq_epi8(
 				_mm_shuffle_epi8(_mm_set_epi8(
-					'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
-				), _mm_adds_epi8(dataB, _mm_set1_epi8(120))),
+					'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
+				), _mm_abs_epi8(dataB)),
 				dataB
 			);
 		} else
@@ -333,8 +335,10 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
-				dataA = _mm_sub_epi8(dataA, _mm_ternarylogic_epi32(cmpA, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
-				dataB = _mm_sub_epi8(dataB, _mm_ternarylogic_epi32(cmpB, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
+				dataA = _mm_sub_epi8(dataA, _mm_set1_epi8(-42));
+				dataA = _mm_ternarylogic_epi32(dataA, cmpA, _mm_set1_epi8(64), 0xf8); // data | (cmp & 64)
+				dataB = _mm_sub_epi8(dataB, _mm_set1_epi8(-42));
+				dataB = _mm_ternarylogic_epi32(dataB, cmpB, _mm_set1_epi8(64), 0xf8);
 				
 				data2A = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m2], _mm_srli_si128(dataA, 8));
 				data1A = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m1], dataA);
@@ -351,8 +355,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				shuf2B = _mm_load_si128(&(lookups.shufMix[m4].shuf));
 				
 				// second mask processes on second half, so add to the offsets
-				shuf2A = _mm_or_si128(shuf2A, _mm_set1_epi8(120));
-				shuf2B = _mm_or_si128(shuf2B, _mm_set1_epi8(120));
+				shuf2A = _mm_or_si128(shuf2A, _mm_set1_epi8(88));
+				shuf2B = _mm_or_si128(shuf2B, _mm_set1_epi8(88));
 				
 				// expand halves
 				data2A = _mm_shuffle_epi8(dataA, shuf2A);
@@ -539,12 +543,17 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			// shortcut for common case of only 1 bit set
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
-				dataA = _mm_sub_epi8(dataA, _mm_ternarylogic_epi32(cmpA, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
-				dataB = _mm_sub_epi8(dataB, _mm_ternarylogic_epi32(cmpB, _mm_set1_epi8(-42), _mm_set1_epi8(-42-64), 0xac));
+				dataA = _mm_sub_epi8(dataA, _mm_set1_epi8(-42));
+				dataA = _mm_ternarylogic_epi32(dataA, cmpA, _mm_set1_epi8(64), 0xf8); // data | (cmp & 64)
+				dataB = _mm_sub_epi8(dataB, _mm_set1_epi8(-42));
+				dataB = _mm_ternarylogic_epi32(dataB, cmpB, _mm_set1_epi8(64), 0xf8);
+				
+				// store last char
+				_mm_mask_storeu_epi8(p+XMM_SIZE+1, 1<<15, dataB);
 				
 				uint32_t blendMask = ~(mask-1);
 				dataB = _mm_mask_alignr_epi8(dataB, blendMask>>16, dataB, dataA, 15);
-				dataB = _mm_mask_blend_epi8(maskB, dataB, _mm_set1_epi8('='));
+				dataB = _mm_ternarylogic_epi32(dataB, cmpB, _mm_set1_epi8('='), 0xb8); // (data & ~cmp) | (cmp & '=')
 				
 # if defined(__AVX512VBMI2__)
 				if(use_isa >= ISA_LEVEL_VBMI2)
@@ -553,7 +562,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 # endif
 				{
 					dataA = _mm_mask_alignr_epi8(dataA, blendMask, dataA, dataA, 15); // there's no masked shift, so use ALIGNR instead
-					dataA = _mm_mask_blend_epi8(mask, dataA, _mm_set1_epi8('='));
+					dataA = _mm_ternarylogic_epi32(dataA, cmpA, _mm_set1_epi8('='), 0xb8);
 				}
 			} else
 #endif
@@ -586,7 +595,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					__m128i shufMaskA = _mm_load_si128(entries+0);
 					__m128i mergeMaskB = _mm_load_si128(entries+1);
 					__m128i dataBShifted = _mm_alignr_epi8(dataB, dataA, 15);
-					dataBShifted = _mm_andnot_si128(cmpB, dataBShifted);
+					dataB = _mm_andnot_si128(cmpB, dataB);
 					
 					dataA = _mm_shuffle_epi8(dataA, shufMaskA);
 					
@@ -642,13 +651,14 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				// add escape chars
 				dataA = _mm_add_epi8(dataA, _mm_load_si128(entries+2));
 				dataB = _mm_add_epi8(dataB, _mm_load_si128(entries+3));
+				
+				// store final char
+				p[XMM_SIZE*2] = es[i-1] + 42 + (64 & (mask>>(XMM_SIZE*2-1-6)));
 			}
 			
 			// store main part
 			STOREU_XMM(p, dataA);
 			STOREU_XMM(p+XMM_SIZE, dataB);
-			// store final char
-			p[XMM_SIZE*2] = es[i-1] + 42 + (64 & (mask>>(XMM_SIZE*2-1-6)));
 			
 			p += XMM_SIZE*2 + maskBits;
 			col += XMM_SIZE*2 + maskBits;
@@ -691,22 +701,17 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				if(use_isa >= ISA_LEVEL_SSSE3) {
 					cmpA = _mm_cmpeq_epi8(
 						_mm_shuffle_epi8(_mm_set_epi8(
-							'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
+							'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
 						), _mm_adds_epi8(
-							_mm_adds_epu8(dataA, _mm_set_epi8(
-								0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,22
-							)),
-							_mm_set_epi8(
-								120,120,120,120,120,120,120,120,120,120,120,120,120,120,120,91
-							)
+							_mm_abs_epi8(dataA), _mm_cvtsi32_si128(88)
 						)),
 						dataA
 					);
 					maskA = _mm_movemask_epi8(cmpA);
 					cmpB = _mm_cmpeq_epi8(
 						_mm_shuffle_epi8(_mm_set_epi8(
-							'='-42,'\0'-42,-128,-128,'\r'-42,' '-42,'\0'-42,'\n'-42,'\0'-42,'\r'-42,'.'-42,'\r'-42,'\n'-42,'\t'-42,'\n'-42,'\t'-42
-						), _mm_adds_epi8(dataB, _mm_set1_epi8(120))),
+							'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
+						), _mm_abs_epi8(dataB)),
 						dataB
 					);
 				} else
