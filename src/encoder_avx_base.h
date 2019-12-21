@@ -24,7 +24,7 @@ struct TShufMix {
 static struct {
 	const int8_t ALIGN_TO(32, expand_mergemix[33*2*32]);
 	__m256i ALIGN_TO(32, shufExpand[65536]); // huge 2MB table
-	const uint32_t ALIGN_TO(32, maskMixEOL[4*8]);
+	const uint32_t eolLastChar[256];
 	uint32_t expand[65536]; // biggish 256KB table (but still smaller than the 2MB table)
 } lookups = {
 	/*expand_mergemix*/ {
@@ -39,11 +39,11 @@ static struct {
 			_Y2(n,16), _Y2(n,17), _Y2(n,18), _Y2(n,19), _Y2(n,20), _Y2(n,21), _Y2(n,22), _Y2(n,23), \
 			_Y2(n,24), _Y2(n,25), _Y2(n,26), _Y2(n,27), _Y2(n,28), _Y2(n,29), _Y2(n,30), _Y2(n,31)
 		#define _XY(n) _X(n), _Y(n)
-			_XY(31), _XY(30), _XY(29), _XY(28), _XY(27), _XY(26), _XY(25), _XY(24),
-			_XY(23), _XY(22), _XY(21), _XY(20), _XY(19), _XY(18), _XY(17), _XY(16),
-			_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8),
-			_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0),
-			_XY(32)
+		_XY(31), _XY(30), _XY(29), _XY(28), _XY(27), _XY(26), _XY(25), _XY(24),
+		_XY(23), _XY(22), _XY(21), _XY(20), _XY(19), _XY(18), _XY(17), _XY(16),
+		_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8),
+		_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0),
+		_XY(32)
 		#undef _XY
 		#undef _Y
 		#undef _Y2
@@ -52,13 +52,18 @@ static struct {
 	},
 	
 	/*shufExpand*/ {},
-	/*maskMixEOL*/ {
-		// first row is an AND mask, rest is PSHUFB table
-		0xff0000ff, 0x00000000, 0, 0,    0x2a0a0d2a, 0x00000000, 0, 0,
-		
-		0xffff00ff, 0xffffff01, 0, 0,    0x0a0d6a3d, 0x0000002a, 0, 0,
-		0xffffff00, 0xffffff01, 0, 0,    0x3d0a0d2a, 0x0000006a, 0, 0,
-		0xffff00ff, 0xffff01ff, 0, 0,    0x0a0d6a3d, 0x00006a3d, 0, 0
+	/*eolLastChar*/ {
+		#define _B1(n) _B(n), _B(n+1), _B(n+2), _B(n+3)
+		#define _B2(n) _B1(n), _B1(n+4), _B1(n+8), _B1(n+12)
+		#define _B3(n) _B2(n), _B2(n+16), _B2(n+32), _B2(n+48)
+		#define _BX _B3(0), _B3(64), _B3(128), _B3(192)
+		#define _B(n) ((n == 214+'\t' || n == 214+' ' || n == 214+'\0' || n == 214+'\n' || n == 214+'\r' || n == '='-42) ? (((n+42+64)&0xff)<<8)+0x0a0d003d : ((n+42)&0xff)+0x0a0d00)
+			_BX
+		#undef _B
+		#undef _B1
+		#undef _B2
+		#undef _B3
+		#undef _BX
 	},
 	/*expand*/ {}
 };
@@ -100,50 +105,40 @@ static void encoder_avx2_lut() {
 	}
 }
 
-
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
-	__m256i magic = _mm256_set_epi8( // vector re-used for lookup-table in main loop
-		'='-42,'='-42,'\r'-42,'\r'-42,'\t'-42,'\n'-42,'\n'-42,'\t'-42,'.'-42,'='-42,' '-42,' '-42,'\0'-42,-'\n',-'\r','\0'-42,
-		'='-42,'='-42,'\r'-42,'\r'-42,'\t'-42,'\n'-42,'\n'-42,'\t'-42,'.'-42,'='-42,' '-42,' '-42,'\0'-42,-'\n',-'\r','\0'-42
-	);
-	__m128i lineChars = _mm_set1_epi16(*(uint16_t*)(es+i)); // unfortunately, _mm_broadcastw_epi16 requires __m128i argument
-	unsigned testChars = _mm_movemask_epi8(_mm_cmpeq_epi8(
-		lineChars, _mm256_castsi256_si128(magic)
-	));
-	if(HEDLEY_UNLIKELY(testChars & 0xfff9)) {
-		unsigned esc1stChar = (testChars & 0x5551) != 0;
-		unsigned esc2ndChar = (testChars & 0xaaa8) != 0;
-		unsigned lut = (esc1stChar + esc2ndChar*2)*2;
-		lineChars = _mm_shuffle_epi8(lineChars, _mm_load_si128((const __m128i*)lookups.maskMixEOL + lut));
-		lineChars = _mm_add_epi8(lineChars, _mm_load_si128((const __m128i*)lookups.maskMixEOL + lut+1));
-		_mm_storel_epi64((__m128i*)p, lineChars);
-		col = lineSizeOffset + esc2ndChar;
-		p += 4 + esc1stChar + esc2ndChar;
-	} else {
-		lineChars = _mm_and_si128(lineChars, _mm_cvtsi32_si128(0xff0000ff));
-		lineChars = _mm_sub_epi8(lineChars, _mm256_castsi256_si128(magic));
-		*(int*)p = _mm_cvtsi128_si32(lineChars);
-		col = lineSizeOffset;
-		p += 4;
-	}
-	i += 2;
-}
-
 template<enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
-	if(len < 2 || line_size < 4) return;
+	if(len < YMM_SIZE*2+1 || line_size < 16) return;
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
-	long lineSizeOffset = -line_size +2; // line size excluding first/last char
-	long col = *colOffset + lineSizeOffset -1;
+	long lineSizeOffset = -line_size +1;
+	long col = *colOffset + lineSizeOffset;
 	
 	// offset position to enable simpler loop condition checking
-	const int INPUT_OFFSET = YMM_SIZE*2 + 2 -1; // extra 2 chars for EOL handling, -1 to change <= to <
+	const int INPUT_OFFSET = YMM_SIZE*4 + 2 -1; // extra 2 chars for EOL handling, -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
-	if (LIKELIHOOD(0.999, col == lineSizeOffset-1)) {
+	if(LIKELIHOOD(0.001, col >= 0)) {
+		uint8_t c = es[i++];
+		if(col == 0) {
+			uint32_t eolChar = lookups.eolLastChar[c];
+			*(uint32_t*)p = eolChar;
+			p += 3 + (eolChar>>27);
+			col = -line_size+1;
+		} else {
+			if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
+				*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+				p += 4;
+				col = 2-line_size + 1;
+			} else {
+				*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+				p += 3;
+				col = 2-line_size;
+			}
+		}
+	}
+	if (LIKELIHOOD(0.999, col == -line_size+1)) {
 		uint8_t c = es[i++];
 		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
 			*(uint16_t*)p = escapedLUT[c];
@@ -154,32 +149,16 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			col += 1;
 		}
 	}
-	if(LIKELIHOOD(0.001, col >= 0)) {
-		if(col == 0)
-			encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
-		else {
-			uint8_t c = es[i++];
-			if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
-				*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
-				p += 4;
-				col = 1+lineSizeOffset;
-			} else {
-				*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
-				p += 3;
-				col = lineSizeOffset;
-			}
-		}
-	}
-	while(i < 0) {
+	do {
 		__m256i dataA = _mm256_loadu_si256((__m256i *)(es + i));
 		__m256i dataB = _mm256_loadu_si256((__m256i *)(es + i) + 1);
 		i += YMM_SIZE*2;
 		// search for special chars
 		__m256i cmpA = _mm256_cmpeq_epi8(
-			_mm256_shuffle_epi8(_mm256_set_epi8( // vector re-used for EOL matching, so has additional elements
-				'='-42,'='-42,'\r'-42,'\r'-42,'\t'-42,'\n'-42,'\n'-42,'\t'-42,'.'-42,'='-42,' '-42,' '-42,'\0'-42,-'\n',-'\r','\0'-42,
-				'='-42,'='-42,'\r'-42,'\r'-42,'\t'-42,'\n'-42,'\n'-42,'\t'-42,'.'-42,'='-42,' '-42,' '-42,'\0'-42,-'\n',-'\r','\0'-42
-			), _mm256_adds_epi8(dataA, _mm256_set1_epi8(80+42))),
+			_mm256_shuffle_epi8(_mm256_set_epi8(
+				'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42,
+				'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
+			), _mm256_abs_epi8(dataA)),
 			dataA
 		);
 		__m256i cmpB = _mm256_cmpeq_epi8(
@@ -205,6 +184,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 		unsigned int maskBitsB = popcnt32(maskB);
 		long bitIndexA, bitIndexB;
 		if (LIKELIHOOD(0.170, (maskBitsA|maskBitsB) > 1)) {
+			_encode_loop_branch_slow:
 			unsigned int m1 = maskA & 0xffff;
 			unsigned int m2, m3, m4;
 			__m256i data1A, data2A;
@@ -354,10 +334,12 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				goto _encode_eol_handle_pre;
 			}
 		} else {
+			_encode_loop_branch_fast:
 			maskBitsA += YMM_SIZE;
 			maskBitsB += YMM_SIZE;
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
+				_mm256_mask_storeu_epi8(p+1, 1<<31, data); // store last byte
 # if defined(__AVX512VBMI2__)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
 					_mm256_mask_storeu_epi8(p+1, 1<<31, dataA);
@@ -447,14 +429,51 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				p -= col;
 				
 				_encode_eol_handle_pre:
-				encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
+				uint32_t eolChar = lookups.eolLastChar[es[i]];
+				*(uint32_t*)p = eolChar;
+				p += 3 + (eolChar>>27);
+				col = lineSizeOffset;
+				
+				if(HEDLEY_UNLIKELY(i >= 0)) { // this isn't really a proper check - it's only needed to support short lines; basically, if the line is too short, `i` never gets checked, so we need one somewhere
+					i++;
+					break;
+				}
+				
+				data = _mm256_loadu_si256((__m256i *)(es + i + 1));
+				// search for special chars
+				cmp = _mm256_cmpeq_epi8(
+					_mm256_shuffle_epi8(_mm256_set_epi8(
+						'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42,
+						'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
+					), _mm256_adds_epi8(
+						_mm256_abs_epi8(data), _mm256_castsi128_si256(_mm_cvtsi32_si128(88))
+					)),
+					data
+				);
+				i += YMM_SIZE + 1;
+				
+				
+				// duplicate some code from above to reduce jumping a little
+#if defined(__AVX512VL__)
+				if(use_isa >= ISA_LEVEL_AVX3) {
+					data = _mm256_add_epi8(data, _mm256_set1_epi8(42));
+					data = _mm256_ternarylogic_epi32(data, cmp, _mm256_set1_epi8(64), 0xf8);
+				}
+#endif
+				
+				mask = _mm256_movemask_epi8(cmp);
+				maskBits = popcnt32(mask);
+				outputBytes = maskBits+YMM_SIZE;
+				if (LIKELIHOOD(0.089, maskBits > 1))
+					goto _encode_loop_branch_slow;
+				goto _encode_loop_branch_fast;
 			}
 		}
-	}
+	} while(i < 0);
 	
 	_mm256_zeroupper();
 	
-	*colOffset = col - lineSizeOffset +1;
+	*colOffset = col + line_size -1;
 	dest = p;
 	len = -(i - INPUT_OFFSET);
 }
