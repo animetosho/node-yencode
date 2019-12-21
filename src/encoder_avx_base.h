@@ -107,7 +107,7 @@ static void encoder_avx2_lut() {
 
 template<enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
-	if(len < YMM_SIZE*2+1 || line_size < 16) return;
+	if(len < YMM_SIZE*4+1 || line_size < 16) return;
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
@@ -163,9 +163,9 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 		);
 		__m256i cmpB = _mm256_cmpeq_epi8(
 			_mm256_shuffle_epi8(_mm256_set_epi8(
-				'='-42,'='-42,'\r'-42,'\r'-42,'\t'-42,'\n'-42,'\n'-42,'\t'-42,'.'-42,'='-42,' '-42,' '-42,'\0'-42,-'\n',-'\r','\0'-42,
-				'='-42,'='-42,'\r'-42,'\r'-42,'\t'-42,'\n'-42,'\n'-42,'\t'-42,'.'-42,'='-42,' '-42,' '-42,'\0'-42,-'\n',-'\r','\0'-42
-			), _mm256_adds_epi8(dataB, _mm256_set1_epi8(80+42))),
+				'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42,
+				'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
+			), _mm256_abs_epi8(dataB)),
 			dataB
 		);
 		
@@ -339,7 +339,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			maskBitsB += YMM_SIZE;
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
-				_mm256_mask_storeu_epi8(p+1, 1<<31, data); // store last byte
 # if defined(__AVX512VBMI2__)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
 					_mm256_mask_storeu_epi8(p+1, 1<<31, dataA);
@@ -439,32 +438,44 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 					break;
 				}
 				
-				data = _mm256_loadu_si256((__m256i *)(es + i + 1));
+				dataA = _mm256_loadu_si256((__m256i *)(es + i + 1));
+				dataB = _mm256_loadu_si256((__m256i *)(es + i + 1) + 1);
 				// search for special chars
-				cmp = _mm256_cmpeq_epi8(
+				cmpA = _mm256_cmpeq_epi8(
 					_mm256_shuffle_epi8(_mm256_set_epi8(
 						'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42,
 						'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
 					), _mm256_adds_epi8(
-						_mm256_abs_epi8(data), _mm256_castsi128_si256(_mm_cvtsi32_si128(88))
+						_mm256_abs_epi8(dataA), _mm256_castsi128_si256(_mm_cvtsi32_si128(88))
 					)),
-					data
+					dataA
 				);
-				i += YMM_SIZE + 1;
+				cmpB = _mm256_cmpeq_epi8(
+					_mm256_shuffle_epi8(_mm256_set_epi8(
+						'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42,
+						'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
+					), _mm256_abs_epi8(dataB)),
+					dataB
+				);
+				
+				i += YMM_SIZE*2 + 1;
 				
 				
 				// duplicate some code from above to reduce jumping a little
 #if defined(__AVX512VL__)
 				if(use_isa >= ISA_LEVEL_AVX3) {
-					data = _mm256_add_epi8(data, _mm256_set1_epi8(42));
-					data = _mm256_ternarylogic_epi32(data, cmp, _mm256_set1_epi8(64), 0xf8);
+					dataA = _mm256_add_epi8(dataA, _mm256_set1_epi8(42));
+					dataA = _mm256_ternarylogic_epi32(dataA, cmpA, _mm256_set1_epi8(64), 0xf8); // data | (cmp & 64)
+					dataB = _mm256_add_epi8(dataB, _mm256_set1_epi8(42));
+					dataB = _mm256_ternarylogic_epi32(dataB, cmpB, _mm256_set1_epi8(64), 0xf8); // data | (cmp & 64)
 				}
 #endif
 				
-				mask = _mm256_movemask_epi8(cmp);
-				maskBits = popcnt32(mask);
-				outputBytes = maskBits+YMM_SIZE;
-				if (LIKELIHOOD(0.089, maskBits > 1))
+				maskA = (uint32_t)_mm256_movemask_epi8(cmpA);
+				maskB = (uint32_t)_mm256_movemask_epi8(cmpB);
+				maskBitsA = popcnt32(maskA);
+				maskBitsB = popcnt32(maskB);
+				if (LIKELIHOOD(0.170, (maskBitsA|maskBitsB) > 1))
 					goto _encode_loop_branch_slow;
 				goto _encode_loop_branch_fast;
 			}
