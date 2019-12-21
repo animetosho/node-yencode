@@ -106,7 +106,7 @@ static void encoder_avx2_lut() {
 
 template<enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
-	if(len < YMM_SIZE*2+1 || line_size < YMM_SIZE*2+1) return;
+	if(len < YMM_SIZE*2+1 || line_size < 16) return;
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
@@ -160,7 +160,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			data
 		);
 		
-		_encode_loop_branch:
 #if defined(__AVX512VL__)
 		if(use_isa >= ISA_LEVEL_AVX3) {
 			data = _mm256_add_epi8(data, _mm256_set1_epi8(42));
@@ -175,6 +174,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 		// because of this, we tilt the probability towards the fast path by process single-character escape cases there; this results in a speedup, despite the fast path being slower
 		// likelihood of >1 bit set: 1-((63/64)^32 + (63/64)^31 * (1/64) * 32C1)
 		if (LIKELIHOOD(0.089, maskBits > 1)) {
+			_encode_loop_branch_slow:
 			unsigned int m1 = mask & 0xffff;
 			unsigned int m2;
 			__m256i data1, data2;
@@ -278,6 +278,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				goto _encode_eol_handle_pre;
 			}
 		} else {
+			_encode_loop_branch_fast:
 			long bitIndex;
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
@@ -334,6 +335,11 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				p += 3 + (eolChar>>27);
 				col = lineSizeOffset;
 				
+				if(HEDLEY_UNLIKELY(i >= 0)) { // this isn't really a proper check - it's only needed to support short lines; basically, if the line is too short, `i` never gets checked, so we need one somewhere
+					i++;
+					break;
+				}
+				
 				data = _mm256_loadu_si256((__m256i *)(es + i + 1));
 				// search for special chars
 				cmp = _mm256_cmpeq_epi8(
@@ -346,7 +352,22 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 					data
 				);
 				i += YMM_SIZE + 1;
-				goto _encode_loop_branch;
+				
+				
+				// duplicate some code from above to reduce jumping a little
+#if defined(__AVX512VL__)
+				if(use_isa >= ISA_LEVEL_AVX3) {
+					data = _mm256_add_epi8(data, _mm256_set1_epi8(42));
+					data = _mm256_ternarylogic_epi32(data, cmp, _mm256_set1_epi8(64), 0xf8);
+				}
+#endif
+				
+				mask = _mm256_movemask_epi8(cmp);
+				maskBits = popcnt32(mask);
+				outputBytes = maskBits+YMM_SIZE;
+				if (LIKELIHOOD(0.089, maskBits > 1))
+					goto _encode_loop_branch_slow;
+				goto _encode_loop_branch_fast;
 			}
 		}
 	} while(i < 0);
