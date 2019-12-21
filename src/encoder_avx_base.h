@@ -300,16 +300,14 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			long bitIndex;
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
+				_mm256_mask_storeu_epi8(p+1, 1<<31, data); // store last byte
 # if defined(__AVX512VBMI2__)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
 					data = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), ~mask, data);
-					_mm256_mask_storeu_epi8(p+1, 1<<31, data);
 				} else
 # endif
 				{
 					__m256i swapped = _mm256_permute4x64_epi64(data, _MM_SHUFFLE(1,0,3,2));
-					//p[YMM_SIZE] = _mm256_extract_epi8(swapped, 15); // = 3 uops on SKX/ICL, but masked store is 2 uops
-					_mm256_mask_storeu_epi8(p+1, 1<<31, data);
 					data = _mm256_mask_alignr_epi8(data, ~(mask-1), data, swapped, 15);
 					data = _mm256_ternarylogic_epi32(data, cmp, _mm256_set1_epi8('='), 0xb8); // (data & ~cmp) | (cmp & '=')
 				}
