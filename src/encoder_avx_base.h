@@ -260,8 +260,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			if(col >= 0) {
 				// we overflowed - find correct position to revert back to
 				// this is perhaps sub-optimal on 32-bit, but who still uses that with AVX2?
-				uint64_t eqMask1, eqMask2;
-				uint64_t eqMask3, eqMask4;
+				uint32_t eqMask1, eqMask2;
+				uint32_t eqMask3, eqMask4;
 				uint64_t eqMask;
 				if(HEDLEY_UNLIKELY(col >= outputBytes-shuf2Len)) {
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
@@ -274,7 +274,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 						eqMask1 = (uint32_t)_mm256_movemask_epi8(shuf1A);
 						eqMask2 = (uint32_t)_mm256_movemask_epi8(shuf2A);
 					}
-					eqMask = eqMask1 | (eqMask2 << shuf1Len);
+					eqMask = eqMask1 | ((uint64_t)eqMask2 << shuf1Len);
 					if(use_isa >= ISA_LEVEL_VBMI2)
 						i -= YMM_SIZE;
 					else
@@ -290,7 +290,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 						eqMask3 = (uint32_t)_mm256_movemask_epi8(shuf1B);
 						eqMask4 = (uint32_t)_mm256_movemask_epi8(shuf2B);
 					}
-					eqMask = eqMask3 | (eqMask4 << (shuf3Len-shuf2Len));
+					eqMask = eqMask3 | ((uint64_t)eqMask4 << (shuf3Len-shuf2Len));
 					outputBytes -= shuf2Len;
 				}
 				
