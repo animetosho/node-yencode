@@ -335,7 +335,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		
 		bool manyBitsSet;
 #if defined(__POPCNT__) && !defined(__tune_btver1__)
-		if(use_isa >= ISA_LEVEL_AVX) {
+		if(use_isa & ISA_FEATURE_POPCNT) {
 			maskBits = popcnt32(mask);
 			manyBitsSet = maskBits > 1;
 		} else
@@ -402,7 +402,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			if(use_isa >= ISA_LEVEL_SSSE3) {
 				// store out
 #if defined(__POPCNT__) && !defined(__tune_btver1__)
-				if(use_isa >= ISA_LEVEL_AVX) {
+				if(use_isa & ISA_FEATURE_POPCNT) {
 					shuf2Len = popcnt32(maskA) + 16;
 # if defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__)
 					shuf1Len = popcnt32(m1) + 8;
@@ -493,7 +493,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				}
 				
 #if defined(__POPCNT__)
-				if(use_isa >= ISA_LEVEL_AVX) {
+				if(use_isa & ISA_FEATURE_POPCNT) {
 					bitCount = popcnt32(eqMask);
 				} else
 #endif
@@ -559,7 +559,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			{
 				
 #if !defined(__tune_btver1__)
-				if(use_isa < ISA_LEVEL_AVX)
+				if(!(use_isa & ISA_FEATURE_POPCNT))
 #endif
 					maskBits = (mask != 0);
 				if(_PREFER_BRANCHING) maskBits = 1;
@@ -591,7 +591,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					
 # if defined(__SSE4_1__) && !defined(__tune_silvermont__) && !defined(__tune_goldmont__) && !defined(__tune_goldmont_plus__)
 					// unsure if worth on: Jaguar/Puma (3|2), Core2 (2|2)
-					if(use_isa >= ISA_LEVEL_AVX) {
+					if(use_isa >= ISA_LEVEL_SSE41) {
 						dataB = _mm_blendv_epi8(dataBShifted, dataB, mergeMaskB);
 					} else
 # endif

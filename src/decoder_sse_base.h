@@ -140,7 +140,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 	const bool _USING_FAST_MATCH = false;
 #endif
 #if defined(__SSE4_1__) && !defined(__tune_silvermont__) && !defined(__tune_goldmont__) && !defined(__tune_goldmont_plus__)
-	const bool _USING_BLEND_ADD = (use_isa >= ISA_LEVEL_AVX);
+	const bool _USING_BLEND_ADD = (use_isa >= ISA_LEVEL_SSE41);
 #else
 	const bool _USING_BLEND_ADD = false;
 #endif
@@ -672,7 +672,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 					dataB = _mm_shuffle_epi8(dataB, _mm_load_si128((__m128i*)((char*)lookups.compact + ((mask >> 12) & 0x7fff0))));
 					
 # if defined(__POPCNT__) && !defined(__tune_btver1__)
-					if(use_isa >= ISA_LEVEL_AVX) {
+					if(use_isa & ISA_FEATURE_POPCNT) {
 						p -= popcnt32(mask & 0xffff);
 						STOREU_XMM(p+XMM_SIZE, dataB);
 						p -= popcnt32(mask & 0xffff0000);
