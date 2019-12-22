@@ -80,7 +80,6 @@ static struct {
 		_S1(n,8), _S1(n,9), _S1(n,10), _S1(n,11), _S1(n,12), _S1(n,13), _S1(n,14), _S1(n,15), \
 		_M2(n,16), _M2(n,17), _M2(n,18), _M2(n,19), _M2(n,20), _M2(n,21), _M2(n,22), _M2(n,23), \
 		_M2(n,24), _M2(n,25), _M2(n,26), _M2(n,27), _M2(n,28), _M2(n,29), _M2(n,30), _M2(n,31)
-	// TODO: consider making _MASK work better for ANDN w/ cmp*
 	
 	
 	#define _M1(n,k) n>k?-1:0
@@ -459,7 +458,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				}
 				
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
-#if defined(__GNUC__) && defined(PLATFORM_AMD64)
+#if defined(__GNUC__)
 					// be careful to avoid partial flag stalls on Intel P6 CPUs (SHR+ADC will likely stall)
 # if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
 					if(use_isa >= ISA_LEVEL_VBMI2)
@@ -468,7 +467,11 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 						asm(
 							"shrl $1, %[eqMask] \n"
 							"shrl %%cl, %[eqMask] \n" // TODO: can use shrq to avoid above shift?
+# if defined(PLATFORM_AMD64)
+							"adcq %[col], %[p] \n"
+# else
 							"adcl %[col], %[p] \n"
+# endif
 							: [eqMask]"+r"(eqMask), [p]"+r"(p)
 							: "c"(shiftAmt), [col]"r"(~col)
 						);
