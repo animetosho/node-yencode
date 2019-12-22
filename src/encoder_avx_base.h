@@ -15,6 +15,12 @@
 # define PLATFORM_AMD64 1
 #endif
 
+#if defined(__GNUC__) && __GNUC__ >= 7
+# define KLOAD32(a, offs) _load_mask32((__mmask32*)(a) + (offs))
+#else
+# define KLOAD32(a, offs) (((uint32_t*)(a))[(offs)])
+#endif
+
 #pragma pack(16)
 struct TShufMix {
 	__m128i shuf, mix;
@@ -199,16 +205,16 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				m4 = maskB >> 16;
 				
 				/* alternative no-LUT strategy
-				uint64_t expandMask = _pdep_u64(maskA, 0x5555555555555555); // expand bits
-				expandMask = _pext_u64(~expandMask, expandMask|0xaaaaaaaaaaaaaaaa);
+				uint64_t expandMaskA = ~_pdep_u64(~maskA, 0x5555555555555555); // expand bits, with bits set
+				expandMaskA = _pext_u64(expandMaskA^0x5555555555555555, expandMaskA);
 				*/
 				
-				data1A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), lookups.expand[m1], dataA);
-				data2A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), lookups.expand[m2], _mm256_castsi128_si256(
+				data1A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookups.expand, m1), dataA);
+				data2A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookups.expand, m2), _mm256_castsi128_si256(
 					_mm256_extracti128_si256(dataA, 1)
 				));
-				data1B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), lookups.expand[m3], dataB);
-				data2B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), lookups.expand[m4], _mm256_castsi128_si256(
+				data1B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookups.expand, m3), dataB);
+				data2B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookups.expand, m4), _mm256_castsi128_si256(
 					_mm256_extracti128_si256(dataB, 1)
 				));
 			} else

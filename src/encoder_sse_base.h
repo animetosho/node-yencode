@@ -17,6 +17,11 @@
 # define _mm_mask_expand_epi8 _mm128_mask_expand_epi8
 #endif
 
+#if defined(__GNUC__) && __GNUC__ >= 7
+# define KLOAD16(a, offs) _load_mask16((__mmask16*)(a) + (offs))
+#else
+# define KLOAD16(a, offs) (((uint16_t*)(a))[(offs)])
+#endif
 
 #pragma pack(16)
 struct TShufMix {
@@ -359,10 +364,21 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				dataB = _mm_sub_epi8(dataB, _mm_set1_epi8(-42));
 				dataB = _mm_ternarylogic_epi32(dataB, cmpB, _mm_set1_epi8(64), 0xf8);
 				
-				data2A = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m2], _mm_srli_si128(dataA, 8));
-				data1A = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m1], dataA);
-				data2B = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m4], _mm_srli_si128(dataB, 8));
-				data1B = _mm_mask_expand_epi8(_mm_set1_epi8('='), lookups.expandMask[m3], dataB);
+				/* alternative no-LUT 64-bit only version
+				 * LUT generally seems to be faster though
+				//uint64_t expandMask = _pdep_u64(mask, 0x5555555555555555); // expand bits
+				//expandMask = ~_pext_u64(expandMask, expandMask|~0x5555555555555555);
+				uint64_t expandMask = ~_pdep_u64(~mask, 0x5555555555555555); // expand bits, with bits set
+				expandMask = _pext_u64(expandMask^0x5555555555555555, expandMask);
+				data2A = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandMask>>16, _mm_srli_si128(dataA, 8));
+				data1A = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandMask    , dataA);
+				data2B = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandMask>>48, _mm_srli_si128(dataB, 8));
+				data1B = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandMask>>32, dataB);
+				*/
+				data2A = _mm_mask_expand_epi8(_mm_set1_epi8('='), KLOAD16(lookups.expandMask, m2), _mm_srli_si128(dataA, 8));
+				data1A = _mm_mask_expand_epi8(_mm_set1_epi8('='), KLOAD16(lookups.expandMask, m1), dataA);
+				data2B = _mm_mask_expand_epi8(_mm_set1_epi8('='), KLOAD16(lookups.expandMask, m4), _mm_srli_si128(dataB, 8));
+				data1B = _mm_mask_expand_epi8(_mm_set1_epi8('='), KLOAD16(lookups.expandMask, m3), dataB);
 			} else
 #endif
 #ifdef __SSSE3__
