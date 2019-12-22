@@ -442,85 +442,127 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			col += shufTotalLen;
 			
 			if(LIKELIHOOD(0.3 /*guess, using 128b lines*/, col >= 0)) {
-				// TODO: optimize for 32-bit?
-				uint64_t eqMask;
-				// from experimentation, it doesn't seem like it's worth trying to branch here, i.e. it isn't worth trying to avoid a pmovmskb+shift+or by checking overflow amount
-				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
-					eqMask =
-					  ((uint64_t)lookups.expandMask[m4] << shuf3Len)
-					  | ((uint64_t)lookups.expandMask[m3] << shuf2Len)
-					  | ((uint64_t)lookups.expandMask[m2] << shuf1Len)
-					  | (uint64_t)lookups.expandMask[m1];
-					
+				unsigned int bitCount;
+				long pastMid = col - (shufTotalLen - shuf2Len);
+				if(HEDLEY_UNLIKELY(pastMid >= 0)) {
+					uint32_t eqMask1;
+					if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
+						eqMask1 =
+						  ((uint32_t)lookups.expandMask[m2] << shuf1Len)
+						  | (uint32_t)lookups.expandMask[m1];
+						
 #if defined(__GNUC__) && defined(PLATFORM_AMD64)
-					// be careful to avoid partial flag stalls on Intel P6 CPUs (SHR+ADC will likely stall)
+						// be careful to avoid partial flag stalls on Intel P6 CPUs (SHR+ADC will likely stall)
 # if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
-					if(use_isa >= ISA_LEVEL_VBMI2)
+						if(use_isa >= ISA_LEVEL_VBMI2)
 # endif
-					{
-						asm(
-							"shrq $1, %[eqMask] \n"
-							"shrq %%cl, %[eqMask] \n"
-							"adcq %[col], %[p] \n"
-							: [eqMask]"+r"(eqMask), [p]"+r"(p)
-							: "c"(shufTotalLen - col - 1), [col]"r"(~col)
-						);
-					}
+						{
+							asm(
+								"shrl $1, %[eqMask] \n"
+								"shrl %%cl, %[eqMask] \n" // TODO: can use shrq to avoid above shift?
+								"adcl %[col], %[p] \n"
+								: [eqMask]"+r"(eqMask1), [p]"+r"(p)
+								: "c"(shufTotalLen - col -1), [col]"r"(~col)
+							);
+						}
 # if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
-					else
+						else
 # else
-					if(0)
+						if(0)
 # endif
 #endif
-					{
-						eqMask >>= shufTotalLen - col -1;
-						p -= col;
-						if(LIKELIHOOD(0.98, (eqMask & 1) != 1))
-							p--;
-						else
-							i++;
+						{
+							eqMask1 >>= shufTotalLen - col -1;
+							p -= col;
+							if(LIKELIHOOD(0.98, (eqMask1 & 1) != 1))
+								p--;
+							else
+								i++;
+						}
+					} else {
+						eqMask1 =
+						  ((uint32_t)_mm_movemask_epi8(shuf2A) << shuf1Len)
+						  | (uint32_t)_mm_movemask_epi8(shuf1A);
+						eqMask1 >>= shufTotalLen - col -1;
+						col += eqMask1 & 1; // revert if escape char
 					}
+					
+#if defined(__POPCNT__)
+					if(use_isa >= ISA_LEVEL_AVX) {
+						bitCount = popcnt32(eqMask1);
+					} else
+#endif
+					{
+						unsigned char cnt = lookups.BitsSetTable256plus8[eqMask1 & 0xff];
+						cnt += lookups.BitsSetTable256plus8[(eqMask1>>8) & 0xff];
+						cnt += lookups.BitsSetTable256plus8[(eqMask1>>16) & 0xff];
+						cnt += lookups.BitsSetTable256plus8[(eqMask1>>24) & 0xff];
+						bitCount = cnt-32;
+					}
+					bitCount += (shufTotalLen - shuf2Len) - 16;
 				} else {
-					eqMask =
-					  ((uint64_t)_mm_movemask_epi8(shuf2B) << shuf3Len)
-					  | ((uint64_t)_mm_movemask_epi8(shuf1B) << shuf2Len)
-					  | ((uint64_t)_mm_movemask_epi8(shuf2A) << shuf1Len)
-					  | (uint64_t)_mm_movemask_epi8(shuf1A);
-					eqMask >>= shufTotalLen - col -1;
+					uint32_t eqMask2;
+					if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
+						eqMask2 =
+						  ((uint32_t)lookups.expandMask[m4] << (shuf3Len-shuf2Len))
+						  | (uint32_t)lookups.expandMask[m3];
+						
+#if defined(__GNUC__) && defined(PLATFORM_AMD64)
+						// be careful to avoid partial flag stalls on Intel P6 CPUs (SHR+ADC will likely stall)
+# if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
+						if(use_isa >= ISA_LEVEL_VBMI2)
+# endif
+						{
+							asm(
+								"shrl $1, %[eqMask] \n"
+								"shrl %%cl, %[eqMask] \n" // TODO: can use shrq to avoid above shift?
+								"adcl %[col], %[p] \n"
+								: [eqMask]"+r"(eqMask2), [p]"+r"(p)
+								: "c"(-pastMid -1), [col]"r"(~col)
+							);
+						}
+# if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
+						else
+# else
+						if(0)
+# endif
+#endif
+						{
+							eqMask2 >>= -pastMid -1; // == ~pastMid
+							p -= col;
+							if(LIKELIHOOD(0.98, (eqMask2 & 1) != 1))
+								p--;
+							else
+								i++;
+						}
+					} else {
+						eqMask2 =
+						  ((uint32_t)_mm_movemask_epi8(shuf2B) << (shuf3Len-shuf2Len))
+						  | (uint32_t)_mm_movemask_epi8(shuf1B);
+						eqMask2 >>= -pastMid -1; // == ~pastMid
+						col += eqMask2 & 1; // revert if escape char
+					}
+					
+#if defined(__POPCNT__)
+					if(use_isa >= ISA_LEVEL_AVX) {
+						bitCount = popcnt32(eqMask2);
+					} else
+#endif
+					{
+						unsigned char cnt = lookups.BitsSetTable256plus8[eqMask2 & 0xff];
+						cnt += lookups.BitsSetTable256plus8[(eqMask2>>8) & 0xff];
+						cnt += lookups.BitsSetTable256plus8[(eqMask2>>16) & 0xff];
+						cnt += lookups.BitsSetTable256plus8[(eqMask2>>24) & 0xff];
+						bitCount = cnt-32;
+					}
 				}
 				
-				unsigned int bitCount;
-#if defined(__POPCNT__)
-				if(use_isa >= ISA_LEVEL_AVX) {
-#ifdef PLATFORM_AMD64
-					bitCount = (unsigned)_mm_popcnt_u64(eqMask);
-#else
-					bitCount = popcnt32(eqMask & 0xffffffff);
-					bitCount += popcnt32(eqMask >> 32);
-#endif
-				} else
-#endif
-				{
-					unsigned char cnt = lookups.BitsSetTable256plus8[eqMask & 0xff];
-					cnt += lookups.BitsSetTable256plus8[(eqMask>>8) & 0xff];
-					cnt += lookups.BitsSetTable256plus8[(eqMask>>16) & 0xff];
-					cnt += lookups.BitsSetTable256plus8[(eqMask>>24) & 0xff];
-					if(HEDLEY_UNLIKELY(eqMask >> 32)) {
-						cnt += lookups.BitsSetTable256plus8[(eqMask>>32) & 0xff];
-						cnt += lookups.BitsSetTable256plus8[(eqMask>>40) & 0xff];
-						cnt += lookups.BitsSetTable256plus8[(eqMask>>48) & 0xff];
-						cnt += lookups.BitsSetTable256plus8[(eqMask>>56) & 0xff];
-						cnt -= 32;
-					}
-					bitCount = cnt-32;
-				}
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
 					i -= bitCount;
 				} else {
 					i += bitCount;
-					long revert = col + (eqMask & 1);
-					p -= revert;
-					i -= revert;
+					p -= col;
+					i -= col;
 				}
 				goto _encode_eol_handle_pre;
 			}
