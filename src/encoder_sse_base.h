@@ -415,7 +415,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				// store out
 #if defined(__POPCNT__) && !defined(__tune_btver1__)
 				if(use_isa >= ISA_LEVEL_AVX) {
-					// TODO: check/tweak these
 					shuf2Len = popcnt32(maskA) + 16;
 # if defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__)
 					shuf1Len = popcnt32(m1) + 8;
@@ -451,7 +450,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 						eqMask =
 						  ((uint32_t)lookups.expandMask[m2] << shuf1Len)
 						  | (uint32_t)lookups.expandMask[m1];
-						i -= (shufTotalLen - shuf2Len) - 16;
+						i -= 16;
 					} else {
 						eqMask =
 						  ((uint32_t)_mm_movemask_epi8(shuf2A) << shuf1Len)
