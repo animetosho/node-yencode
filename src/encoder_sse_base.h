@@ -442,119 +442,80 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			col += shufTotalLen;
 			
 			if(LIKELIHOOD(0.3 /*guess, using 128b lines*/, col >= 0)) {
-				unsigned int bitCount;
+				unsigned int bitCount, shiftAmt;
 				long pastMid = col - (shufTotalLen - shuf2Len);
+				uint32_t eqMask;
 				if(HEDLEY_UNLIKELY(pastMid >= 0)) {
-					uint32_t eqMask1;
+					shiftAmt = shufTotalLen - col -1;
 					if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
-						eqMask1 =
+						eqMask =
 						  ((uint32_t)lookups.expandMask[m2] << shuf1Len)
 						  | (uint32_t)lookups.expandMask[m1];
-						
-#if defined(__GNUC__) && defined(PLATFORM_AMD64)
-						// be careful to avoid partial flag stalls on Intel P6 CPUs (SHR+ADC will likely stall)
-# if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
-						if(use_isa >= ISA_LEVEL_VBMI2)
-# endif
-						{
-							asm(
-								"shrl $1, %[eqMask] \n"
-								"shrl %%cl, %[eqMask] \n" // TODO: can use shrq to avoid above shift?
-								"adcl %[col], %[p] \n"
-								: [eqMask]"+r"(eqMask1), [p]"+r"(p)
-								: "c"(shufTotalLen - col -1), [col]"r"(~col)
-							);
-						}
-# if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
-						else
-# else
-						if(0)
-# endif
-#endif
-						{
-							eqMask1 >>= shufTotalLen - col -1;
-							p -= col;
-							if(LIKELIHOOD(0.98, (eqMask1 & 1) != 1))
-								p--;
-							else
-								i++;
-						}
+						i -= (shufTotalLen - shuf2Len) - 16;
 					} else {
-						eqMask1 =
+						eqMask =
 						  ((uint32_t)_mm_movemask_epi8(shuf2A) << shuf1Len)
 						  | (uint32_t)_mm_movemask_epi8(shuf1A);
-						eqMask1 >>= shufTotalLen - col -1;
-						col += eqMask1 & 1; // revert if escape char
+						i += (shufTotalLen - shuf2Len) - 16;
 					}
-					
-#if defined(__POPCNT__)
-					if(use_isa >= ISA_LEVEL_AVX) {
-						bitCount = popcnt32(eqMask1);
-					} else
-#endif
-					{
-						unsigned char cnt = lookups.BitsSetTable256plus8[eqMask1 & 0xff];
-						cnt += lookups.BitsSetTable256plus8[(eqMask1>>8) & 0xff];
-						cnt += lookups.BitsSetTable256plus8[(eqMask1>>16) & 0xff];
-						cnt += lookups.BitsSetTable256plus8[(eqMask1>>24) & 0xff];
-						bitCount = cnt-32;
-					}
-					bitCount += (shufTotalLen - shuf2Len) - 16;
 				} else {
-					uint32_t eqMask2;
+					shiftAmt = -pastMid -1; // == ~pastMid
 					if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
-						eqMask2 =
+						eqMask =
 						  ((uint32_t)lookups.expandMask[m4] << (shuf3Len-shuf2Len))
 						  | (uint32_t)lookups.expandMask[m3];
-						
-#if defined(__GNUC__) && defined(PLATFORM_AMD64)
-						// be careful to avoid partial flag stalls on Intel P6 CPUs (SHR+ADC will likely stall)
-# if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
-						if(use_isa >= ISA_LEVEL_VBMI2)
-# endif
-						{
-							asm(
-								"shrl $1, %[eqMask] \n"
-								"shrl %%cl, %[eqMask] \n" // TODO: can use shrq to avoid above shift?
-								"adcl %[col], %[p] \n"
-								: [eqMask]"+r"(eqMask2), [p]"+r"(p)
-								: "c"(-pastMid -1), [col]"r"(~col)
-							);
-						}
-# if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
-						else
-# else
-						if(0)
-# endif
-#endif
-						{
-							eqMask2 >>= -pastMid -1; // == ~pastMid
-							p -= col;
-							if(LIKELIHOOD(0.98, (eqMask2 & 1) != 1))
-								p--;
-							else
-								i++;
-						}
 					} else {
-						eqMask2 =
+						eqMask =
 						  ((uint32_t)_mm_movemask_epi8(shuf2B) << (shuf3Len-shuf2Len))
 						  | (uint32_t)_mm_movemask_epi8(shuf1B);
-						eqMask2 >>= -pastMid -1; // == ~pastMid
-						col += eqMask2 & 1; // revert if escape char
 					}
-					
-#if defined(__POPCNT__)
-					if(use_isa >= ISA_LEVEL_AVX) {
-						bitCount = popcnt32(eqMask2);
-					} else
+				}
+				
+				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
+#if defined(__GNUC__) && defined(PLATFORM_AMD64)
+					// be careful to avoid partial flag stalls on Intel P6 CPUs (SHR+ADC will likely stall)
+# if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
+					if(use_isa >= ISA_LEVEL_VBMI2)
+# endif
+					{
+						asm(
+							"shrl $1, %[eqMask] \n"
+							"shrl %%cl, %[eqMask] \n" // TODO: can use shrq to avoid above shift?
+							"adcl %[col], %[p] \n"
+							: [eqMask]"+r"(eqMask), [p]"+r"(p)
+							: "c"(shiftAmt), [col]"r"(~col)
+						);
+					}
+# if !(defined(__tune_amdfam10__) || defined(__tune_k8__))
+					else
+# else
+					if(0)
+# endif
 #endif
 					{
-						unsigned char cnt = lookups.BitsSetTable256plus8[eqMask2 & 0xff];
-						cnt += lookups.BitsSetTable256plus8[(eqMask2>>8) & 0xff];
-						cnt += lookups.BitsSetTable256plus8[(eqMask2>>16) & 0xff];
-						cnt += lookups.BitsSetTable256plus8[(eqMask2>>24) & 0xff];
-						bitCount = cnt-32;
+						eqMask >>= shiftAmt;
+						p -= col;
+						if(LIKELIHOOD(0.98, (eqMask & 1) != 1))
+							p--;
+						else
+							i++;
 					}
+				} else {
+					eqMask >>= shiftAmt;
+					col += eqMask & 1; // revert if escape char
+				}
+				
+#if defined(__POPCNT__)
+				if(use_isa >= ISA_LEVEL_AVX) {
+					bitCount = popcnt32(eqMask);
+				} else
+#endif
+				{
+					unsigned char cnt = lookups.BitsSetTable256plus8[eqMask & 0xff];
+					cnt += lookups.BitsSetTable256plus8[(eqMask>>8) & 0xff];
+					cnt += lookups.BitsSetTable256plus8[(eqMask>>16) & 0xff];
+					cnt += lookups.BitsSetTable256plus8[(eqMask>>24) & 0xff];
+					bitCount = cnt-32;
 				}
 				
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
