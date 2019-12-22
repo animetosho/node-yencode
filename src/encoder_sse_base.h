@@ -205,6 +205,26 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
 	return data;
 }
 
+static HEDLEY_ALWAYS_INLINE unsigned long sse2_expand_store_vector(__m128i data, unsigned int mask, int maskP1, int maskP2, uint8_t* p, unsigned int& shufLenP1, unsigned int& shufLenP2) {
+	// TODO: consider 1 bit shortcut (slightly tricky with needing bit counts though)
+	if(mask) {
+		__m128i dataA = sse2_expand_bytes(maskP1, data);
+		__m128i dataB = sse2_expand_bytes(maskP2, _mm_srli_si128(data, 8));
+		dataA = _mm_add_epi8(dataA, _mm_load_si128(&(lookups.shufMix[maskP1].mix)));
+		dataB = _mm_add_epi8(dataB, _mm_load_si128(&(lookups.shufMix[maskP2].mix)));
+		shufLenP1 = lookups.BitsSetTable256plus8[maskP1];
+		shufLenP2 = shufLenP1 + lookups.BitsSetTable256plus8[maskP2];
+		STOREU_XMM(p, dataA);
+		STOREU_XMM(p+shufLenP1, dataB);
+		return shufLenP2;
+	} else {
+		STOREU_XMM(p, _mm_sub_epi8(data, _mm_set1_epi8(-42)));
+		shufLenP1 = 8;
+		shufLenP2 = 16;
+		return XMM_SIZE;
+	}
+}
+
 
 template<enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
@@ -372,43 +392,11 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			} else
 #endif
 			{
-				// TODO: consider 1 bit shortcuts
-				if(maskA) {
-					data1A = sse2_expand_bytes(m1, dataA);
-					data2A = sse2_expand_bytes(m2, _mm_srli_si128(dataA, 8));
-					data1A = _mm_add_epi8(data1A, _mm_load_si128(&(lookups.shufMix[m1].mix)));
-					data2A = _mm_add_epi8(data2A, _mm_load_si128(&(lookups.shufMix[m2].mix)));
-					shuf1Len = lookups.BitsSetTable256plus8[m1];
-					shuf2Len = shuf1Len + lookups.BitsSetTable256plus8[m2];
-					STOREU_XMM(p, data1A);
-					STOREU_XMM(p+shuf1Len, data2A);
-					p += shuf2Len;
-				} else {
-					dataA = _mm_sub_epi8(dataA, _mm_set1_epi8(-42));
-					STOREU_XMM(p, dataA);
-					p += XMM_SIZE;
-					shuf1Len = 8;
-					shuf2Len = 16;
-				}
-				if(maskB) {
-					data1B = sse2_expand_bytes(m3, dataB);
-					data2B = sse2_expand_bytes(m4, _mm_srli_si128(dataB, 8));
-					data1B = _mm_add_epi8(data1B, _mm_load_si128(&(lookups.shufMix[m3].mix)));
-					data2B = _mm_add_epi8(data2B, _mm_load_si128(&(lookups.shufMix[m4].mix)));
-					shuf3Len = lookups.BitsSetTable256plus8[m3];
-					unsigned int shuf4Len = shuf3Len + lookups.BitsSetTable256plus8[m4];
-					STOREU_XMM(p, data1B);
-					STOREU_XMM(p+shuf3Len, data2B);
-					p += shuf4Len;
-					shuf3Len += shuf2Len;
-					shufTotalLen = shuf2Len + shuf4Len;
-				} else {
-					dataB = _mm_sub_epi8(dataB, _mm_set1_epi8(-42));
-					STOREU_XMM(p, dataB);
-					p += XMM_SIZE;
-					shuf3Len = shuf2Len + 8;
-					shufTotalLen = shuf2Len + 16;
-				}
+				p += sse2_expand_store_vector(dataA, maskA, m1, m2, p, shuf1Len, shuf2Len);
+				unsigned int shuf4Len;
+				p += sse2_expand_store_vector(dataB, maskB, m3, m4, p, shuf3Len, shuf4Len);
+				shuf3Len += shuf2Len;
+				shufTotalLen = shuf2Len + shuf4Len;
 			}
 			
 			if(use_isa >= ISA_LEVEL_SSSE3) {
