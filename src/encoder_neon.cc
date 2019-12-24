@@ -18,8 +18,8 @@ HEDLEY_ALWAYS_INLINE void vst1q_u8_x2_unaligned(uint8_t* p, uint8x16x2_t data) {
 // whether to skew the fast/slow path towards the fast path
 // this enables the fast path to handle single character escapes, which means the fast path becomes slower, but it chosen more frequently
 #define YENC_NEON_FAST_ONECHAR_MAIN 1
-// also apply the same for EOL handling; oddly, I haven't seen this be faster anywhere
-//#define YENC_NEON_FAST_ONECHAR_EOL 1
+// also apply the same for EOL handling
+#define YENC_NEON_FAST_ONECHAR_EOL 1
 
 
 #define _X(n) \
@@ -280,29 +280,21 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 #  endif
 # endif
 		
-		
-		uint8x16x2_t shuf = vld2q_u8(shufNlIndexLUT + bitIndex*32);
-		
+		uint8x16_t vClz = vdupq_n_u8(bitIndex & ~(sizeof(mask)*8));
 # ifdef __aarch64__
-		uint8x16_t shufA = shuf.val[0];
-		uint8x16_t shufB = shuf.val[1];
-		dataA = vqtbx2q_u8(shufA, {dataA, dataB}, shufA);
-		//dataA = vqtbx1q_u8(shufA, vextq_u8(dataA, dataB, 1), shufA); // TODO: appears to be faster, so make this work
-		dataB = vqtbx1q_u8(shufB, dataB, shufB);
+		uint8x16_t blendA = vcgtq_u8((uint8x16_t){63,62,61,60,51,50,49,48,47,46,45,44,35,34,33,32}, vClz);
+		uint8x16_t blendB = vcgtq_u8((uint8x16_t){31,30,29,28,19,18,17,16,15,14,13,12, 3, 2, 1, 0}, vClz);
 # else
-		uint8x8_t shufAl = vget_low_u8(shuf.val[0]);
-		uint8x8_t shufAh = vget_high_u8(shuf.val[0]);
-		uint8x8_t shufBl = vget_low_u8(shuf.val[1]);
-		uint8x8_t shufBh = vget_high_u8(shuf.val[1]);
-		dataA = vcombine_u8(
-			vtbx2_u8(shufAl, {vget_low_u8(dataA), vget_high_u8(dataA)}, shufAl),
-			vtbx2_u8(shufAh, {vget_high_u8(dataA), vget_low_u8(dataB)}, shufAh)
-		);
-		dataB = vcombine_u8(
-			vtbx2_u8(shufBl, {vget_low_u8(dataB), vget_high_u8(dataB)}, shufBl),
-			vtbx1_u8(shufBh, vget_high_u8(dataB), shufBh)
-		);
+		uint8x16_t blendA = vcgtq_u8((uint8x16_t){31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16}, vClz);
+		uint8x16_t blendB = vcgtq_u8((uint8x16_t){15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0}, vClz);
 # endif
+		uint8x16_t dataAShifted = vbslq_u8(cmpA, vdupq_n_u8('='), dataA);
+		uint8x16_t dataBShifted = vbslq_u8(cmpB, vdupq_n_u8('='), dataB);
+		dataAShifted = vextq_u8(dataAShifted, dataBShifted, 1);
+		dataBShifted = vextq_u8(dataBShifted, dataBShifted, 1);
+		dataA = vbslq_u8(blendA, dataAShifted, dataA);
+		dataB = vbslq_u8(blendB, dataBShifted, dataB);
+		
 		vst1q_u8_x2_unaligned(p, ((uint8x16x2_t){dataA, dataB}));
 		p += sizeof(uint8x16_t)*2 - 1;
 		p += (mask != 0);
