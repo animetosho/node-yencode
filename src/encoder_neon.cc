@@ -17,14 +17,7 @@ HEDLEY_ALWAYS_INLINE void vst1q_u8_x2_unaligned(uint8_t* p, uint8x16x2_t data) {
 
 // whether to skew the fast/slow path towards the fast path
 // this enables the fast path to handle single character escapes, which means the fast path becomes slower, but it chosen more frequently
-// this seems to be a win on x86 platforms, but not so clear on ARM
-// from experimentation:
-// - ARMv7: slightly slower on Cortex A53, but much faster on Cortex A72
-// - ARMv8: slower on Cortex A53, roughly the same on Cortex A72
-// as such, we enable for ARMv8, disable on ARMv7
-#ifndef __aarch64__
-# define YENC_NEON_FAST_ONECHAR_MAIN 1
-#endif
+#define YENC_NEON_FAST_ONECHAR_MAIN 1
 // also apply the same for EOL handling; oddly, I haven't seen this be faster anywhere
 //#define YENC_NEON_FAST_ONECHAR_EOL 1
 
@@ -35,26 +28,6 @@ HEDLEY_ALWAYS_INLINE void vst1q_u8_x2_unaligned(uint8_t* p, uint8x16x2_t data) {
 	_X2(n,8), _X2(n,24), _X2(n,9), _X2(n,25), _X2(n,10), _X2(n,26), _X2(n,11), _X2(n,27), \
 	_X2(n,12), _X2(n,28), _X2(n,13), _X2(n,29), _X2(n,14), _X2(n,30), _X2(n,15), _X2(n,31)
 #ifdef __aarch64__
-# ifdef YENC_NEON_FAST_ONECHAR_MAIN
-static const uint8_t ALIGN_TO(16, shufIndexLUT[65*32]) = {
-#  define _X2(n, k) ((n==k)? '=' : k-(k>n))
-	// need dummy entries for bits that can never be set
-	_X(31), _X(30), _X(29), _X(28),
-		_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),
-	_X(27), _X(26), _X(25), _X(24),
-	_X(23), _X(22), _X(21), _X(20),
-		_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),
-	_X(19), _X(18), _X(17), _X(16),
-	_X(15), _X(14), _X(13), _X(12),
-		_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),
-	_X(11), _X(10), _X( 9), _X( 8),
-	_X( 7), _X( 6), _X( 5), _X( 4),
-		_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),_X(32),
-	_X( 3), _X( 2), _X( 1), _X( 0),
-	_X(32)
-#  undef _X2
-};
-# endif
 # ifdef YENC_NEON_FAST_ONECHAR_EOL
 static const uint8_t ALIGN_TO(16, shufNlIndexLUT[65*32]) = {
 #  define _X2(n, k) ((n==1+k)? '=' : 1+k-(1+k>n) - (k>15 ? 16 : 0))
@@ -76,17 +49,6 @@ static const uint8_t ALIGN_TO(16, shufNlIndexLUT[65*32]) = {
 };
 # endif
 #else
-# ifdef YENC_NEON_FAST_ONECHAR_MAIN
-static const uint8_t ALIGN_TO(16, shufIndexLUT[33*32]) = {
-#  define _X2(n, k) (((n==k)? '=' : k-(k>n) - (k>15 ? (k&~7) - 8 : 0)))
-	_X(31), _X(30), _X(29), _X(28), _X(27), _X(26), _X(25), _X(24),
-	_X(23), _X(22), _X(21), _X(20), _X(19), _X(18), _X(17), _X(16),
-	_X(15), _X(14), _X(13), _X(12), _X(11), _X(10), _X( 9), _X( 8),
-	_X( 7), _X( 6), _X( 5), _X( 4), _X( 3), _X( 2), _X( 1), _X( 0),
-	_X(32)
-#  undef _X2
-};
-# endif
 # ifdef YENC_NEON_FAST_ONECHAR_EOL
 static const uint8_t ALIGN_TO(16, shufNlIndexLUT[33*32]) = {
 #  define _X2(n, k) (((n==1+k)? '=' : 1+k-(1+k>n) - (k&~7)))
@@ -640,42 +602,21 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 #  endif
 # endif
 				
-				uint8x16x2_t shuf = vld2q_u8(shufIndexLUT + bitIndex*32);
-				
+				uint8x16_t vClz = vdupq_n_u8(bitIndex & ~(sizeof(mask)*8));
 # ifdef __aarch64__
-				uint8x16_t shufA = shuf.val[0];
-				uint8x16_t shufB = shuf.val[1];
-				uint8x16_t outDataB = vqtbx2q_u8(shufB, {dataA, dataB}, shufB);
-				dataA = vqtbx1q_u8(shufA, dataA, shufA);
+				uint8x16_t blendA = vcgeq_u8((uint8x16_t){63,62,61,60,51,50,49,48,47,46,45,44,35,34,33,32}, vClz);
+				uint8x16_t blendB = vcgeq_u8((uint8x16_t){31,30,29,28,19,18,17,16,15,14,13,12, 3, 2, 1, 0}, vClz);
 # else
-				/* alternative no-LUT version; seems to be slightly slower than using a LUT
-				// TODO: remove need to XOR
-				uint8x16_t vClz = vdupq_n_u8(31^bitIndex);
-				uint8x16_t shufA = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
-				uint8x16_t shufB = {8,9,10,11,12,13,14,15,8,9,10,11,12,13,14,15};
-				shufA = vaddq_u8(
-					vbslq_u8(cmpA, vdupq_n_u8('='), shufA),
-					vcgtq_u8(shufA, vClz)
-				);
-				shufB = vaddq_u8(
-					vbslq_u8(cmpB, vdupq_n_u8('='), shufB),
-					vcgtq_u8((uint8x16_t){16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31}, vClz)
-				);
-				*/
-				
-				uint8x8_t shufAl = vget_low_u8(shuf.val[0]);
-				uint8x8_t shufAh = vget_high_u8(shuf.val[0]);
-				uint8x8_t shufBl = vget_low_u8(shuf.val[1]);
-				uint8x8_t shufBh = vget_high_u8(shuf.val[1]);
-				uint8x16_t outDataB = vcombine_u8(
-					vtbx2_u8(shufBl, {vget_high_u8(dataA), vget_low_u8(dataB)}, shufBl),
-					vtbx2_u8(shufBh, {vget_low_u8(dataB), vget_high_u8(dataB)}, shufBh)
-				);
-				dataA = vcombine_u8(
-					vtbx1_u8(shufAl, vget_low_u8(dataA), shufAl),
-					vtbx2_u8(shufAh, {vget_low_u8(dataA), vget_high_u8(dataA)}, shufAh)
-				);
+				uint8x16_t blendA = vcgeq_u8((uint8x16_t){31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16}, vClz);
+				uint8x16_t blendB = vcgeq_u8((uint8x16_t){15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0}, vClz);
 # endif
+				uint8x16_t dataAShifted = vextq_u8(dataA, dataA, 15);
+				uint8x16_t dataBShifted = vextq_u8(dataA, dataB, 15);
+				dataA = vbslq_u8(cmpA, vdupq_n_u8('='), dataA);
+				uint8x16_t outDataB = vbslq_u8(cmpB, vdupq_n_u8('='), dataB);
+				dataA = vbslq_u8(blendA, dataA, dataAShifted);
+				outDataB = vbslq_u8(blendB, outDataB, dataBShifted);
+				
 				vst1q_u8_x2_unaligned(p, ((uint8x16x2_t){dataA, outDataB}));
 				p += sizeof(uint8x16_t)*2;
 				// write last byte
