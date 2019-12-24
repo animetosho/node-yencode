@@ -19,7 +19,7 @@ static uint8x16_t ALIGN_TO(16, shufLUT[256]);
 static uint8x16_t ALIGN_TO(16, nlShufLUT[256]);
 static uint16_t expandLUT[256];
 
-static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, int& col, int lineSizeOffset) {
+static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
 	uint8x16_t oDataA = vld1q_u8(es + i);
 	uint8x16_t oDataB = vld1q_u8(es + i + sizeof(uint8x16_t));
 	uint8x16_t dataA = oDataA;
@@ -230,8 +230,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
-	int lineSizeOffset = -line_size +32; // line size plus vector length
-	int col = *colOffset - line_size +1;
+	long lineSizeOffset = -line_size +32; // line size plus vector length
+	long col = *colOffset - line_size +1;
 	
 	// offset position to enable simpler loop condition checking
 	const int INPUT_OFFSET = sizeof(uint8x16_t)*4 -1; // extra chars for EOL handling, -1 to change <= to <
