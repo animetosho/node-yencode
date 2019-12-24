@@ -148,9 +148,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		unsigned char shuf2Len = (counts>>8) & 0xff;
 		unsigned char shuf3Len = (counts>>16) & 0xff;
 		unsigned char shuf4Len = (counts>>24) & 0xff;
-		uint16_t shufTotalLen = (counts>>16) + counts;
-		shufTotalLen += shufTotalLen>>8;
-		shufTotalLen &= 0xff;
+		uint32_t shufTotalLen = counts * 0x1010101;
+		shufTotalLen >>= 24;
 		
 		if(LIKELIHOOD(0.001, shuf1Len > sizeof(uint8x16_t))) {
 			// unlikely special case, which would cause vectors to be overflowed
@@ -394,9 +393,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 			unsigned char shuf2Len = (counts>>8) & 0xff;
 			unsigned char shuf3Len = (counts>>16) & 0xff;
 			unsigned char shuf4Len = (counts>>24) & 0xff;
-			uint16_t shufTotalLen = (counts>>16) + counts;
-			shufTotalLen += shufTotalLen>>8;
-			shufTotalLen &= 0xff;
+			uint32_t shufTotalLen = counts * 0x1010101;
+			shufTotalLen >>= 24;
 			
 			vst1q_u8(p, data1A);
 			p += shuf1Len;
@@ -427,10 +425,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 				// count bits in eqMask
 				uint8x8_t vCnt = vcnt_u8(vreinterpret_u8_u32(vmov_n_u32(eqMaskHalf)));
 				uint32_t cnt = vget_lane_u32(vreinterpret_u32_u8(vCnt), 0);
-				cnt += cnt >> 16;
-				cnt += cnt >> 8;
-				cnt &= 0xff;
-				i += cnt;
+				cnt *= 0x1010101;
+				i += cnt >> 24;
 				
 				p -= revert;
 				i -= revert;
