@@ -316,9 +316,13 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			);
 		}
 		
+#if defined(__GNUC__) && __GNUC__==9
 		_encode_loop_branchA:
 		unsigned int maskA = _mm_movemask_epi8(cmpA);
 		_encode_loop_branchB:
+#else
+		unsigned int maskA = _mm_movemask_epi8(cmpA);
+#endif
 		
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_slm__) && !defined(__tune_btver1__)
 		if(use_isa >= ISA_LEVEL_SSSE3) {
@@ -734,7 +738,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 						dataA
 					);
 					i += XMM_SIZE*2 + 1;
-# ifdef __GNUC__ && __GNUC__==9 // GCC9 seems to have trouble keeping track of variable usage and spills many of them if we goto after declarations; Clang9/GCC8 seems to be fine
+# if defined(__GNUC__) && __GNUC__==9
+					// GCC9 seems to have trouble keeping track of variable usage and spills many of them if we goto after declarations; Clang9/GCC8 seems to be fine
 					goto _encode_loop_branchA;
 # endif
 					maskA = _mm_movemask_epi8(cmpA);
@@ -760,7 +765,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					maskA = _mm_movemask_epi8(cmpA);
 					maskA |= lookups.eolFirstMask[es[i+1]];
 					i += XMM_SIZE*2 + 1;
-#ifdef __GNUC__ && __GNUC__==9
+#if defined(__GNUC__) && __GNUC__==9
 					goto _encode_loop_branchB;
 #endif
 					cmpB = _mm_or_si128(
