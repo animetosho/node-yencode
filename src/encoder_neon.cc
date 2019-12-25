@@ -226,19 +226,19 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 
 
 HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
-	if(len < sizeof(uint8x16_t)*4 || line_size < (int)sizeof(uint8x16_t)*4) return;
+	// offset position to enable simpler loop condition checking
+	const int INPUT_OFFSET = sizeof(uint8x16_t)*4 -1; // extra chars for EOL handling, -1 to change <= to <
+	if(len <= INPUT_OFFSET || line_size < (int)sizeof(uint8x16_t)*4) return;
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
 	long lineSizeOffset = -line_size +32; // line size plus vector length
 	long col = *colOffset - line_size +1;
 	
-	// offset position to enable simpler loop condition checking
-	const int INPUT_OFFSET = sizeof(uint8x16_t)*4 -1; // extra chars for EOL handling, -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
-	if (LIKELIHOOD(0.999, col == -line_size+1)) {
+	if (HEDLEY_LIKELY(col == -line_size+1)) {
 		uint8_t c = es[i++];
 		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
 			memcpy(p, escapedLUT + c, 2);
@@ -249,7 +249,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 			col += 1;
 		}
 	}
-	if(LIKELIHOOD(0.001, col >= 0)) {
+	if(HEDLEY_UNLIKELY(col >= 0)) {
 		if(col == 0)
 			encode_eol_handle_pre(es, i, p, col, lineSizeOffset);
 		else {
@@ -410,15 +410,15 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 				// we overflowed - find correct position to revert back to
 				long revert = col;
 				long len2ndHalf = shuf3Len+shuf4Len;
-				long pastMid = col - len2ndHalf;
+				long shiftAmt = len2ndHalf - col -1;
 				uint32_t eqMaskHalf;
-				if(HEDLEY_UNLIKELY(pastMid >= 0)) {
+				if(HEDLEY_UNLIKELY(shiftAmt < 0)) {
 					eqMaskHalf = (expandLUT[m2] << shuf1Len) | expandLUT[m1];
 					eqMaskHalf >>= shufTotalLen - col -1;
 					i += len2ndHalf - 16;
 				} else {
 					eqMaskHalf = (expandLUT[m4] << shuf3Len) | expandLUT[m3];
-					eqMaskHalf >>= -pastMid -1; // == ~pastMid
+					eqMaskHalf >>= shiftAmt;
 				}
 				revert += eqMaskHalf & 1;
 				

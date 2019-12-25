@@ -95,25 +95,29 @@ static struct {
 #ifdef _MSC_VER
 # include <intrin.h>
 # include <ammintrin.h>
-# define _BSR_VAR(var, src) var; _BitScanReverse(&var, src)
+static HEDLEY_ALWAYS_INLINE unsigned _BSR_VAR(unsigned src) {
+	unsigned long result;
+	_BitScanReverse((unsigned long*)&result, src);
+	return result;
+}
 #elif defined(__GNUC__)
 // have seen Clang not like _bit_scan_reverse
 # include <x86intrin.h> // for lzcnt
-# define _BSR_VAR(var, src) var = (31^__builtin_clz(src))
+# define _BSR_VAR(src) (31^__builtin_clz(src))
 #else
 # include <x86intrin.h>
-# define _BSR_VAR(var, src) var = _bit_scan_reverse(src)
+# define _BSR_VAR _bit_scan_reverse
 #endif
 
 static HEDLEY_ALWAYS_INLINE __m128i sse2_compact_vect(uint32_t mask, __m128i data) {
 	while(mask) {
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 		// lzcnt is always at least as fast as bsr, so prefer it if it's available
-		unsigned long bitIndex = _lzcnt_u32(mask);
+		unsigned bitIndex = _lzcnt_u32(mask);
 		__m128i mergeMask = _mm_load_si128((__m128i*)lookups.unshuf_mask_lzc + bitIndex);
-		mask ^= 0x80000000U>>bitIndex;
+		mask &= 0x7fffffffU>>bitIndex;
 #else
-		unsigned long _BSR_VAR(bitIndex, mask);
+		unsigned bitIndex = _BSR_VAR(mask);
 		__m128i mergeMask = _mm_load_si128((__m128i*)lookups.unshuf_mask_bsr + bitIndex);
 		mask ^= 1<<bitIndex;
 #endif
