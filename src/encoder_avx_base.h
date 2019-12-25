@@ -21,93 +21,67 @@
 # define KLOAD32(a, offs) (((uint32_t*)(a))[(offs)])
 #endif
 
-#pragma pack(16)
-struct TShufMix {
-	__m128i shuf, mix;
-};
+#pragma pack(32)
+static struct {
+	uint32_t eolLastChar[256];
+	/*align32*/ __m256i shufExpand[65536]; // huge 2MB table
+	/*align32*/ int8_t expandMergemix[33*2*32]; // not used in AVX3
+} * HEDLEY_RESTRICT lookupsAVX2;
+static struct {
+	uint32_t eolLastChar[256];
+	uint32_t expand[65536]; // biggish 256KB table (but still smaller than the 2MB table)
+} * HEDLEY_RESTRICT lookupsVBMI2;
 #pragma pack()
 
-static struct {
-	const int8_t ALIGN_TO(32, expand_mergemix[33*2*32]);
-	__m256i ALIGN_TO(32, shufExpand[65536]); // huge 2MB table
-	const uint32_t eolLastChar[256];
-	uint32_t expand[65536]; // biggish 256KB table (but still smaller than the 2MB table)
-} lookups = {
-	/*expand_mergemix*/ {
-		#define _X2(n,k) n>=k?-1:0
-		#define _X(n) _X2(n,0), _X2(n,1), _X2(n,2), _X2(n,3), _X2(n,4), _X2(n,5), _X2(n,6), _X2(n,7), \
-			_X2(n,8), _X2(n,9), _X2(n,10), _X2(n,11), _X2(n,12), _X2(n,13), _X2(n,14), _X2(n,15), \
-			_X2(n,16), _X2(n,17), _X2(n,18), _X2(n,19), _X2(n,20), _X2(n,21), _X2(n,22), _X2(n,23), \
-			_X2(n,24), _X2(n,25), _X2(n,26), _X2(n,27), _X2(n,28), _X2(n,29), _X2(n,30), _X2(n,31)
-		#define _Y2(n, m) '='*(n==m) + 64*(n==m-1) + 42*(n!=m)
-		#define _Y(n) _Y2(n,0), _Y2(n,1), _Y2(n,2), _Y2(n,3), _Y2(n,4), _Y2(n,5), _Y2(n,6), _Y2(n,7), \
-			_Y2(n,8), _Y2(n,9), _Y2(n,10), _Y2(n,11), _Y2(n,12), _Y2(n,13), _Y2(n,14), _Y2(n,15), \
-			_Y2(n,16), _Y2(n,17), _Y2(n,18), _Y2(n,19), _Y2(n,20), _Y2(n,21), _Y2(n,22), _Y2(n,23), \
-			_Y2(n,24), _Y2(n,25), _Y2(n,26), _Y2(n,27), _Y2(n,28), _Y2(n,29), _Y2(n,30), _Y2(n,31)
-		#define _XY(n) _X(n), _Y(n)
-		_XY(31), _XY(30), _XY(29), _XY(28), _XY(27), _XY(26), _XY(25), _XY(24),
-		_XY(23), _XY(22), _XY(21), _XY(20), _XY(19), _XY(18), _XY(17), _XY(16),
-		_XY(15), _XY(14), _XY(13), _XY(12), _XY(11), _XY(10), _XY( 9), _XY( 8),
-		_XY( 7), _XY( 6), _XY( 5), _XY( 4), _XY( 3), _XY( 2), _XY( 1), _XY( 0),
-		_XY(32)
-		#undef _XY
-		#undef _Y
-		#undef _Y2
-		#undef _X
-		#undef _X2
-	},
-	
-	/*shufExpand*/ {},
-	/*eolLastChar*/ {
-		#define _B1(n) _B(n), _B(n+1), _B(n+2), _B(n+3)
-		#define _B2(n) _B1(n), _B1(n+4), _B1(n+8), _B1(n+12)
-		#define _B3(n) _B2(n), _B2(n+16), _B2(n+32), _B2(n+48)
-		#define _BX _B3(0), _B3(64), _B3(128), _B3(192)
-		#define _B(n) ((n == 214+'\t' || n == 214+' ' || n == 214+'\0' || n == 214+'\n' || n == 214+'\r' || n == '='-42) ? (((n+42+64)&0xff)<<8)+0x0a0d003d : ((n+42)&0xff)+0x0a0d00)
-			_BX
-		#undef _B
-		#undef _B1
-		#undef _B2
-		#undef _B3
-		#undef _BX
-	},
-	/*expand*/ {}
-};
-
-
-#if defined(__AVX512VBMI2__) && defined(__AVX512VL__)
-static void encoder_avx_vbmi2_lut() {
-	for(int i=0; i<65536; i++) {
-		int k = i;
-		uint32_t expand = 0;
-		int p = 0;
-		for(int j=0; j<16; j++) {
-			if(k & 1) {
-				p++;
-			}
-			expand |= 1<<(j+p);
-			k >>= 1;
-		}
-		lookups.expand[i] = expand;
+static inline void fill_eolLastChar(uint32_t* table) {
+	for(int n=0; n<256; n++) {
+		table[n] = ((n == 214+'\t' || n == 214+' ' || n == 214+'\0' || n == 214+'\n' || n == 214+'\r' || n == '='-42) ? (((n+42+64)&0xff)<<8)+0x0a0d003d : ((n+42)&0xff)+0x0a0d00);
 	}
 }
-#endif
 
+template<enum YEncDecIsaLevel use_isa>
 static void encoder_avx2_lut() {
-	for(int i=0; i<65536; i++) {
-		int k = i;
-		uint8_t* res = (uint8_t*)(lookups.shufExpand + i);
-		int p = 0;
-		for(int j=0; j<16; j++) {
-			if(k & 1) {
-				res[j+p] = 0xff;
-				p++;
+	if(use_isa >= ISA_LEVEL_VBMI2) {
+		ALIGN_ALLOC(lookupsVBMI2, sizeof(*lookupsVBMI2), 32);
+		fill_eolLastChar(lookupsVBMI2->eolLastChar);
+		for(int i=0; i<65536; i++) {
+			int k = i;
+			uint32_t expand = 0;
+			int p = 0;
+			for(int j=0; j<16; j++) {
+				if(k & 1) {
+					p++;
+				}
+				expand |= 1<<(j+p);
+				k >>= 1;
 			}
-			res[j+p] = j;
-			k >>= 1;
+			lookupsVBMI2->expand[i] = expand;
 		}
-		for(; p<16; p++)
-			res[16+p] = 0x40; // arbitrary value (top bit cannot be set)
+	} else {
+		ALIGN_ALLOC(lookupsAVX2, sizeof(*lookupsAVX2), 32);
+		fill_eolLastChar(lookupsAVX2->eolLastChar);
+		for(int i=0; i<65536; i++) {
+			int k = i;
+			uint8_t* res = (uint8_t*)(lookupsAVX2->shufExpand + i);
+			int p = 0;
+			for(int j=0; j<16; j++) {
+				if(k & 1) {
+					res[j+p] = 0xff;
+					p++;
+				}
+				res[j+p] = j;
+				k >>= 1;
+			}
+			for(; p<16; p++)
+				res[16+p] = 0x40; // arbitrary value (top bit cannot be set)
+		}
+		for(int i=0; i<33; i++) {
+			int n = (i == 32 ? 32 : 31-i);
+			for(int j=0; j<32; j++) {
+				lookupsAVX2->expandMergemix[i*64 + j] = (n>=j ? -1 : 0);
+				lookupsAVX2->expandMergemix[i*64 + j + 32] = ('='*(n==j) + 64*(n==j-1) + 42*(n!=j));
+			}
+		}
 	}
 }
 
@@ -129,7 +103,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 		uint8_t c = es[i++];
 		if(col == 0) {
 			// last char
-			uint32_t eolChar = lookups.eolLastChar[c];
+			uint32_t eolChar = (use_isa >= ISA_LEVEL_VBMI2 ? lookupsVBMI2->eolLastChar[c] : lookupsAVX2->eolLastChar[c]);
 			*(uint32_t*)p = eolChar;
 			p += 3 + (eolChar>>27);
 			col = -line_size+1;
@@ -211,12 +185,12 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				expandMaskA = _pext_u64(expandMaskA^0x5555555555555555, expandMaskA);
 				*/
 				
-				data1A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookups.expand, m1), dataA);
-				data2A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookups.expand, m2), _mm256_castsi128_si256(
+				data1A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expandLUT, m1), dataA);
+				data2A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expandLUT, m2), _mm256_castsi128_si256(
 					_mm256_extracti128_si256(dataA, 1)
 				));
-				data1B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookups.expand, m3), dataB);
-				data2B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookups.expand, m4), _mm256_castsi128_si256(
+				data1B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expandLUT, m3), dataB);
+				data2B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expandLUT, m4), _mm256_castsi128_si256(
 					_mm256_extracti128_si256(dataB, 1)
 				));
 			} else
@@ -241,10 +215,10 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				data2B = _mm256_permute4x64_epi64(dataB, 0xee);
 #endif
 				
-				shuf1A = _mm256_load_si256(lookups.shufExpand + m1);
-				shuf2A = _mm256_load_si256((__m256i*)((char*)lookups.shufExpand + m2));
-				shuf1B = _mm256_load_si256(lookups.shufExpand + m3);
-				shuf2B = _mm256_load_si256((__m256i*)((char*)lookups.shufExpand + m4));
+				shuf1A = _mm256_load_si256(lookupsAVX2->shufExpand + m1);
+				shuf2A = _mm256_load_si256((__m256i*)((char*)(lookupsAVX2->shufExpand) + m2));
+				shuf1B = _mm256_load_si256(lookupsAVX2->shufExpand + m3);
+				shuf2B = _mm256_load_si256((__m256i*)((char*)(lookupsAVX2->shufExpand) + m4));
 				
 				// expand
 				data1A = _mm256_shuffle_epi8(data1A, shuf1A);
@@ -277,8 +251,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 					uint32_t eqMask1, eqMask2;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 					if(use_isa >= ISA_LEVEL_VBMI2) {
-						eqMask1 = lookups.expand[m1];
-						eqMask2 = lookups.expand[m2];
+						eqMask1 = lookupsVBMI2->expandLUT[m1];
+						eqMask2 = lookupsVBMI2->expandLUT[m2];
 					} else
 #endif
 					{
@@ -293,8 +267,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 					uint32_t eqMask3, eqMask4;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 					if(use_isa >= ISA_LEVEL_VBMI2) {
-						eqMask3 = lookups.expand[m3];
-						eqMask4 = lookups.expand[m4];
+						eqMask3 = lookupsVBMI2->expandLUT[m3];
+						eqMask4 = lookupsVBMI2->expandLUT[m4];
 					} else
 #endif
 					{
@@ -381,8 +355,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			{
 				bitIndexA = _lzcnt_u32(maskA);
 				bitIndexB = _lzcnt_u32(maskB);
-				__m256i mergeMaskA = _mm256_load_si256((const __m256i*)(lookups.expand_mergemix + bitIndexA*2*YMM_SIZE));
-				__m256i mergeMaskB = _mm256_load_si256((const __m256i*)(lookups.expand_mergemix + bitIndexB*2*YMM_SIZE));
+				__m256i mergeMaskA = _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexA*2*YMM_SIZE));
+				__m256i mergeMaskB = _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexB*2*YMM_SIZE));
 				
 				// to deal with the pain of lane crossing, use shift + mask/blend
 				__m256i dataShifted = _mm256_alignr_epi8(
@@ -392,7 +366,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				);
 				dataA = _mm256_andnot_si256(cmpA, dataA); // clear space for '=' char
 				dataA = _mm256_blendv_epi8(dataShifted, dataA, mergeMaskA);
-				dataA = _mm256_add_epi8(dataA, _mm256_load_si256((const __m256i*)(lookups.expand_mergemix + bitIndexA*2*YMM_SIZE) + 1));
+				dataA = _mm256_add_epi8(dataA, _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexA*2*YMM_SIZE) + 1));
 				_mm256_storeu_si256((__m256i*)p, dataA);
 				p[YMM_SIZE] = es[i-1-YMM_SIZE] + 42 + (64 & (maskA>>(YMM_SIZE-1-6)));
 				p += maskBitsA;
@@ -404,7 +378,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				);
 				dataB = _mm256_andnot_si256(cmpB, dataB);
 				dataB = _mm256_blendv_epi8(dataShifted, dataB, mergeMaskB);
-				dataB = _mm256_add_epi8(dataB, _mm256_load_si256((const __m256i*)(lookups.expand_mergemix + bitIndexB*2*YMM_SIZE) + 1));
+				dataB = _mm256_add_epi8(dataB, _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexB*2*YMM_SIZE) + 1));
 				_mm256_storeu_si256((__m256i*)p, dataB);
 				p[YMM_SIZE] = es[i-1] + 42 + (64 & (maskB>>(YMM_SIZE-1-6)));
 				p += maskBitsB;
@@ -439,7 +413,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				p -= col;
 				
 				_encode_eol_handle_pre:
-				uint32_t eolChar = lookups.eolLastChar[es[i]];
+				uint32_t eolChar = (use_isa >= ISA_LEVEL_VBMI2 ? lookupsVBMI2->eolLastChar[es[i]] : lookupsAVX2->eolLastChar[es[i]]);
 				*(uint32_t*)p = eolChar;
 				p += 3 + (eolChar>>27);
 				col = lineSizeOffset;

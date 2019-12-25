@@ -32,6 +32,20 @@
 #endif
 
 
+#if defined(__cplusplus) && __cplusplus > 201100
+	// C++11 method
+	// len needs to be a multiple of alignment, although it sometimes works if it isn't...
+	#define ALIGN_ALLOC(buf, len, align) *(void**)&(buf) = aligned_alloc(align, ((len) + (align)-1) & ~((align)-1))
+	#define ALIGN_FREE free
+#elif defined(_MSC_VER)
+	#define ALIGN_ALLOC(buf, len, align) *(void**)&(buf) = _aligned_malloc((len), align)
+	#define ALIGN_FREE _aligned_free
+#else
+	#define ALIGN_ALLOC(buf, len, align) if(posix_memalign((void**)&(buf), align, (len))) (buf) = NULL
+	#define ALIGN_FREE free
+#endif
+
+
 // MSVC compatibility
 #if (defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(_M_X64)
 	#define __SSE2__ 1
@@ -197,10 +211,37 @@ enum YEncDecIsaLevel {
 	ISA_LEVEL_SSE41 = 0x300,
 	ISA_LEVEL_SSE4_POPCNT = 0x301,
 	ISA_LEVEL_AVX2 = 0x303, // also includes BMI1/2
-	ISA_LEVEL_AVX3 = 0x503, // SKX variant; AVX512VL + AVX512BW
-	ISA_LEVEL_VBMI2 = 0x603, // ICL
-	ISA_NATIVE = 0xffff
+	ISA_LEVEL_AVX3 = 0x403, // SKX variant; AVX512VL + AVX512BW
+	ISA_LEVEL_VBMI2 = 0x503 // ICL
 };
+# ifdef _MSC_VER
+// native tuning not supported in MSVC
+# define ISA_NATIVE ISA_LEVEL_SSE2
+#else
+# if defined(__AVX512VBMI2__)
+#  define _ISA_NATIVE ISA_LEVEL_VBMI2
+# elif defined(__AVX512BW__)
+#  define _ISA_NATIVE ISA_LEVEL_AVX3
+# elif defined(__AVX2__)
+#  define _ISA_NATIVE ISA_LEVEL_AVX2
+# elif defined(__SSE4_1__)
+#  define _ISA_NATIVE ISA_LEVEL_SSE41
+# elif defined(__SSSE3__)
+#  define _ISA_NATIVE ISA_LEVEL_SSSE3
+# else
+#  define _ISA_NATIVE ISA_LEVEL_SSE2
+# endif
+# if defined(__POPCNT__)
+#  if defined(__LZCNT__)
+#   define ISA_NATIVE (_ISA_NATIVE | ISA_FEATURE_POPCNT | ISA_FEATURE_LZCNT)
+#  else 
+#   define ISA_NATIVE (_ISA_NATIVE | ISA_FEATURE_POPCNT)
+#  endif
+# else
+#  define ISA_NATIVE _ISA_NATIVE
+# endif
+#endif
+
 #endif
 
 #include <string.h>
