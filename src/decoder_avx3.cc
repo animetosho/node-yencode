@@ -5,7 +5,8 @@
 #  include "decoder_common.h"
 #  include "decoder_avx2_base.h"
 void decoder_set_avx3_funcs() {
-	decoder_init_lut(lookups.eqFix, lookups.compact);
+	ALIGN_ALLOC(lookups, sizeof(*lookups), 16);
+	decoder_init_lut(lookups->eqFix, lookups->compact);
 	_do_decode = &do_decode_simd<false, false, sizeof(__m256i)*2, do_decode_avx2<false, false, ISA_LEVEL_AVX3> >;
 	_do_decode_raw = &do_decode_simd<true, false, sizeof(__m256i)*2, do_decode_avx2<true, false, ISA_LEVEL_AVX3> >;
 	_do_decode_end = &do_decode_simd<false, true, sizeof(__m256i)*2, do_decode_avx2<false, true, ISA_LEVEL_AVX3> >;
@@ -15,7 +16,8 @@ void decoder_set_avx3_funcs() {
 #  include "decoder_common.h"
 #  include "decoder_sse_base.h"
 void decoder_set_avx3_funcs() {
-	decoder_init_lut(lookups.eqFix, lookups.compact);
+	decoder_sse_init();
+	decoder_init_lut(lookups->eqFix, lookups->compact);
 	_do_decode = &do_decode_simd<false, false, sizeof(__m128i)*2, do_decode_sse<false, false, ISA_LEVEL_AVX3> >;
 	_do_decode_raw = &do_decode_simd<true, false, sizeof(__m128i)*2, do_decode_sse<true, false, ISA_LEVEL_AVX3> >;
 	_do_decode_end = &do_decode_simd<false, true, sizeof(__m128i)*2, do_decode_sse<false, true, ISA_LEVEL_AVX3> >;

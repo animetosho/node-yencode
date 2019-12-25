@@ -5,7 +5,8 @@
 #include "decoder_sse_base.h"
 
 void decoder_set_sse2_funcs() {
-	decoder_init_lut(lookups.eqFix, lookups.compact);
+	decoder_sse_init();
+	decoder_init_lut(lookups->eqFix, lookups->compact);
 	_do_decode = &do_decode_simd<false, false, sizeof(__m128i)*2, do_decode_sse<false, false, ISA_LEVEL_SSE2> >;
 	_do_decode_raw = &do_decode_simd<true, false, sizeof(__m128i)*2, do_decode_sse<true, false, ISA_LEVEL_SSE2> >;
 	_do_decode_end = &do_decode_simd<false, true, sizeof(__m128i)*2, do_decode_sse<false, true, ISA_LEVEL_SSE2> >;
