@@ -235,7 +235,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 	if(len < XMM_SIZE*4+1 || line_size < XMM_SIZE) return;
 	
 	// slower CPUs prefer to branch as mispredict penalty is probably small relative to general execution
-#if defined(__tune_atom__) || defined(__tune_silvermont__) || defined(__tune_btver1__)
+#if defined(__tune_atom__) || defined(__tune_slm__) || defined(__tune_btver1__)
 	const bool _PREFER_BRANCHING = true;
 #else
 	const bool _PREFER_BRANCHING = (use_isa < ISA_LEVEL_SSSE3);
@@ -290,7 +290,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		i += XMM_SIZE*2;
 		// search for special chars
 		__m128i cmpA, cmpB;
-#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
+#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_slm__) && !defined(__tune_btver1__)
 		if(use_isa >= ISA_LEVEL_SSSE3) {
 			cmpA = _mm_cmpeq_epi8(
 				_mm_shuffle_epi8(_mm_set_epi8(
@@ -592,7 +592,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 #endif
 				const __m128i* entries;
 				
-#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
+#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_slm__) && !defined(__tune_btver1__)
 				if(use_isa >= ISA_LEVEL_SSSE3) {
 # if defined(__LZCNT__) && defined(__tune_amdfam10__)
 					entries = (const __m128i*)lookups.expand_shufmaskmix_lzc;
@@ -608,7 +608,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					
 					dataA = _mm_shuffle_epi8(dataA, shufMaskA);
 					
-# if defined(__SSE4_1__) && !defined(__tune_silvermont__) && !defined(__tune_goldmont__) && !defined(__tune_goldmont_plus__)
+# if defined(__SSE4_1__) && !defined(__tune_slm__) && !defined(__tune_goldmont__) && !defined(__tune_goldmont_plus__)
 					// unsure if worth on: Jaguar/Puma (3|2), Core2 (2|2)
 					if(use_isa >= ISA_LEVEL_SSE41) {
 						dataB = _mm_blendv_epi8(dataBShifted, dataB, mergeMaskB);
@@ -706,7 +706,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				dataA = _mm_loadu_si128((__m128i *)(es + i + 1));
 				dataB = _mm_loadu_si128((__m128i *)(es + i + 1) + 1);
 				// search for special chars (EOL)
-#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_silvermont__) && !defined(__tune_btver1__)
+#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_slm__) && !defined(__tune_btver1__)
 				if(use_isa >= ISA_LEVEL_SSSE3) {
 					cmpA = _mm_cmpeq_epi8(
 						_mm_shuffle_epi8(_mm_set_epi8(
