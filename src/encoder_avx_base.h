@@ -113,26 +113,28 @@ static void encoder_avx2_lut() {
 
 template<enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
-	if(len < YMM_SIZE*4+1 || line_size < 16) return;
+	// offset position to enable simpler loop condition checking
+	const int INPUT_OFFSET = YMM_SIZE*4 + 1 -1; // -1 to change <= to <
+	if(len <= INPUT_OFFSET || line_size < 16) return;
 	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
-	long lineSizeOffset = -line_size +1;
+	long lineSizeOffset = -line_size +1; // -1 because we want to stop one char before the end to handle the last char differently
 	long col = *colOffset + lineSizeOffset;
 	
-	// offset position to enable simpler loop condition checking
-	const int INPUT_OFFSET = YMM_SIZE*4 + 2 -1; // extra 2 chars for EOL handling, -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
-	if(LIKELIHOOD(0.001, col >= 0)) {
+	if(HEDLEY_UNLIKELY(col >= 0)) {
 		uint8_t c = es[i++];
 		if(col == 0) {
+			// last char
 			uint32_t eolChar = lookups.eolLastChar[c];
 			*(uint32_t*)p = eolChar;
 			p += 3 + (eolChar>>27);
 			col = -line_size+1;
 		} else {
+			// line overflowed, insert a newline
 			if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
 				*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
 				p += 4;
@@ -144,7 +146,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			}
 		}
 	}
-	if (LIKELIHOOD(0.999, col == -line_size+1)) {
+	if (HEDLEY_LIKELY(col == -line_size+1)) {
+		// first char of the line
 		uint8_t c = es[i++];
 		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
 			*(uint16_t*)p = escapedLUT[c];
@@ -188,11 +191,11 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 		uint32_t maskB = (uint32_t)_mm256_movemask_epi8(cmpB);
 		unsigned int maskBitsA = popcnt32(maskA);
 		unsigned int maskBitsB = popcnt32(maskB);
-		long bitIndexA, bitIndexB;
+		unsigned int bitIndexA, bitIndexB;
 		if (LIKELIHOOD(0.170, (maskBitsA|maskBitsB) > 1)) {
 			_encode_loop_branch_slow:
-			unsigned int m1 = maskA & 0xffff;
-			unsigned int m2, m3, m4;
+			unsigned int m1 = maskA & 0xffff, m3 = maskB & 0xffff;
+			unsigned int m2, m4;
 			__m256i data1A, data2A;
 			__m256i data1B, data2B;
 			__m256i shuf1A, shuf1B; // not set in VBMI2 path
@@ -201,7 +204,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
 				m2 = maskA >> 16;
-				m3 = maskB & 0xffff;
 				m4 = maskB >> 16;
 				
 				/* alternative no-LUT strategy
@@ -226,14 +228,18 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				}
 				
 				m2 = (maskA >> 11) & 0x1fffe0;
-				m3 = maskB & 0xffff;
 				m4 = (maskB >> 11) & 0x1fffe0;
 				
 				// duplicate halves
 				data1A = _mm256_inserti128_si256(dataA, _mm256_castsi256_si128(dataA), 1);
-				data2A = _mm256_permute4x64_epi64(dataA, 0xee);
 				data1B = _mm256_inserti128_si256(dataB, _mm256_castsi256_si128(dataB), 1);
+#ifdef __tune_znver2__
+				data2A = _mm256_permute2x128_si256(dataA, dataA, 0x11);
+				data2B = _mm256_permute2x128_si256(dataB, dataB, 0x11);
+#else
+				data2A = _mm256_permute4x64_epi64(dataA, 0xee);
 				data2B = _mm256_permute4x64_epi64(dataB, 0xee);
+#endif
 				
 				shuf1A = _mm256_load_si256(lookups.shufExpand + m1);
 				shuf2A = _mm256_load_si256((__m256i*)((char*)lookups.shufExpand + m2));
@@ -252,24 +258,23 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				data2B = _mm256_blendv_epi8(data2B, _mm256_set1_epi8('='), shuf2B);
 			}
 			
-			unsigned char shuf1Len = popcnt32(m1) + 16;
-			unsigned char shuf2Len = maskBitsA + 32;
-			unsigned char shuf3Len = shuf2Len + popcnt32(m3) + 16;
+			unsigned int shuf1Len = popcnt32(m1) + 16;
+			unsigned int shuf2Len = maskBitsA + 32;
+			unsigned int shuf3Len = maskBitsA + popcnt32(m3) + 48;
 			_mm256_storeu_si256((__m256i*)p, data1A);
 			_mm256_storeu_si256((__m256i*)(p + shuf1Len), data2A);
 			_mm256_storeu_si256((__m256i*)(p + shuf2Len), data1B);
 			_mm256_storeu_si256((__m256i*)(p + shuf3Len), data2B);
-			long outputBytes = YMM_SIZE*2 + maskBitsA + maskBitsB;
+			unsigned int outputBytes = YMM_SIZE*2 + maskBitsA + maskBitsB;
 			p += outputBytes;
 			col += outputBytes;
 			
 			if(col >= 0) {
 				// we overflowed - find correct position to revert back to
 				// this is perhaps sub-optimal on 32-bit, but who still uses that with AVX2?
-				uint32_t eqMask1, eqMask2;
-				uint32_t eqMask3, eqMask4;
 				uint64_t eqMask;
 				if(HEDLEY_UNLIKELY(col >= outputBytes-shuf2Len)) {
+					uint32_t eqMask1, eqMask2;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 					if(use_isa >= ISA_LEVEL_VBMI2) {
 						eqMask1 = lookups.expand[m1];
@@ -281,11 +286,11 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 						eqMask2 = (uint32_t)_mm256_movemask_epi8(shuf2A);
 					}
 					eqMask = eqMask1 | ((uint64_t)eqMask2 << shuf1Len);
-					if(use_isa >= ISA_LEVEL_VBMI2)
-						i -= YMM_SIZE;
-					else
-						i += outputBytes-shuf2Len - YMM_SIZE;
+					i -= YMM_SIZE;
+					if(use_isa < ISA_LEVEL_VBMI2)
+						i += outputBytes-shuf2Len;
 				} else {
+					uint32_t eqMask3, eqMask4;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 					if(use_isa >= ISA_LEVEL_VBMI2) {
 						eqMask3 = lookups.expand[m3];
@@ -332,7 +337,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 #endif
 					{
 						i += bitCount;
-						long revert = col + (eqMask & 1);
+						unsigned int revert = col + (eqMask & 1);
 						p -= revert;
 						i -= revert;
 					}
@@ -376,8 +381,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			{
 				bitIndexA = _lzcnt_u32(maskA);
 				bitIndexB = _lzcnt_u32(maskB);
-				__m256i mergeMaskA = _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndexA*2);
-				__m256i mergeMaskB = _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndexB*2);
+				__m256i mergeMaskA = _mm256_load_si256((const __m256i*)(lookups.expand_mergemix + bitIndexA*2*YMM_SIZE));
+				__m256i mergeMaskB = _mm256_load_si256((const __m256i*)(lookups.expand_mergemix + bitIndexB*2*YMM_SIZE));
 				
 				// to deal with the pain of lane crossing, use shift + mask/blend
 				__m256i dataShifted = _mm256_alignr_epi8(
@@ -385,9 +390,9 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 					_mm256_inserti128_si256(dataA, _mm256_castsi256_si128(dataA), 1),
 					15
 				);
-				dataA = _mm256_andnot_si256(cmpA, dataA);
+				dataA = _mm256_andnot_si256(cmpA, dataA); // clear space for '=' char
 				dataA = _mm256_blendv_epi8(dataShifted, dataA, mergeMaskA);
-				dataA = _mm256_add_epi8(dataA, _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndexA*2 + 1));
+				dataA = _mm256_add_epi8(dataA, _mm256_load_si256((const __m256i*)(lookups.expand_mergemix + bitIndexA*2*YMM_SIZE) + 1));
 				_mm256_storeu_si256((__m256i*)p, dataA);
 				p[YMM_SIZE] = es[i-1-YMM_SIZE] + 42 + (64 & (maskA>>(YMM_SIZE-1-6)));
 				p += maskBitsA;
@@ -399,7 +404,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				);
 				dataB = _mm256_andnot_si256(cmpB, dataB);
 				dataB = _mm256_blendv_epi8(dataShifted, dataB, mergeMaskB);
-				dataB = _mm256_add_epi8(dataB, _mm256_load_si256((const __m256i*)lookups.expand_mergemix + bitIndexB*2 + 1));
+				dataB = _mm256_add_epi8(dataB, _mm256_load_si256((const __m256i*)(lookups.expand_mergemix + bitIndexB*2*YMM_SIZE) + 1));
 				_mm256_storeu_si256((__m256i*)p, dataB);
 				p[YMM_SIZE] = es[i-1] + 42 + (64 & (maskB>>(YMM_SIZE-1-6)));
 				p += maskBitsB;

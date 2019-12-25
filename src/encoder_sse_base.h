@@ -177,26 +177,30 @@ static void encoder_sse_lut() {
 #ifdef _MSC_VER
 # include <intrin.h>
 # include <ammintrin.h>
-# define _BSR_VAR(var, src) var; _BitScanReverse((unsigned long*)&var, src)
+static HEDLEY_ALWAYS_INLINE unsigned _BSR_VAR(unsigned src) {
+	unsigned long result;
+	_BitScanReverse((unsigned long*)&result, src);
+	return result;
+}
 #elif defined(__GNUC__)
 // have seen Clang not like _bit_scan_reverse
 # include <x86intrin.h> // for lzcnt
-# define _BSR_VAR(var, src) var = (31^__builtin_clz(src))
+# define _BSR_VAR(src) (31^__builtin_clz(src))
 #else
 # include <x86intrin.h>
-# define _BSR_VAR(var, src) var = _bit_scan_reverse(src)
+# define _BSR_VAR _bit_scan_reverse
 #endif
 
-static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
+static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(unsigned mask, __m128i data) {
 	while(mask) {
 		// get highest bit
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
-		unsigned long bitIndex = _lzcnt_u32(mask);
+		unsigned bitIndex = _lzcnt_u32(mask);
 		__m128i mergeMask = _mm_load_si128((const __m128i*)lookups.expand_maskmix_lzc + bitIndex*4);
-		mask ^= 0x80000000U>>bitIndex;
+		mask &= 0x7fffffffU>>bitIndex;
 #else
 		// TODO: consider LUT for when BSR is slow
-		unsigned long _BSR_VAR(bitIndex, mask);
+		unsigned bitIndex = _BSR_VAR(mask);
 		__m128i mergeMask = _mm_load_si128((const __m128i*)lookups.expand_maskmix_bsr + (bitIndex+1)*4);
 		mask ^= 1<<bitIndex;
 #endif
@@ -209,7 +213,7 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(int mask, __m128i data) {
 	return data;
 }
 
-static HEDLEY_ALWAYS_INLINE unsigned long sse2_expand_store_vector(__m128i data, unsigned int mask, int maskP1, int maskP2, uint8_t* p, unsigned int& shufLenP1, unsigned int& shufLenP2) {
+static HEDLEY_ALWAYS_INLINE unsigned long sse2_expand_store_vector(__m128i data, unsigned int mask, unsigned maskP1, unsigned maskP2, uint8_t* p, unsigned int& shufLenP1, unsigned int& shufLenP2) {
 	// TODO: consider 1 bit shortcut (slightly tricky with needing bit counts though)
 	if(mask) {
 		__m128i dataA = sse2_expand_bytes(maskP1, data);
@@ -232,7 +236,9 @@ static HEDLEY_ALWAYS_INLINE unsigned long sse2_expand_store_vector(__m128i data,
 
 template<enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
-	if(len < XMM_SIZE*4+1 || line_size < XMM_SIZE) return;
+	// offset position to enable simpler loop condition checking
+	const int INPUT_OFFSET = XMM_SIZE*4+1 -1; // EOL handling reads an additional byte, -1 to change <= to <
+	if(len <= INPUT_OFFSET || line_size < XMM_SIZE) return;
 	
 	// slower CPUs prefer to branch as mispredict penalty is probably small relative to general execution
 #if defined(__tune_atom__) || defined(__tune_slm__) || defined(__tune_btver1__)
@@ -241,19 +247,16 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 	const bool _PREFER_BRANCHING = (use_isa < ISA_LEVEL_SSSE3);
 #endif
 	
-	
 	uint8_t *p = dest; // destination pointer
 	long i = -(long)len; // input position
 	long lineSizeOffset = -line_size +1;
 	//long col = *colOffset - line_size +1; // for some reason, this causes GCC-8 to spill an extra register, causing the main loop to run ~5% slower, so use the alternative version below
 	long col = *colOffset + lineSizeOffset;
 	
-	// offset position to enable simpler loop condition checking
-	const int INPUT_OFFSET = XMM_SIZE*4+1 -1; // EOL handling performs a full 128b read, -1 to change <= to <
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
-	if(LIKELIHOOD(0.001, col >= 0)) {
+	if(HEDLEY_UNLIKELY(col >= 0)) {
 		uint8_t c = es[i++];
 		if(col == 0) {
 			uint32_t eolChar = lookups.eolLastChar[c];
@@ -272,7 +275,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			}
 		}
 	}
-	if (LIKELIHOOD(0.999, col == -line_size+1)) {
+	if (HEDLEY_LIKELY(col == -line_size+1)) {
 		uint8_t c = es[i++];
 		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
 			*(uint16_t*)p = escapedLUT[c];
@@ -329,13 +332,13 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			);
 		}
 		
-		unsigned maskA = _mm_movemask_epi8(cmpA);
-		unsigned maskB = _mm_movemask_epi8(cmpB);
+		unsigned int maskA = _mm_movemask_epi8(cmpA);
+		unsigned int maskB = _mm_movemask_epi8(cmpB);
 		
 		_encode_loop_branch:
 		uint32_t mask = (maskB<<16) | maskA;
 		long bitIndex; // because you can't goto past variable declarations...
-		long maskBits;
+		unsigned int maskBits;
 		
 		bool manyBitsSet;
 #if defined(__POPCNT__) && !defined(__tune_btver1__)
@@ -349,16 +352,17 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		}
 		
 		if (LIKELIHOOD(0.089, manyBitsSet)) {
-			uint8_t m1 = maskA & 0xFF;
-			uint8_t m2 = maskA >> 8;
-			uint8_t m3 = maskB & 0xFF;
-			uint8_t m4 = maskB >> 8;
+			unsigned m1 = maskA & 0xFF;
+			unsigned m2 = maskA >> 8;
+			unsigned m3 = maskB & 0xFF;
+			unsigned m4 = maskB >> 8;
 			unsigned int shuf1Len, shuf2Len, shuf3Len, shufTotalLen;
 			__m128i shuf1A, shuf1B, shuf2A, shuf2B; // only used for SSSE3 path
 			__m128i data1A, data1B, data2A, data2B;
 			
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
+				// do +42 and +64 to data
 				dataA = _mm_sub_epi8(dataA, _mm_set1_epi8(-42));
 				dataA = _mm_ternarylogic_epi32(dataA, cmpA, _mm_set1_epi8(64), 0xf8); // data | (cmp & 64)
 				dataB = _mm_sub_epi8(dataB, _mm_set1_epi8(-42));
@@ -390,8 +394,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				shuf2B = _mm_load_si128(&(lookups.shufMix[m4].shuf));
 				
 				// second mask processes on second half, so add to the offsets
-				shuf2A = _mm_or_si128(shuf2A, _mm_set1_epi8(88));
-				shuf2B = _mm_or_si128(shuf2B, _mm_set1_epi8(88));
+				shuf2A = _mm_or_si128(shuf2A, _mm_set1_epi8(8));
+				shuf2B = _mm_or_si128(shuf2B, _mm_set1_epi8(8));
 				
 				// expand halves
 				data2A = _mm_shuffle_epi8(dataA, shuf2A);
@@ -411,7 +415,12 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				unsigned int shuf4Len;
 				p += sse2_expand_store_vector(dataB, maskB, m3, m4, p, shuf3Len, shuf4Len);
 				shuf3Len += shuf2Len;
-				shufTotalLen = shuf2Len + shuf4Len;
+#if !defined(__tune_btver1__)
+				if(use_isa & ISA_FEATURE_POPCNT)
+					shufTotalLen = maskBits + XMM_SIZE*2;
+				else
+#endif
+					shufTotalLen = shuf2Len + shuf4Len;
 			}
 			
 			if(use_isa >= ISA_LEVEL_SSSE3) {
@@ -444,24 +453,23 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			col += shufTotalLen;
 			
 			if(LIKELIHOOD(0.3 /*guess, using 128b lines*/, col >= 0)) {
-				unsigned int bitCount, shiftAmt;
-				long pastMid = col - (shufTotalLen - shuf2Len);
+				unsigned long bitCount;
+				long shiftAmt = (shufTotalLen - shuf2Len) - col -1;
 				uint32_t eqMask;
-				if(HEDLEY_UNLIKELY(pastMid >= 0)) {
-					shiftAmt = shufTotalLen - col -1;
+				if(HEDLEY_UNLIKELY(shiftAmt < 0)) {
+					shiftAmt += shuf2Len;
+					i -= 16;
 					if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
 						eqMask =
 						  ((uint32_t)lookups.expandMask[m2] << shuf1Len)
 						  | (uint32_t)lookups.expandMask[m1];
-						i -= 16;
 					} else {
 						eqMask =
 						  ((uint32_t)_mm_movemask_epi8(shuf2A) << shuf1Len)
 						  | (uint32_t)_mm_movemask_epi8(shuf1A);
-						i += (shufTotalLen - shuf2Len) - 16;
+						i += shufTotalLen - shuf2Len;
 					}
 				} else {
-					shiftAmt = -pastMid -1; // == ~pastMid
 					if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
 						eqMask =
 						  ((uint32_t)lookups.expandMask[m4] << (shuf3Len-shuf2Len))
@@ -521,17 +529,16 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					cnt += lookups.BitsSetTable256plus8[(eqMask>>8) & 0xff];
 					cnt += lookups.BitsSetTable256plus8[(eqMask>>16) & 0xff];
 					cnt += lookups.BitsSetTable256plus8[(eqMask>>24) & 0xff];
-					bitCount = cnt-32;
+					bitCount = (unsigned long)cnt - 32;
 				}
 				
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
 					i -= bitCount;
+					goto _encode_eol_handle_pre;
 				} else {
 					i += bitCount;
-					p -= col;
-					i -= col;
+					goto _encode_eol_handle_pre_adjust;
 				}
-				goto _encode_eol_handle_pre;
 			}
 		} else {
 			if(_PREFER_BRANCHING && LIKELIHOOD(0.663, !mask)) {
@@ -541,12 +548,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				STOREU_XMM(p+XMM_SIZE, dataB);
 				p += XMM_SIZE*2;
 				col += XMM_SIZE*2;
-				if(LIKELIHOOD(0.15, col >= 0)) {
-					p -= col;
-					i -= col;
-					
-					goto _encode_eol_handle_pre;
-				}
+				if(LIKELIHOOD(0.15, col >= 0))
+					goto _encode_eol_handle_pre_adjust;
 				continue;
 			}
 			// shortcut for common case of only 1 bit set
@@ -587,7 +590,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				// lzcnt is faster than bsf on AMD
 				bitIndex = _lzcnt_u32(mask);
 #else
-				_BSR_VAR(bitIndex, mask);
+				bitIndex = _BSR_VAR(mask);
 				bitIndex |= maskBits-1; // if(mask == 0) bitIndex = -1;
 #endif
 				const __m128i* entries;
@@ -689,6 +692,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				} else {
 					i += (col > bitIndex);
 				}
+				_encode_eol_handle_pre_adjust:
 				p -= col;
 				i -= col;
 				
