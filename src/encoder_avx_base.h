@@ -21,7 +21,7 @@
 # define KLOAD32(a, offs) (((uint32_t*)(a))[(offs)])
 #endif
 
-#pragma pack(32)
+#pragma pack(16)
 static struct {
 	uint32_t eolLastChar[256];
 	/*align32*/ __m256i shufExpand[65536]; // huge 2MB table
@@ -185,12 +185,12 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				expandMaskA = _pext_u64(expandMaskA^0x5555555555555555, expandMaskA);
 				*/
 				
-				data1A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expandLUT, m1), dataA);
-				data2A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expandLUT, m2), _mm256_castsi128_si256(
+				data1A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expand, m1), dataA);
+				data2A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expand, m2), _mm256_castsi128_si256(
 					_mm256_extracti128_si256(dataA, 1)
 				));
-				data1B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expandLUT, m3), dataB);
-				data2B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expandLUT, m4), _mm256_castsi128_si256(
+				data1B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expand, m3), dataB);
+				data2B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expand, m4), _mm256_castsi128_si256(
 					_mm256_extracti128_si256(dataB, 1)
 				));
 			} else
@@ -247,12 +247,12 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				// we overflowed - find correct position to revert back to
 				// this is perhaps sub-optimal on 32-bit, but who still uses that with AVX2?
 				uint64_t eqMask;
-				if(HEDLEY_UNLIKELY(col >= outputBytes-shuf2Len)) {
+				if(HEDLEY_UNLIKELY(col >= (long)(outputBytes-shuf2Len))) {
 					uint32_t eqMask1, eqMask2;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 					if(use_isa >= ISA_LEVEL_VBMI2) {
-						eqMask1 = lookupsVBMI2->expandLUT[m1];
-						eqMask2 = lookupsVBMI2->expandLUT[m2];
+						eqMask1 = lookupsVBMI2->expand[m1];
+						eqMask2 = lookupsVBMI2->expand[m2];
 					} else
 #endif
 					{
@@ -267,8 +267,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 					uint32_t eqMask3, eqMask4;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 					if(use_isa >= ISA_LEVEL_VBMI2) {
-						eqMask3 = lookupsVBMI2->expandLUT[m3];
-						eqMask4 = lookupsVBMI2->expandLUT[m4];
+						eqMask3 = lookupsVBMI2->expand[m3];
+						eqMask4 = lookupsVBMI2->expand[m4];
 					} else
 #endif
 					{
@@ -386,27 +386,27 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			col += maskBitsA + maskBitsB;
 			
 			if(col >= 0) {
-				if(HEDLEY_UNLIKELY(col > maskBitsB)) {
+				if(HEDLEY_UNLIKELY(col > (long)maskBitsB)) {
 					if(use_isa >= ISA_LEVEL_AVX3)
 						bitIndexA = _lzcnt_u32(maskA);
 					bitIndexA += 1 + maskBitsB;
 					
 					i += maskBitsB - YMM_SIZE;
-					if(HEDLEY_UNLIKELY(col == bitIndexA)) {
+					if(HEDLEY_UNLIKELY(col == (long)bitIndexA)) {
 						// this is an escape character, so line will need to overflow
 						p--;
 					} else {
-						i += (col > bitIndexA);
+						i += (col > (long)bitIndexA);
 					}
 				} else {
 					if(use_isa >= ISA_LEVEL_AVX3)
 						bitIndexB = _lzcnt_u32(maskB);
 					bitIndexB++;
 					
-					if(HEDLEY_UNLIKELY(col == bitIndexB)) {
+					if(HEDLEY_UNLIKELY(col == (long)bitIndexB)) {
 						p--;
 					} else {
-						i += (col > bitIndexB);
+						i += (col > (long)bitIndexB);
 					}
 				}
 				i -= col;
