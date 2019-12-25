@@ -301,12 +301,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				), _mm_abs_epi8(dataA)),
 				dataA
 			);
-			cmpB = _mm_cmpeq_epi8(
-				_mm_shuffle_epi8(_mm_set_epi8(
-					'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
-				), _mm_abs_epi8(dataB)),
-				dataB
-			);
 		} else
 #endif
 		{
@@ -320,6 +314,23 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					_mm_cmpeq_epi8(dataA, _mm_set1_epi8('\r'-42))
 				)
 			);
+		}
+		
+		_encode_loop_branchA:
+		unsigned int maskA = _mm_movemask_epi8(cmpA);
+		_encode_loop_branchB:
+		
+#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_slm__) && !defined(__tune_btver1__)
+		if(use_isa >= ISA_LEVEL_SSSE3) {
+			cmpB = _mm_cmpeq_epi8(
+				_mm_shuffle_epi8(_mm_set_epi8(
+					'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
+				), _mm_abs_epi8(dataB)),
+				dataB
+			);
+		} else
+#endif
+		{
 			cmpB = _mm_or_si128(
 				_mm_or_si128(
 					_mm_cmpeq_epi8(dataB, _mm_set1_epi8(-42)),
@@ -331,19 +342,17 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				)
 			);
 		}
-		
-		unsigned int maskA = _mm_movemask_epi8(cmpA);
 		unsigned int maskB = _mm_movemask_epi8(cmpB);
 		
-		_encode_loop_branch:
 		uint32_t mask = (maskB<<16) | maskA;
 		long bitIndex; // because you can't goto past variable declarations...
-		unsigned int maskBits;
+		long maskBits, outputBytes;
 		
 		bool manyBitsSet;
 #if defined(__POPCNT__) && !defined(__tune_btver1__)
 		if(use_isa & ISA_FEATURE_POPCNT) {
 			maskBits = popcnt32(mask);
+			outputBytes = maskBits + XMM_SIZE*2;
 			manyBitsSet = maskBits > 1;
 		} else
 #endif
@@ -352,11 +361,12 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		}
 		
 		if (LIKELIHOOD(0.089, manyBitsSet)) {
+			_encode_loop_branch_slow:
 			unsigned m1 = maskA & 0xFF;
 			unsigned m2 = maskA >> 8;
 			unsigned m3 = maskB & 0xFF;
 			unsigned m4 = maskB >> 8;
-			unsigned int shuf1Len, shuf2Len, shuf3Len, shufTotalLen;
+			unsigned int shuf1Len, shuf2Len, shuf3Len;
 			__m128i shuf1A, shuf1B, shuf2A, shuf2B; // only used for SSSE3 path
 			__m128i data1A, data1B, data2A, data2B;
 			
@@ -416,11 +426,9 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				p += sse2_expand_store_vector(dataB, maskB, m3, m4, p, shuf3Len, shuf4Len);
 				shuf3Len += shuf2Len;
 #if !defined(__tune_btver1__)
-				if(use_isa & ISA_FEATURE_POPCNT)
-					shufTotalLen = maskBits + XMM_SIZE*2;
-				else
+				if(!(use_isa & ISA_FEATURE_POPCNT))
 #endif
-					shufTotalLen = shuf2Len + shuf4Len;
+					outputBytes = shuf2Len + shuf4Len;
 			}
 			
 			if(use_isa >= ISA_LEVEL_SSSE3) {
@@ -435,26 +443,25 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					shuf1Len = lookups.BitsSetTable256plus8[m1];
 					shuf3Len = lookups.BitsSetTable256plus8[m3] + shuf2Len;
 # endif
-					shufTotalLen = maskBits + XMM_SIZE*2;
 				} else
 #endif
 				{
 					shuf1Len = lookups.BitsSetTable256plus8[m1];
 					shuf2Len = shuf1Len + lookups.BitsSetTable256plus8[m2];
 					shuf3Len = shuf2Len + lookups.BitsSetTable256plus8[m3];
-					shufTotalLen = shuf3Len + lookups.BitsSetTable256plus8[m4];
+					outputBytes = shuf3Len + lookups.BitsSetTable256plus8[m4];
 				}
 				STOREU_XMM(p, data1A);
 				STOREU_XMM(p+shuf1Len, data2A);
 				STOREU_XMM(p+shuf2Len, data1B);
 				STOREU_XMM(p+shuf3Len, data2B);
-				p += shufTotalLen;
+				p += outputBytes;
 			}
-			col += shufTotalLen;
+			col += outputBytes;
 			
 			if(LIKELIHOOD(0.3 /*guess, using 128b lines*/, col >= 0)) {
 				unsigned long bitCount;
-				long shiftAmt = (shufTotalLen - shuf2Len) - col -1;
+				long shiftAmt = (outputBytes - shuf2Len) - col -1;
 				uint32_t eqMask;
 				if(HEDLEY_UNLIKELY(shiftAmt < 0)) {
 					shiftAmt += shuf2Len;
@@ -467,7 +474,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 						eqMask =
 						  ((uint32_t)_mm_movemask_epi8(shuf2A) << shuf1Len)
 						  | (uint32_t)_mm_movemask_epi8(shuf1A);
-						i += shufTotalLen - shuf2Len;
+						i += outputBytes - shuf2Len;
 					}
 				} else {
 					if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
@@ -542,6 +549,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			}
 		} else {
 			if(_PREFER_BRANCHING && LIKELIHOOD(0.663, !mask)) {
+				_encode_loop_branch_fast_noesc:
 				dataA = _mm_sub_epi8(dataA, _mm_set1_epi8(-42));
 				dataB = _mm_sub_epi8(dataB, _mm_set1_epi8(-42));
 				STOREU_XMM(p, dataA);
@@ -553,6 +561,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				continue;
 			}
 			// shortcut for common case of only 1 bit set
+			_encode_loop_branch_fast_1ch:
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
 				dataA = _mm_sub_epi8(dataA, _mm_set1_epi8(-42));
@@ -585,6 +594,10 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 #endif
 					maskBits = (mask != 0);
 				if(_PREFER_BRANCHING) maskBits = 1;
+#if !defined(__tune_btver1__)
+				if(!(use_isa & ISA_FEATURE_POPCNT))
+#endif
+					outputBytes = XMM_SIZE*2 + maskBits;
 				
 #if defined(__LZCNT__) && defined(__tune_amdfam10__)
 				// lzcnt is faster than bsf on AMD
@@ -672,8 +685,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			STOREU_XMM(p, dataA);
 			STOREU_XMM(p+XMM_SIZE, dataB);
 			
-			p += XMM_SIZE*2 + maskBits;
-			col += XMM_SIZE*2 + maskBits;
+			p += outputBytes;
+			col += outputBytes;
 			
 			if(LIKELIHOOD(0.3, col >= 0)) {
 #if defined(__AVX512VL__)
@@ -720,6 +733,10 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 						)),
 						dataA
 					);
+					i += XMM_SIZE*2 + 1;
+# ifdef __GNUC__ && __GNUC__==9 // GCC9 seems to have trouble keeping track of variable usage and spills many of them if we goto after declarations; Clang9/GCC8 seems to be fine
+					goto _encode_loop_branchA;
+# endif
 					maskA = _mm_movemask_epi8(cmpA);
 					cmpB = _mm_cmpeq_epi8(
 						_mm_shuffle_epi8(_mm_set_epi8(
@@ -742,6 +759,10 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					);
 					maskA = _mm_movemask_epi8(cmpA);
 					maskA |= lookups.eolFirstMask[es[i+1]];
+					i += XMM_SIZE*2 + 1;
+#ifdef __GNUC__ && __GNUC__==9
+					goto _encode_loop_branchB;
+#endif
 					cmpB = _mm_or_si128(
 						_mm_or_si128(
 							_mm_cmpeq_epi8(dataB, _mm_set1_epi8(-42)),
@@ -753,9 +774,26 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 						)
 					);
 				}
-				i += XMM_SIZE*2 + 1;
 				maskB = _mm_movemask_epi8(cmpB);
-				goto _encode_loop_branch;
+				
+				mask = (maskB<<16) | maskA;
+				bool manyBitsSet; // don't retain this across loop cycles
+#if defined(__POPCNT__) && !defined(__tune_btver1__)
+				if(use_isa & ISA_FEATURE_POPCNT) {
+					maskBits = popcnt32(mask);
+					outputBytes = maskBits + XMM_SIZE*2;
+					manyBitsSet = maskBits > 1;
+				} else
+#endif
+				{
+					manyBitsSet = (mask & (mask-1)) != 0;
+				}
+				
+				if (LIKELIHOOD(0.089, manyBitsSet))
+					goto _encode_loop_branch_slow;
+				if(_PREFER_BRANCHING && LIKELIHOOD(0.663, !mask))
+					goto _encode_loop_branch_fast_noesc;
+				goto _encode_loop_branch_fast_1ch;
 			}
 			
 		}
