@@ -38,14 +38,14 @@ HEDLEY_ALWAYS_INLINE void vst1q_u8_x2_unaligned(uint8_t* p, uint8x16x2_t data) {
 #endif
 
 #ifdef YENC_DEC_USE_THINTABLE
-uint64_t ALIGN_TO(8, compactLUT[256]);
+static uint64_t ALIGN_TO(8, compactLUT[256]);
 #else
 # pragma pack(16)
-struct { char bytes[16]; } ALIGN_TO(16, compactLUT[32768]);
+static struct { char bytes[16]; } ALIGN_TO(16, compactLUT[32768]);
 # pragma pack()
 #endif
 
-uint8_t eqFixLUT[256];
+static uint8_t eqFixLUT[256];
 
 
 

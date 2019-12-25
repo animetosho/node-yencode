@@ -4,10 +4,10 @@
 #include "decoder_common.h"
 
 #pragma pack(16)
-struct { char bytes[16]; } ALIGN_TO(16, compactLUT[32768]);
+static struct { char bytes[16]; } ALIGN_TO(16, compactLUT[32768]);
 #pragma pack()
 
-uint8_t eqFixLUT[256];
+static uint8_t eqFixLUT[256];
 
 
 

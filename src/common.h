@@ -32,9 +32,10 @@
 #endif
 
 
-#if defined(__cplusplus) && __cplusplus > 201100
+#if defined(__cplusplus) && __cplusplus > 201100 && !(defined(_MSC_VER) && defined(__clang__))
 	// C++11 method
 	// len needs to be a multiple of alignment, although it sometimes works if it isn't...
+	#include <cstdlib>
 	#define ALIGN_ALLOC(buf, len, align) *(void**)&(buf) = aligned_alloc(align, ((len) + (align)-1) & ~((align)-1))
 	#define ALIGN_FREE free
 #elif defined(_MSC_VER)
