@@ -35,7 +35,7 @@ static struct {
 } * HEDLEY_RESTRICT lookups;
 #pragma pack()
 
-
+template<enum YEncDecIsaLevel use_isa>
 static void encoder_sse_lut() {
 	ALIGN_ALLOC(lookups, sizeof(*lookups), 16);
 	for(int i=0; i<256; i++) {
@@ -75,11 +75,7 @@ static void encoder_sse_lut() {
 		);
 	}
 	for(int i=0; i<33; i++) {
-#if defined(__LZCNT__) && defined(__tune_amdfam10__)
-		int n = (i == 32 ? 32 : 31-i);
-#else
-		int n = (i == 0 ? 32 : i-1);
-#endif
+		int n = (use_isa & ISA_FEATURE_LZCNT) ? (i == 32 ? 32 : 31-i) : (i == 0 ? 32 : i-1);
 		for(int j=0; j<32; j++) {
 			lookups->expandMaskmix[i*64 + j] = (n>j ? -1 : 0);
 			if(n > 15)
@@ -97,7 +93,7 @@ static void encoder_sse_lut() {
 #ifdef _MSC_VER
 # include <intrin.h>
 # include <ammintrin.h>
-static HEDLEY_ALWAYS_INLINE unsigned _BSR_VAR(unsigned src) {
+static HEDLEY_ALWAYS_INLINE unsigned BSR32(unsigned src) {
 	unsigned long result;
 	_BitScanReverse((unsigned long*)&result, src);
 	return result;
@@ -105,25 +101,31 @@ static HEDLEY_ALWAYS_INLINE unsigned _BSR_VAR(unsigned src) {
 #elif defined(__GNUC__)
 // have seen Clang not like _bit_scan_reverse
 # include <x86intrin.h> // for lzcnt
-# define _BSR_VAR(src) (31^__builtin_clz(src))
+# define BSR32(src) (31^__builtin_clz(src))
 #else
 # include <x86intrin.h>
-# define _BSR_VAR _bit_scan_reverse
+# define BSR32 _bit_scan_reverse
 #endif
 
+template<enum YEncDecIsaLevel use_isa>
 static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(unsigned mask, __m128i data) {
 	while(mask) {
 		// get highest bit
-#if defined(__LZCNT__) && defined(__tune_amdfam10__)
-		unsigned bitIndex = _lzcnt_u32(mask);
-		__m128i mergeMask = _mm_load_si128((const __m128i*)lookups->expandMaskmix + bitIndex*4);
-		mask &= 0x7fffffffU>>bitIndex;
-#else
-		// TODO: consider LUT for when BSR is slow
-		unsigned bitIndex = _BSR_VAR(mask);
-		__m128i mergeMask = _mm_load_si128((const __m128i*)lookups->expandMaskmix + (bitIndex+1)*4);
-		mask ^= 1<<bitIndex;
+		unsigned bitIndex;
+		__m128i mergeMask;
+#if defined(__LZCNT__)
+		if(use_isa & ISA_FEATURE_LZCNT) {
+			bitIndex = _lzcnt_u32(mask);
+			mergeMask = _mm_load_si128((const __m128i*)lookups->expandMaskmix + bitIndex*4);
+			mask &= 0x7fffffffU>>bitIndex;
+		} else
 #endif
+		{
+			// TODO: consider LUT for when BSR is slow
+			bitIndex = BSR32(mask);
+			mergeMask = _mm_load_si128((const __m128i*)lookups->expandMaskmix + (bitIndex+1)*4);
+			mask ^= 1<<bitIndex;
+		}
 		// perform expansion
 		data = _mm_or_si128(
 			_mm_and_si128(mergeMask, data),
@@ -133,11 +135,12 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(unsigned mask, __m128i dat
 	return data;
 }
 
+template<enum YEncDecIsaLevel use_isa>
 static HEDLEY_ALWAYS_INLINE unsigned long sse2_expand_store_vector(__m128i data, unsigned int mask, unsigned maskP1, unsigned maskP2, uint8_t* p, unsigned int& shufLenP1, unsigned int& shufLenP2) {
 	// TODO: consider 1 bit shortcut (slightly tricky with needing bit counts though)
 	if(mask) {
-		__m128i dataA = sse2_expand_bytes(maskP1, data);
-		__m128i dataB = sse2_expand_bytes(maskP2, _mm_srli_si128(data, 8));
+		__m128i dataA = sse2_expand_bytes<use_isa>(maskP1, data);
+		__m128i dataB = sse2_expand_bytes<use_isa>(maskP2, _mm_srli_si128(data, 8));
 		dataA = _mm_add_epi8(dataA, _mm_load_si128(&(lookups->shufMix[maskP1].mix)));
 		dataB = _mm_add_epi8(dataB, _mm_load_si128(&(lookups->shufMix[maskP2].mix)));
 		shufLenP1 = lookups->BitsSetTable256plus8[maskP1];
@@ -345,9 +348,9 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			} else
 #endif
 			{
-				p += sse2_expand_store_vector(dataA, maskA, m1, m2, p, shuf1Len, shuf2Len);
+				p += sse2_expand_store_vector<use_isa>(dataA, maskA, m1, m2, p, shuf1Len, shuf2Len);
 				unsigned int shuf4Len;
-				p += sse2_expand_store_vector(dataB, maskB, m3, m4, p, shuf3Len, shuf4Len);
+				p += sse2_expand_store_vector<use_isa>(dataB, maskB, m3, m4, p, shuf3Len, shuf4Len);
 				shuf3Len += shuf2Len;
 #if !defined(__tune_btver1__)
 				if(!(use_isa & ISA_FEATURE_POPCNT))
@@ -523,22 +526,22 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 #endif
 					outputBytes = XMM_SIZE*2 + maskBits;
 				
-#if defined(__LZCNT__) && defined(__tune_amdfam10__)
-				// lzcnt is faster than bsf on AMD
-				bitIndex = _lzcnt_u32(mask);
-#else
-				bitIndex = _BSR_VAR(mask);
-				bitIndex |= maskBits-1; // if(mask == 0) bitIndex = -1;
+#if defined(__LZCNT__)
+				if(use_isa & ISA_FEATURE_LZCNT)
+					bitIndex = _lzcnt_u32(mask);
+				else
 #endif
+				{
+					bitIndex = BSR32(mask);
+					bitIndex |= maskBits-1; // if(mask == 0) bitIndex = -1;
+				}
 				const __m128i* entries;
 				
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_slm__) && !defined(__tune_btver1__)
 				if(use_isa >= ISA_LEVEL_SSSE3) {
-# if defined(__LZCNT__) && defined(__tune_amdfam10__)
 					entries = (const __m128i*)lookups->expandShufmaskmix;
-# else
-					entries = (const __m128i*)lookups->expandShufmaskmix + 4;
-# endif
+					if(!(use_isa & ISA_FEATURE_LZCNT))
+						entries += 4;
 					entries += bitIndex*4;
 					
 					__m128i shufMaskA = _mm_load_si128(entries+0);
@@ -564,11 +567,9 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 #endif
 				{
 					
-#if defined(__LZCNT__) && defined(__tune_amdfam10__)
 					entries = (const __m128i*)lookups->expandMaskmix;
-#else
-					entries = (const __m128i*)lookups->expandMaskmix + 4;
-#endif
+					if(!(use_isa & ISA_FEATURE_LZCNT))
+						entries += 4;
 					entries += bitIndex*4;
 					
 					__m128i mergeMaskA = _mm_load_si128(entries+0);
@@ -618,11 +619,10 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					bitIndex = _lzcnt_u32(mask) +1;
 				else
 #endif
-#if defined(__LZCNT__) && defined(__tune_amdfam10__)
-				bitIndex = bitIndex +1;
-#else
-				bitIndex = 31-bitIndex +1;
-#endif
+				if(use_isa & ISA_FEATURE_LZCNT)
+					bitIndex = bitIndex +1;
+				else
+					bitIndex = 31-bitIndex +1;
 				if(HEDLEY_UNLIKELY(col == bitIndex)) {
 					// this is an escape character, so line will need to overflow
 					p--;

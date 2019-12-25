@@ -55,7 +55,7 @@ static void decoder_sse_init() {
 #ifdef _MSC_VER
 # include <intrin.h>
 # include <ammintrin.h>
-static HEDLEY_ALWAYS_INLINE unsigned _BSR_VAR(unsigned src) {
+static HEDLEY_ALWAYS_INLINE unsigned BSR32(unsigned src) {
 	unsigned long result;
 	_BitScanReverse((unsigned long*)&result, src);
 	return result;
@@ -63,24 +63,28 @@ static HEDLEY_ALWAYS_INLINE unsigned _BSR_VAR(unsigned src) {
 #elif defined(__GNUC__)
 // have seen Clang not like _bit_scan_reverse
 # include <x86intrin.h> // for lzcnt
-# define _BSR_VAR(src) (31^__builtin_clz(src))
+# define BSR32(src) (31^__builtin_clz(src))
 #else
 # include <x86intrin.h>
-# define _BSR_VAR _bit_scan_reverse
+# define BSR32 _bit_scan_reverse
 #endif
 
+template<enum YEncDecIsaLevel use_isa>
 static HEDLEY_ALWAYS_INLINE __m128i sse2_compact_vect(uint32_t mask, __m128i data) {
 	while(mask) {
-#if defined(__LZCNT__) && defined(__tune_amdfam10__)
-		// lzcnt is always at least as fast as bsr, so prefer it if it's available
-		unsigned bitIndex = _lzcnt_u32(mask);
-		__m128i mergeMask = _mm_load_si128((__m128i*)lookups->unshufMask + bitIndex);
-		mask &= 0x7fffffffU>>bitIndex;
-#else
-		unsigned bitIndex = _BSR_VAR(mask);
-		__m128i mergeMask = _mm_load_si128((__m128i*)lookups->unshufMask + bitIndex);
-		mask ^= 1<<bitIndex;
+		unsigned bitIndex;
+#if defined(__LZCNT__)
+		if(use_isa & ISA_FEATURE_LZCNT) {
+			// lzcnt is always at least as fast as bsr, so prefer it if it's available
+			bitIndex = _lzcnt_u32(mask);
+			mask &= 0x7fffffffU>>bitIndex;
+		} else
 #endif
+		{
+			bitIndex = BSR32(mask);
+			mask ^= 1<<bitIndex;
+		}
+		__m128i mergeMask = _mm_load_si128((__m128i*)lookups->unshufMask + bitIndex);
 		data = _mm_or_si128(
 			_mm_and_si128(mergeMask, data),
 			_mm_andnot_si128(mergeMask, _mm_srli_si128(data, 1))
@@ -653,11 +657,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			} else
 #endif
 			{
-				dataA = sse2_compact_vect(mask & 0xffff, dataA);
+				dataA = sse2_compact_vect<use_isa>(mask & 0xffff, dataA);
 				STOREU_XMM(p, dataA);
 				p += lookups->BitsSetTable256inv[mask & 0xff] + lookups->BitsSetTable256inv[(mask >> 8) & 0xff];
 				mask >>= 16;
-				dataB = sse2_compact_vect(mask, dataB);
+				dataB = sse2_compact_vect<use_isa>(mask, dataB);
 				STOREU_XMM(p, dataB);
 				p += lookups->BitsSetTable256inv[mask & 0xff] + lookups->BitsSetTable256inv[(mask >> 8) & 0xff];
 			}

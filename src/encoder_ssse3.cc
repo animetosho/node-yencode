@@ -7,7 +7,7 @@
 
 void encoder_ssse3_init() {
 	_do_encode = &do_encode_simd< do_encode_sse<ISA_LEVEL_SSSE3> >;
-	encoder_sse_lut();
+	encoder_sse_lut<ISA_LEVEL_SSSE3>();
 }
 #else
 void encoder_sse2_init();

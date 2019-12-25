@@ -5,7 +5,7 @@
 
 void encoder_avx_init() {
 	_do_encode = &do_encode_simd< do_encode_sse<ISA_LEVEL_SSE4_POPCNT> >;
-	encoder_sse_lut();
+	encoder_sse_lut<ISA_LEVEL_SSE4_POPCNT>();
 }
 #else
 void encoder_ssse3_init();
