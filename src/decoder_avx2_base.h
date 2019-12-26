@@ -29,6 +29,10 @@ static struct {
 #pragma pack()
 
 
+static HEDLEY_ALWAYS_INLINE __m256i force_align_read_256(const void* p) {
+	return *(volatile __m256i *)(p);
+}
+
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	HEDLEY_ASSUME(_escFirst == 0 || _escFirst == 1);
@@ -159,12 +163,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 							_mm256_set1_epi8('\n'),
 							_mm256_loadu_si256((__m256i *)(src+i+1) + 1)
 						);
-#ifdef __GNUC__
-						// force re-computing CR matches (don't reuse from above) to avoid register spilling
-						asm("" : "+x"(oDataA), "+x"(oDataB));
-#endif
-						match1NlA = _mm256_and_si256(match1LfA, _mm256_cmpeq_epi8(oDataA, _mm256_set1_epi8('\r')));
-						match1NlB = _mm256_and_si256(match1LfB, _mm256_cmpeq_epi8(oDataB, _mm256_set1_epi8('\r')));
+						// force re-computing these to avoid register spills elsewhere
+						match1NlA = _mm256_and_si256(match1LfA, _mm256_cmpeq_epi8(force_align_read_256(src+i), _mm256_set1_epi8('\r')));
+						match1NlB = _mm256_and_si256(match1LfB, _mm256_cmpeq_epi8(force_align_read_256(src+i + sizeof(__m256i)), _mm256_set1_epi8('\r')));
 						match2NlDotA = _mm256_and_si256(match2CrXDtA, match1NlA);
 						match2NlDotB = _mm256_and_si256(match2CrXDtB, match1NlB);
 					}
@@ -341,18 +342,14 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 								_mm256_set1_epi8('\n'),
 								_mm256_loadu_si256((__m256i *)(src+i+1) + 1)
 							);
-#ifdef __GNUC__
-							// force re-computing CR matches (don't reuse from above) to avoid register spilling
-							asm("" : "+x"(oDataA), "+x"(oDataB));
-#endif
 							endFound = _mm256_movemask_epi8(_mm256_or_si256(
 								_mm256_and_si256(
 									match3EqYA,
-									_mm256_and_si256(match1LfA, _mm256_cmpeq_epi8(oDataA, _mm256_set1_epi8('\r')))
+									_mm256_and_si256(match1LfA, _mm256_cmpeq_epi8(force_align_read_256(src+i), _mm256_set1_epi8('\r')))
 								),
 								_mm256_and_si256(
 									match3EqYB,
-									_mm256_and_si256(match1LfB, _mm256_cmpeq_epi8(oDataB, _mm256_set1_epi8('\r')))
+									_mm256_and_si256(match1LfB, _mm256_cmpeq_epi8(force_align_read_256(src+i + sizeof(__m256i)), _mm256_set1_epi8('\r')))
 								)
 							));
 						}

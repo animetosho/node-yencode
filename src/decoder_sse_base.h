@@ -29,6 +29,11 @@ static struct {
 #pragma pack()
 
 
+static HEDLEY_ALWAYS_INLINE __m128i force_align_read_128(const void* p) {
+	return *(volatile __m128i *)(p);
+}
+
+
 static void decoder_sse_init() {
 	ALIGN_ALLOC(lookups, sizeof(*lookups), 16);
 	for(int i=0; i<256; i++) {
@@ -254,12 +259,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						__m128i match1LfB = _mm_cmpeq_epi8(_mm_set1_epi8('\n'), _mm_loadu_si128((__m128i*)(src+i+1) + 1));
 						
 						// always recompute cmpCr to avoid register spills above
-#ifdef __GNUC__
-						// nudge compiler into thinking that it can't reuse computed values above
-						asm("" : "+x"(oDataA), "+x"(oDataB));
-#endif
-						cmpCrA = _mm_cmpeq_epi8(oDataA, _mm_set1_epi8('\r'));
-						cmpCrB = _mm_cmpeq_epi8(oDataB, _mm_set1_epi8('\r'));
+						cmpCrA = _mm_cmpeq_epi8(force_align_read_128(src+i), _mm_set1_epi8('\r'));
+						cmpCrB = _mm_cmpeq_epi8(force_align_read_128(src+i + sizeof(__m128i)), _mm_set1_epi8('\r'));
 						match1NlA = _mm_and_si128(match1LfA, cmpCrA);
 						match1NlB = _mm_and_si128(match1LfB, cmpCrB);
 						match2NlDotA = _mm_and_si128(match2CrXDtA, match1NlA);
@@ -436,11 +437,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 #endif
 						{
 							// always recompute cmpCr to avoid register spills above
-#ifdef __GNUC__
-							asm("" : "+x"(oDataA), "+x"(oDataB));
-#endif
-							cmpCrA = _mm_cmpeq_epi8(oDataA, _mm_set1_epi8('\r'));
-							cmpCrB = _mm_cmpeq_epi8(oDataB, _mm_set1_epi8('\r'));
+							cmpCrA = _mm_cmpeq_epi8(force_align_read_128(src+i), _mm_set1_epi8('\r'));
+							cmpCrB = _mm_cmpeq_epi8(force_align_read_128(src+i + sizeof(__m128i)), _mm_set1_epi8('\r'));
 							__m128i match1LfA = _mm_cmpeq_epi8(
 								_mm_set1_epi8('\n'),
 								_mm_loadu_si128((__m128i*)(src+i+1))
