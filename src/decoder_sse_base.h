@@ -102,7 +102,7 @@ template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	HEDLEY_ASSUME(_escFirst == 0 || _escFirst == 1);
 	HEDLEY_ASSUME(_nextMask == 0 || _nextMask == 1 || _nextMask == 2);
-	unsigned long escFirst = _escFirst;
+	uintptr_t escFirst = _escFirst;
 	__m128i yencOffset = escFirst ? _mm_set_epi8(
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64
 	) : _mm_set1_epi8(-42);
@@ -126,7 +126,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 		else
 			lfCompare = _mm_insert_epi16(lfCompare, _nextMask == 1 ? 0x0a2e /*".\n"*/ : 0x2e0a /*"\n."*/, 0);
 	}
-	long i;
+	intptr_t i;
 	for(i = -len; i; i += sizeof(__m128i)*2) {
 		__m128i oDataA = _mm_load_si128((__m128i *)(src+i));
 		__m128i oDataB = _mm_load_si128((__m128i *)(src+i) + 1);

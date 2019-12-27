@@ -37,7 +37,7 @@ template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	HEDLEY_ASSUME(_escFirst == 0 || _escFirst == 1);
 	HEDLEY_ASSUME(_nextMask == 0 || _nextMask == 1 || _nextMask == 2);
-	unsigned long escFirst = _escFirst;
+	uintptr_t escFirst = _escFirst;
 	__m256i yencOffset = escFirst ? _mm256_set_epi8(
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64
@@ -49,7 +49,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			'.','.','.','.','.','.','.','.','.','.','.','.','.','.',_nextMask==2?0:'.',_nextMask==1?0:'.'
 		);
 	}
-	long i;
+	intptr_t i;
 	for(i = -len; i; i += sizeof(__m256i)*2) {
 		__m256i oDataA = _mm256_load_si256((__m256i *)(src+i));
 		__m256i oDataB = _mm256_load_si256((__m256i *)(src+i) + 1);
@@ -399,7 +399,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				dataB = _mm256_add_epi8(oDataB, _mm256_set1_epi8(-42));
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
-				unsigned long tmp = lookups->eqFix[(maskEq&0xff) & ~(uint64_t)escFirst];
+				unsigned tmp = lookups->eqFix[(maskEq&0xff) & ~(uint64_t)escFirst];
 				uint64_t maskEq2 = tmp;
 				for(int j=8; j<64; j+=8) {
 					tmp = lookups->eqFix[((maskEq>>j)&0xff) & ~(uint64_t)(tmp>>7)];

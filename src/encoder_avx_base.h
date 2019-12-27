@@ -92,9 +92,9 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 	if(len <= INPUT_OFFSET || line_size < 16) return;
 	
 	uint8_t *p = dest; // destination pointer
-	long i = -(long)len; // input position
-	long lineSizeOffset = -line_size +1; // -1 because we want to stop one char before the end to handle the last char differently
-	long col = *colOffset + lineSizeOffset;
+	intptr_t i = -(intptr_t)len; // input position
+	intptr_t lineSizeOffset = -line_size +1; // -1 because we want to stop one char before the end to handle the last char differently
+	intptr_t col = *colOffset + lineSizeOffset;
 	
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
@@ -247,7 +247,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				// we overflowed - find correct position to revert back to
 				// this is perhaps sub-optimal on 32-bit, but who still uses that with AVX2?
 				uint64_t eqMask;
-				if(HEDLEY_UNLIKELY(col >= (long)(outputBytes-shuf2Len))) {
+				if(HEDLEY_UNLIKELY(col >= (intptr_t)(outputBytes-shuf2Len))) {
 					uint32_t eqMask1, eqMask2;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 					if(use_isa >= ISA_LEVEL_VBMI2) {
@@ -375,7 +375,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				__m256i dataBShifted = _mm256_loadu_si256((__m256i *)(es + i - YMM_SIZE - 1));
 #endif
 				dataA = _mm256_andnot_si256(cmpA, dataA); // clear space for '=' char
-				dataA = _mm256_blendv_epi8(dataAAShifted, dataA, mergeMaskA);
+				dataA = _mm256_blendv_epi8(dataAShifted, dataA, mergeMaskA);
 				dataA = _mm256_add_epi8(dataA, _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexA*2*YMM_SIZE) + 1));
 				_mm256_storeu_si256((__m256i*)p, dataA);
 				p[YMM_SIZE] = es[i-1-YMM_SIZE] + 42 + (64 & (maskA>>(YMM_SIZE-1-6)));
@@ -391,27 +391,27 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			col += maskBitsA + maskBitsB;
 			
 			if(col >= 0) {
-				if(HEDLEY_UNLIKELY(col > (long)maskBitsB)) {
+				if(HEDLEY_UNLIKELY(col > (intptr_t)maskBitsB)) {
 					if(use_isa >= ISA_LEVEL_AVX3)
 						bitIndexA = _lzcnt_u32(maskA);
 					bitIndexA += 1 + maskBitsB;
 					
 					i += maskBitsB - YMM_SIZE;
-					if(HEDLEY_UNLIKELY(col == (long)bitIndexA)) {
+					if(HEDLEY_UNLIKELY(col == (intptr_t)bitIndexA)) {
 						// this is an escape character, so line will need to overflow
 						p--;
 					} else {
-						i += (col > (long)bitIndexA);
+						i += (col > (intptr_t)bitIndexA);
 					}
 				} else {
 					if(use_isa >= ISA_LEVEL_AVX3)
 						bitIndexB = _lzcnt_u32(maskB);
 					bitIndexB++;
 					
-					if(HEDLEY_UNLIKELY(col == (long)bitIndexB)) {
+					if(HEDLEY_UNLIKELY(col == (intptr_t)bitIndexB)) {
 						p--;
 					} else {
-						i += (col > (long)bitIndexB);
+						i += (col > (intptr_t)bitIndexB);
 					}
 				}
 				i -= col;

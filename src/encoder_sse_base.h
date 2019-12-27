@@ -136,7 +136,7 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_expand_bytes(unsigned mask, __m128i dat
 }
 
 template<enum YEncDecIsaLevel use_isa>
-static HEDLEY_ALWAYS_INLINE unsigned long sse2_expand_store_vector(__m128i data, unsigned int mask, unsigned maskP1, unsigned maskP2, uint8_t* p, unsigned int& shufLenP1, unsigned int& shufLenP2) {
+static HEDLEY_ALWAYS_INLINE uintptr_t sse2_expand_store_vector(__m128i data, unsigned int mask, unsigned maskP1, unsigned maskP2, uint8_t* p, unsigned int& shufLenP1, unsigned int& shufLenP2) {
 	// TODO: consider 1 bit shortcut (slightly tricky with needing bit counts though)
 	if(mask) {
 		__m128i dataA = sse2_expand_bytes<use_isa>(maskP1, data);
@@ -171,10 +171,10 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 #endif
 	
 	uint8_t *p = dest; // destination pointer
-	long i = -(long)len; // input position
-	long lineSizeOffset = -line_size +1;
-	//long col = *colOffset - line_size +1; // for some reason, this causes GCC-8 to spill an extra register, causing the main loop to run ~5% slower, so use the alternative version below
-	long col = *colOffset + lineSizeOffset;
+	intptr_t i = -(intptr_t)len; // input position
+	intptr_t lineSizeOffset = -line_size +1;
+	//intptr_t col = *colOffset - line_size +1; // for some reason, this causes GCC-8 to spill an extra register, causing the main loop to run ~5% slower, so use the alternative version below
+	intptr_t col = *colOffset + lineSizeOffset;
 	
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
@@ -272,8 +272,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		unsigned int maskB = _mm_movemask_epi8(cmpB);
 		
 		uint32_t mask = (maskB<<16) | maskA;
-		long bitIndex; // because you can't goto past variable declarations...
-		long maskBits, outputBytes;
+		intptr_t bitIndex; // because you can't goto past variable declarations...
+		intptr_t maskBits, outputBytes;
 		
 		bool manyBitsSet;
 #if defined(__POPCNT__) && !defined(__tune_btver1__)
@@ -387,8 +387,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			col += outputBytes;
 			
 			if(LIKELIHOOD(0.3 /*guess, using 128b lines*/, col >= 0)) {
-				unsigned long bitCount;
-				long shiftAmt = (outputBytes - shuf2Len) - col -1;
+				uintptr_t bitCount;
+				intptr_t shiftAmt = (outputBytes - shuf2Len) - col -1;
 				uint32_t eqMask;
 				if(HEDLEY_UNLIKELY(shiftAmt < 0)) {
 					shiftAmt += shuf2Len;
@@ -463,7 +463,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					cnt += lookups->BitsSetTable256plus8[(eqMask>>8) & 0xff];
 					cnt += lookups->BitsSetTable256plus8[(eqMask>>16) & 0xff];
 					cnt += lookups->BitsSetTable256plus8[(eqMask>>24) & 0xff];
-					bitCount = (unsigned long)cnt - 32;
+					bitCount = (uintptr_t)cnt - 32;
 				}
 				
 				if(use_isa >= ISA_LEVEL_VBMI2 || use_isa < ISA_LEVEL_SSSE3) {
