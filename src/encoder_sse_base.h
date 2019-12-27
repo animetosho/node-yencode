@@ -239,7 +239,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			);
 		}
 		
-#if defined(__GNUC__) && __GNUC__==9
+#if defined(__GNUC__) && !defined(__clang__)
 		_encode_loop_branchA:
 		unsigned int maskA = _mm_movemask_epi8(cmpA);
 		_encode_loop_branchB:
@@ -658,9 +658,10 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 						dataA
 					);
 					i += XMM_SIZE*2 + 1;
-# if defined(__GNUC__) && __GNUC__==9
-					// GCC9 seems to have trouble keeping track of variable usage and spills many of them if we goto after declarations; Clang9/GCC8 seems to be fine
-					goto _encode_loop_branchA;
+# if defined(__GNUC__) && !defined(__clang__)
+					// GCC seems to have trouble keeping track of variable usage and spills many of them if we goto after declarations; Clang9 seems to be fine, or if _PREFER_BRANCHING is used
+					if(!_PREFER_BRANCHING)
+						goto _encode_loop_branchA;
 # endif
 					maskA = _mm_movemask_epi8(cmpA);
 					cmpB = _mm_cmpeq_epi8(
@@ -685,8 +686,9 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					maskA = _mm_movemask_epi8(cmpA);
 					maskA |= lookups->eolFirstMask[es[i+1]];
 					i += XMM_SIZE*2 + 1;
-#if defined(__GNUC__) && __GNUC__==9
-					goto _encode_loop_branchB;
+#if defined(__GNUC__) && !defined(__clang__)
+					if(!_PREFER_BRANCHING)
+						goto _encode_loop_branchB;
 #endif
 					cmpB = _mm_or_si128(
 						_mm_or_si128(
