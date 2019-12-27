@@ -358,26 +358,31 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				__m256i mergeMaskA = _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexA*2*YMM_SIZE));
 				__m256i mergeMaskB = _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexB*2*YMM_SIZE));
 				
-				// to deal with the pain of lane crossing, use shift + mask/blend
-				__m256i dataShifted = _mm256_alignr_epi8(
+#if defined(__tune_bdver4__) || defined(__tune_znver1__)
+				// avoid slower 32-byte crossing loads on Zen1
+				__m256i dataAShifted = _mm256_alignr_epi8(
 					dataA,
 					_mm256_inserti128_si256(dataA, _mm256_castsi256_si128(dataA), 1),
 					15
 				);
+				__m256i dataBShifted = _mm256_alignr_epi8(
+					dataB,
+					_mm256_inserti128_si256(dataB, _mm256_castsi256_si128(dataB), 1),
+					15
+				);
+#else
+				__m256i dataAShifted = _mm256_loadu_si256((__m256i *)(es + i - YMM_SIZE*2 - 1));
+				__m256i dataBShifted = _mm256_loadu_si256((__m256i *)(es + i - YMM_SIZE - 1));
+#endif
 				dataA = _mm256_andnot_si256(cmpA, dataA); // clear space for '=' char
-				dataA = _mm256_blendv_epi8(dataShifted, dataA, mergeMaskA);
+				dataA = _mm256_blendv_epi8(dataAAShifted, dataA, mergeMaskA);
 				dataA = _mm256_add_epi8(dataA, _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexA*2*YMM_SIZE) + 1));
 				_mm256_storeu_si256((__m256i*)p, dataA);
 				p[YMM_SIZE] = es[i-1-YMM_SIZE] + 42 + (64 & (maskA>>(YMM_SIZE-1-6)));
 				p += maskBitsA;
 				
-				dataShifted = _mm256_alignr_epi8(
-					dataB,
-					_mm256_inserti128_si256(dataB, _mm256_castsi256_si128(dataB), 1),
-					15
-				);
 				dataB = _mm256_andnot_si256(cmpB, dataB);
-				dataB = _mm256_blendv_epi8(dataShifted, dataB, mergeMaskB);
+				dataB = _mm256_blendv_epi8(dataBShifted, dataB, mergeMaskB);
 				dataB = _mm256_add_epi8(dataB, _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexB*2*YMM_SIZE) + 1));
 				_mm256_storeu_si256((__m256i*)p, dataB);
 				p[YMM_SIZE] = es[i-1] + 42 + (64 & (maskB>>(YMM_SIZE-1-6)));
