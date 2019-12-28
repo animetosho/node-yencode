@@ -111,7 +111,7 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     #define TMP3 "%[tmp3]"
     #define TMP3b "%b[tmp3]"
 #endif
-    "sub $2*4*8 - 1, %[end]\n"
+    "subl $2*4*8 - 1, %[end]\n"
     "cmpl  %[src], %[end]\n"
     "jbe 2f\n"
 
@@ -213,11 +213,11 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "movq %[buf3], %[buf0]\n"
     CRC_WORD_MMX()
 
-    "add $4*8, %[src]\n"
+    "addl $4*8, %[src]\n"
     "2:\n"
     "movl %[table_word], %[table]\n"
 
-    "add $2*4*8 - 8, %[end]\n"
+    "addl $2*4*8 - 8, %[end]\n"
     "cmpl %[src], %[end]\n"
     "jbe 4f\n"
     "3:\n"
@@ -227,7 +227,7 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "cmpl %[src], %[end]\n"
     "ja 3b\n"
     "4:\n"
-    "add $7, %[end]\n"
+    "addl $7, %[end]\n"
 
     "cmpl %[src], %[end]\n"
     "jbe 6f\n"
@@ -238,7 +238,7 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordI386Mmx(
     "movzbl %b[tmp0], %[tmp0]\n"
     "psrlq $8, %[crc0]\n"
     "xorl %[tmp0], %[temp]\n"
-    "add $1, %[src]\n"
+    "addl $1, %[src]\n"
     "pxor 7*256*8(%[table], %[temp], 8), %[crc0]\n"
     "cmpl %[src], %[end]\n"
     "ja 5b\n"

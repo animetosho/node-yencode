@@ -142,7 +142,7 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordGccAmd64(
   uint64 crc3;
 
   asm(
-    "sub $2*4*8 - 1, %[end]\n"
+    "subq $2*4*8 - 1, %[end]\n"
     "cmpq  %[src], %[end]\n"
     "jbe 2f\n"
     "xorq %[crc1], %[crc1]\n"
@@ -157,7 +157,7 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordGccAmd64(
 #if HAVE_SSE && CRCUTIL_PREFETCH_WIDTH > 0
     "prefetcht0 " TO_STRING(CRCUTIL_PREFETCH_WIDTH) "(%[src])\n"
 #endif  // HAVE_SSE
-    "add $4*8, %[src]\n"
+    "addq $4*8, %[src]\n"
 
     // Set buffer data.
     "xorq %[crc0], " BUF0 "\n"
@@ -237,22 +237,22 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordGccAmd64(
     "movq " BUF3 ", " BUF0 "\n"
     CRC_WORD_ASM()
 
-    "add $4*8, %[src]\n"
+    "addq $4*8, %[src]\n"
 
     "2:\n"
-    "add $2*4*8 - 8, %[end]\n"
+    "addq $2*4*8 - 8, %[end]\n"
     "cmpq %[src], %[end]\n"
     "jbe 4f\n"
 
     "3:\n"
     "movq (%[src]), " BUF0 "\n"
-    "add $8, %[src]\n"
+    "addq $8, %[src]\n"
     CRC_WORD_ASM()
     "cmpq %[src], %[end]\n"
     "ja 3b\n"
 
     "4:\n"
-    "add $7, %[end]\n"
+    "addq $7, %[end]\n"
 
     "cmpq %[src], %[end]\n"
     "jbe 6f\n"
@@ -262,7 +262,7 @@ template<> uint64 GenericCrc<uint64, uint64, uint64, 4>::CrcMultiwordGccAmd64(
     "movzbq %b[crc0], " TMP0 "\n"
     "shrq  $8, %[crc0]\n"
     "xorq " BUF0 ", " TMP0 "\n"
-    "add $1, %[src]\n"
+    "addq $1, %[src]\n"
     "xorq 7*256*8(%[table_word], " TMP0 ", 8), %[crc0]\n"
     "cmpq %[src], %[end]\n"
     "ja 5b\n"
