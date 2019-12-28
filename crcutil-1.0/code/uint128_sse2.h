@@ -70,6 +70,8 @@ class uint128_sse2 {
   }
   __forceinline uint128_sse2(const __m128i x) : x_(x) {
   }
+  __forceinline uint128_sse2(const uint128_sse2& x) : x_(x.x_) {
+  }
   __forceinline operator __m128i() const {
     return x_;
   }
