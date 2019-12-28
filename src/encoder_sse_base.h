@@ -239,13 +239,9 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 			);
 		}
 		
-#if defined(__GNUC__) && !defined(__clang__)
 		_encode_loop_branchA:
 		unsigned int maskA = _mm_movemask_epi8(cmpA);
 		_encode_loop_branchB:
-#else
-		unsigned int maskA = _mm_movemask_epi8(cmpA);
-#endif
 		
 #if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_slm__) && !defined(__tune_btver1__)
 		if(use_isa >= ISA_LEVEL_SSSE3) {
@@ -721,6 +717,10 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				if(_PREFER_BRANCHING && LIKELIHOOD(0.663, !mask))
 					goto _encode_loop_branch_fast_noesc;
 				goto _encode_loop_branch_fast_1ch;
+				if(0) { // silence unused label warnings
+					goto _encode_loop_branchA;
+					goto _encode_loop_branchB;
+				}
 			}
 			
 		}
