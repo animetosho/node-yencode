@@ -32,6 +32,16 @@ static struct {
 static HEDLEY_ALWAYS_INLINE __m256i force_align_read_256(const void* p) {
 	return *(volatile __m256i *)(p);
 }
+// _mm256_castsi128_si256, but upper is defined to be 0
+#if defined(__clang__) && __clang_major__ >= 5
+// intrinsic unsupported in GCC 9 and MSVC < 2017
+# define zext128_256 _mm256_zextsi128_si256
+#else
+// technically a cast is incorrect, due to upper 128 bits being undefined, but should usually work fine
+// alternative may be `_mm256_set_m128i(_mm_setzero_si128(), v)` but unsupported on GCC < 7, and most compilers generate a VINSERTF128 instruction for it
+# define zext128_256 _mm256_castsi128_si256
+#endif
+
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& _escFirst, uint16_t& _nextMask) {
@@ -305,7 +315,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 					{
 						mask |= (uint64_t)((uint32_t)_mm256_movemask_epi8(match2NlDotA)) << 2;
 						mask |= (uint64_t)((uint32_t)_mm256_movemask_epi8(match2NlDotB)) << 34;
-						match2NlDotB = _mm256_castsi128_si256(_mm_srli_si128(_mm256_extracti128_si256(match2NlDotB, 1), 14));
+						match2NlDotB = zext128_256(_mm_srli_si128(_mm256_extracti128_si256(match2NlDotB, 1), 14));
 						minMask = _mm256_subs_epu8(_mm256_set1_epi8('.'), match2NlDotB);
 					}
 				}
@@ -402,7 +412,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				unsigned tmp = lookups->eqFix[(maskEq&0xff) & ~(uint64_t)escFirst];
 				uint64_t maskEq2 = tmp;
 				for(int j=8; j<64; j+=8) {
-					tmp = lookups->eqFix[((maskEq>>j)&0xff) & ~(uint64_t)(tmp>>7)];
+					tmp = lookups->eqFix[((maskEq>>j)&0xff) & ~(tmp>>7)];
 					maskEq2 |= (uint64_t)tmp<<j;
 				}
 				maskEq = maskEq2;
@@ -437,7 +447,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 					__m256i vMaskEq = _mm256_broadcastq_epi64(_mm_cvtsi64_si128(maskEq));
 #else
 					__m256i vMaskEq = _mm256_permute4x64_epi64(_mm256_insert_epi32(
-						_mm256_castsi128_si256(_mm_cvtsi32_si128(maskEq & 0xffffffff)),
+						_mm256_set_epi32(0,0,0,0, 0,0,0, maskEq & 0xffffffff),
 						maskEq >> 32,
 						1
 					), 0);
@@ -515,7 +525,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			} else
 #endif
 			{
-				yencOffset = _mm256_xor_si256(_mm256_set1_epi8(-42), _mm256_castsi128_si256(
+				yencOffset = _mm256_xor_si256(_mm256_set1_epi8(-42), zext128_256(
 					_mm_slli_epi16(_mm_cvtsi32_si128(escFirst), 6)
 				));
 			}

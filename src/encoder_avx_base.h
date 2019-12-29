@@ -436,7 +436,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 						'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42,
 						'\0'-42,-42,'\r'-42,'.'-42,'='-42,'\0'-42,'\t'-42,'\n'-42,-42,-42,'\r'-42,-42,'='-42,' '-42,-42,'\n'-42
 					), _mm256_adds_epi8(
-						_mm256_abs_epi8(dataA), _mm256_castsi128_si256(_mm_cvtsi32_si128(88))
+						_mm256_abs_epi8(dataA), _mm256_set_epi64x(0, 0, 0, 88)
 					)),
 					dataA
 				);
