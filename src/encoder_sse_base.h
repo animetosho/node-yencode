@@ -78,9 +78,9 @@ static void encoder_sse_lut() {
 		int n = (use_isa & ISA_FEATURE_LZCNT) ? (i == 32 ? 32 : 31-i) : (i == 0 ? 32 : i-1);
 		for(int j=0; j<32; j++) {
 			lookups->expandMaskmix[i*64 + j] = (n>j ? -1 : 0);
-			if(n > 15)
+			if(j > 15) // mask part
 				lookups->expandShufmaskmix[i*64 + j] = (n>=j ? -1 : 0);
-			else
+			else // shuffle part
 				lookups->expandShufmaskmix[i*64 + j] = (n==j ? -1 : (j-(n<j)));
 			lookups->expandMaskmix[i*64 + j + 32] = (n==j ? '=' : 42+64*(n==j-1));
 			lookups->expandShufmaskmix[i*64 + j + 32] = (n==j ? '=' : 42+64*(n==j-1));
