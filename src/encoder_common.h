@@ -1,3 +1,5 @@
+#ifndef __YENC_ENCODER_COMMON
+#define __YENC_ENCODER_COMMON
 
 // lookup tables for scalar processing
 #define _B1(n) _B(n), _B(n+1), _B(n+2), _B(n+3)
@@ -103,3 +105,5 @@ static size_t do_encode_simd(int line_size, int* colOffset, const uint8_t* HEDLE
 	}
 	return p - dest;
 }
+
+#endif /* __YENC_ENCODER_COMMON */

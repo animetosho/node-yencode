@@ -326,25 +326,25 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			if(use_isa >= ISA_LEVEL_AVX3) {
 # if defined(__AVX512VBMI2__)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
-					_mm256_mask_storeu_epi8(p+1, 1<<31, dataA);
+					_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataA);
 					dataA = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), ~maskA, dataA);
 					_mm256_storeu_si256((__m256i*)p, dataA);
 					p += maskBitsA;
 					
-					_mm256_mask_storeu_epi8(p+1, 1<<31, dataB);
+					_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataB);
 					dataB = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), ~maskB, dataB);
 					_mm256_storeu_si256((__m256i*)p, dataB);
 					p += maskBitsB;
 				} else
 # endif
 				{
-					_mm256_mask_storeu_epi8(p+1, 1<<31, dataA);
+					_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataA);
 					dataA = _mm256_mask_alignr_epi8(dataA, ~(maskA-1), dataA, _mm256_permute4x64_epi64(dataA, _MM_SHUFFLE(1,0,3,2)), 15);
 					dataA = _mm256_ternarylogic_epi32(dataA, cmpA, _mm256_set1_epi8('='), 0xb8); // (data & ~cmp) | (cmp & '=')
 					_mm256_storeu_si256((__m256i*)p, dataA);
 					p += maskBitsA;
 					
-					_mm256_mask_storeu_epi8(p+1, 1<<31, dataB);
+					_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataB);
 					dataB = _mm256_mask_alignr_epi8(dataB, ~(maskB-1), dataB, _mm256_permute4x64_epi64(dataB, _MM_SHUFFLE(1,0,3,2)), 15);
 					dataB = _mm256_ternarylogic_epi32(dataB, cmpB, _mm256_set1_epi8('='), 0xb8);
 					_mm256_storeu_si256((__m256i*)p, dataB);

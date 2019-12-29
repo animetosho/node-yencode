@@ -234,9 +234,9 @@ enum YEncDecIsaLevel {
 # endif
 # if defined(__POPCNT__)
 #  if defined(__LZCNT__)
-#   define ISA_NATIVE (_ISA_NATIVE | ISA_FEATURE_POPCNT | ISA_FEATURE_LZCNT)
+#   define ISA_NATIVE (enum YEncDecIsaLevel)(_ISA_NATIVE | ISA_FEATURE_POPCNT | ISA_FEATURE_LZCNT)
 #  else 
-#   define ISA_NATIVE (_ISA_NATIVE | ISA_FEATURE_POPCNT)
+#   define ISA_NATIVE (enum YEncDecIsaLevel)(_ISA_NATIVE | ISA_FEATURE_POPCNT)
 #  endif
 # else
 #  define ISA_NATIVE _ISA_NATIVE
