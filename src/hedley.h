@@ -1237,8 +1237,8 @@ HEDLEY_DIAGNOSTIC_POP
 #  define HEDLEY_UNPREDICTABLE(expr) __builtin_unpredictable((expr))
 #endif
 #if \
-  HEDLEY_HAS_BUILTIN(__builtin_expect_with_probability) || \
-  HEDLEY_GCC_VERSION_CHECK(9,0,0)
+  (HEDLEY_HAS_BUILTIN(__builtin_expect_with_probability) || \
+  HEDLEY_GCC_VERSION_CHECK(9,0,0)) && !defined(HEDLEY_INTEL_VERSION)
 #  define HEDLEY_PREDICT(expr, value, probability) __builtin_expect_with_probability(  (expr), (value), (probability))
 #  define HEDLEY_PREDICT_TRUE(expr, probability)   __builtin_expect_with_probability(!!(expr),    1   , (probability))
 #  define HEDLEY_PREDICT_FALSE(expr, probability)  __builtin_expect_with_probability(!!(expr),    0   , (probability))
