@@ -1,7 +1,8 @@
 {
   "target_defaults": {
     "variables": {
-      "enable_native_tuning%": 1
+      "enable_native_tuning%": 1,
+      "disable_avx256%": 0
     },
     "conditions": [
       ['target_arch=="ia32"', {
@@ -36,9 +37,11 @@
             }
           }]
         ]
+      }],
+      ['disable_avx256!=0', {
+        "defines": ["YENC_DISABLE_AVX256=1"]
       }]
     ],
-    "defines": ["YENC_ENABLE_AVX256=1"],
     "cflags": ["-Wno-unused-function"],
     "cxxflags": ["-Wno-unused-function"],
     "xcode_settings": {

@@ -33,7 +33,7 @@ static void free_buffer(char* data, void* _size) {
 static inline size_t YENC_MAX_SIZE(size_t len, size_t line_size) {
 	size_t ret = len * 2    /* all characters escaped */
 		+ 2 /* allocation for offset and that a newline may occur early */
-#if defined(YENC_ENABLE_AVX256) && YENC_ENABLE_AVX256!=0
+#if !defined(YENC_DISABLE_AVX256)
 		+ 64 /* allocation for YMM overflowing */
 #else
 		+ 32 /* allocation for XMM overflowing */

@@ -1,6 +1,6 @@
 #include "common.h"
 
-#if defined(__AVX2__) && defined(YENC_ENABLE_AVX256) && YENC_ENABLE_AVX256!=0
+#if defined(__AVX2__) && !defined(YENC_DISABLE_AVX256)
 #include "decoder_common.h"
 #include "decoder_avx2_base.h"
 void decoder_set_avx2_funcs() {
