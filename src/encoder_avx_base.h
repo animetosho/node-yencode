@@ -165,6 +165,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 		uint32_t maskB = (uint32_t)_mm256_movemask_epi8(cmpB);
 		unsigned int maskBitsA = popcnt32(maskA);
 		unsigned int maskBitsB = popcnt32(maskB);
+		unsigned int outputBytesA = maskBitsA + YMM_SIZE;
 		unsigned int bitIndexA, bitIndexB;
 		if (LIKELIHOOD(0.170, (maskBitsA|maskBitsB) > 1)) {
 			_encode_loop_branch_slow:
@@ -233,13 +234,12 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			}
 			
 			unsigned int shuf1Len = popcnt32(m1) + 16;
-			unsigned int shuf2Len = maskBitsA + 32;
-			unsigned int shuf3Len = maskBitsA + popcnt32(m3) + 48;
+			unsigned int shuf3Len = popcnt32(m3) + 16;
 			_mm256_storeu_si256((__m256i*)p, data1A);
 			_mm256_storeu_si256((__m256i*)(p + shuf1Len), data2A);
-			_mm256_storeu_si256((__m256i*)(p + shuf2Len), data1B);
-			_mm256_storeu_si256((__m256i*)(p + shuf3Len), data2B);
-			unsigned int outputBytes = YMM_SIZE*2 + maskBitsA + maskBitsB;
+			_mm256_storeu_si256((__m256i*)(p + outputBytesA), data1B);
+			_mm256_storeu_si256((__m256i*)(p + outputBytesA + shuf3Len), data2B);
+			unsigned int outputBytes = YMM_SIZE + outputBytesA + maskBitsB;
 			p += outputBytes;
 			col += outputBytes;
 			
@@ -247,7 +247,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				// we overflowed - find correct position to revert back to
 				// this is perhaps sub-optimal on 32-bit, but who still uses that with AVX2?
 				uint64_t eqMask;
-				if(HEDLEY_UNLIKELY(col >= (intptr_t)(outputBytes-shuf2Len))) {
+				int shiftAmt = maskBitsB + YMM_SIZE - col -1;
+				if(HEDLEY_UNLIKELY(shiftAmt < 0)) {
 					uint32_t eqMask1, eqMask2;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 					if(use_isa >= ISA_LEVEL_VBMI2) {
@@ -260,9 +261,11 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 						eqMask2 = (uint32_t)_mm256_movemask_epi8(shuf2A);
 					}
 					eqMask = eqMask1 | ((uint64_t)eqMask2 << shuf1Len);
-					i -= YMM_SIZE;
 					if(use_isa < ISA_LEVEL_VBMI2)
-						i += outputBytes-shuf2Len;
+						i += (uintptr_t)maskBitsB;
+					else
+						i -= YMM_SIZE;
+					shiftAmt += outputBytesA;
 				} else {
 					uint32_t eqMask3, eqMask4;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
@@ -275,8 +278,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 						eqMask3 = (uint32_t)_mm256_movemask_epi8(shuf1B);
 						eqMask4 = (uint32_t)_mm256_movemask_epi8(shuf2B);
 					}
-					eqMask = eqMask3 | ((uint64_t)eqMask4 << (shuf3Len-shuf2Len));
-					outputBytes -= shuf2Len;
+					eqMask = eqMask3 | ((uint64_t)eqMask4 << shuf3Len);
 				}
 				
 #if defined(__GNUC__) && defined(PLATFORM_AMD64)
@@ -286,13 +288,13 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 						"shrq %%cl, %[eqMask] \n"
 						"adcq %[col], %[p] \n"
 						: [eqMask]"+r"(eqMask), [p]"+r"(p)
-						: "c"(outputBytes - col -1), [col]"r"(~col)
+						: "c"(shiftAmt), [col]"r"(~col)
 					);
 					i -= _mm_popcnt_u64(eqMask);
 				} else
 #endif
 				{
-					eqMask >>= outputBytes - col -1;
+					eqMask >>= shiftAmt;
 					unsigned int bitCount;
 #ifdef PLATFORM_AMD64
 					bitCount = (unsigned int)_mm_popcnt_u64(eqMask);
@@ -320,32 +322,31 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			}
 		} else {
 			_encode_loop_branch_fast:
-			maskBitsA += YMM_SIZE;
 			maskBitsB += YMM_SIZE;
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
 # if defined(__AVX512VBMI2__)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
 					_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataA);
-					dataA = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), ~maskA, dataA);
+					dataA = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KNOT32(maskA), dataA);
 					_mm256_storeu_si256((__m256i*)p, dataA);
-					p += maskBitsA;
+					p += outputBytesA;
 					
 					_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataB);
-					dataB = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), ~maskB, dataB);
+					dataB = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KNOT32(maskB), dataB);
 					_mm256_storeu_si256((__m256i*)p, dataB);
 					p += maskBitsB;
 				} else
 # endif
 				{
 					_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataA);
-					dataA = _mm256_mask_alignr_epi8(dataA, ~(maskA-1), dataA, _mm256_permute4x64_epi64(dataA, _MM_SHUFFLE(1,0,3,2)), 15);
+					dataA = _mm256_mask_alignr_epi8(dataA, -maskA, dataA, _mm256_permute4x64_epi64(dataA, _MM_SHUFFLE(1,0,3,2)), 15);
 					dataA = _mm256_ternarylogic_epi32(dataA, cmpA, _mm256_set1_epi8('='), 0xb8); // (data & ~cmp) | (cmp & '=')
 					_mm256_storeu_si256((__m256i*)p, dataA);
-					p += maskBitsA;
+					p += outputBytesA;
 					
 					_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataB);
-					dataB = _mm256_mask_alignr_epi8(dataB, ~(maskB-1), dataB, _mm256_permute4x64_epi64(dataB, _MM_SHUFFLE(1,0,3,2)), 15);
+					dataB = _mm256_mask_alignr_epi8(dataB, -maskB, dataB, _mm256_permute4x64_epi64(dataB, _MM_SHUFFLE(1,0,3,2)), 15);
 					dataB = _mm256_ternarylogic_epi32(dataB, cmpB, _mm256_set1_epi8('='), 0xb8);
 					_mm256_storeu_si256((__m256i*)p, dataB);
 					p += maskBitsB;
@@ -379,7 +380,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				dataA = _mm256_add_epi8(dataA, _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexA*2*YMM_SIZE) + 1));
 				_mm256_storeu_si256((__m256i*)p, dataA);
 				p[YMM_SIZE] = es[i-1-YMM_SIZE] + 42 + (64 & (maskA>>(YMM_SIZE-1-6)));
-				p += maskBitsA;
+				p += outputBytesA;
 				
 				dataB = _mm256_andnot_si256(cmpB, dataB);
 				dataB = _mm256_blendv_epi8(dataBShifted, dataB, mergeMaskB);
@@ -388,7 +389,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				p[YMM_SIZE] = es[i-1] + 42 + (64 & (maskB>>(YMM_SIZE-1-6)));
 				p += maskBitsB;
 			}
-			col += maskBitsA + maskBitsB;
+			col += outputBytesA + maskBitsB;
 			
 			if(col >= 0) {
 				if(HEDLEY_UNLIKELY(col > (intptr_t)maskBitsB)) {
@@ -465,6 +466,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				maskB = (uint32_t)_mm256_movemask_epi8(cmpB);
 				maskBitsA = popcnt32(maskA);
 				maskBitsB = popcnt32(maskB);
+				outputBytesA = maskBitsA + YMM_SIZE;
 				if (LIKELIHOOD(0.170, (maskBitsA|maskBitsB) > 1))
 					goto _encode_loop_branch_slow;
 				goto _encode_loop_branch_fast;
