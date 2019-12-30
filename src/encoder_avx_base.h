@@ -321,7 +321,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				goto _encode_eol_handle_pre;
 			}
 		} else {
-			_encode_loop_branch_fast:
+			//_encode_loop_branch_fast:
 			maskBitsB += YMM_SIZE;
 #if defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_AVX3) {
@@ -392,6 +392,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			col += outputBytesA + maskBitsB;
 			
 			if(col >= 0) {
+				_encode_loop_branch_fast_eol:
 				if(HEDLEY_UNLIKELY(col > (intptr_t)maskBitsB)) {
 					if(use_isa >= ISA_LEVEL_AVX3)
 						bitIndexA = _lzcnt_u32(maskA);
@@ -431,6 +432,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				
 				dataA = _mm256_loadu_si256((__m256i *)(es + i + 1));
 				dataB = _mm256_loadu_si256((__m256i *)(es + i + 1) + 1);
+				i += YMM_SIZE*2 + 1;
 				// search for special chars
 				cmpA = _mm256_cmpeq_epi8(
 					_mm256_shuffle_epi8(_mm256_set_epi8(
@@ -449,9 +451,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 					dataB
 				);
 				
-				i += YMM_SIZE*2 + 1;
-				
-				
 				// duplicate some code from above to reduce jumping a little
 #if defined(__AVX512VL__)
 				if(use_isa >= ISA_LEVEL_AVX3) {
@@ -469,7 +468,81 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				outputBytesA = maskBitsA + YMM_SIZE;
 				if (LIKELIHOOD(0.170, (maskBitsA|maskBitsB) > 1))
 					goto _encode_loop_branch_slow;
-				goto _encode_loop_branch_fast;
+				
+				
+				//goto _encode_loop_branch_fast;
+				// duplicating the code, instead of using the goto above, seems to fix a performance regression in GCC
+				maskBitsB += YMM_SIZE;
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+				if(use_isa >= ISA_LEVEL_AVX3) {
+# if defined(__AVX512VBMI2__)
+					if(use_isa >= ISA_LEVEL_VBMI2) {
+						_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataA);
+						dataA = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KNOT32(maskA), dataA);
+						_mm256_storeu_si256((__m256i*)p, dataA);
+						p += outputBytesA;
+						
+						_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataB);
+						dataB = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KNOT32(maskB), dataB);
+						_mm256_storeu_si256((__m256i*)p, dataB);
+						p += maskBitsB;
+					} else
+# endif
+					{
+						_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataA);
+						dataA = _mm256_mask_alignr_epi8(dataA, -maskA, dataA, _mm256_permute4x64_epi64(dataA, _MM_SHUFFLE(1,0,3,2)), 15);
+						dataA = _mm256_ternarylogic_epi32(dataA, cmpA, _mm256_set1_epi8('='), 0xb8); // (data & ~cmp) | (cmp & '=')
+						_mm256_storeu_si256((__m256i*)p, dataA);
+						p += outputBytesA;
+						
+						_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataB);
+						dataB = _mm256_mask_alignr_epi8(dataB, -maskB, dataB, _mm256_permute4x64_epi64(dataB, _MM_SHUFFLE(1,0,3,2)), 15);
+						dataB = _mm256_ternarylogic_epi32(dataB, cmpB, _mm256_set1_epi8('='), 0xb8);
+						_mm256_storeu_si256((__m256i*)p, dataB);
+						p += maskBitsB;
+					}
+				} else
+#endif
+				{
+					bitIndexA = _lzcnt_u32(maskA);
+					bitIndexB = _lzcnt_u32(maskB);
+					__m256i mergeMaskA = _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexA*2*YMM_SIZE));
+					__m256i mergeMaskB = _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexB*2*YMM_SIZE));
+					
+#if defined(__tune_bdver4__) || defined(__tune_znver1__)
+					// avoid slower 32-byte crossing loads on Zen1
+					__m256i dataAShifted = _mm256_alignr_epi8(
+						dataA,
+						_mm256_inserti128_si256(dataA, _mm256_castsi256_si128(dataA), 1),
+						15
+					);
+					__m256i dataBShifted = _mm256_alignr_epi8(
+						dataB,
+						_mm256_inserti128_si256(dataB, _mm256_castsi256_si128(dataB), 1),
+						15
+					);
+#else
+					__m256i dataAShifted = _mm256_loadu_si256((__m256i *)(es + i - YMM_SIZE*2 - 1));
+					__m256i dataBShifted = _mm256_loadu_si256((__m256i *)(es + i - YMM_SIZE - 1));
+#endif
+					dataA = _mm256_andnot_si256(cmpA, dataA); // clear space for '=' char
+					dataA = _mm256_blendv_epi8(dataAShifted, dataA, mergeMaskA);
+					dataA = _mm256_add_epi8(dataA, _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexA*2*YMM_SIZE) + 1));
+					_mm256_storeu_si256((__m256i*)p, dataA);
+					p[YMM_SIZE] = es[i-1-YMM_SIZE] + 42 + (64 & (maskA>>(YMM_SIZE-1-6)));
+					p += outputBytesA;
+					
+					dataB = _mm256_andnot_si256(cmpB, dataB);
+					dataB = _mm256_blendv_epi8(dataBShifted, dataB, mergeMaskB);
+					dataB = _mm256_add_epi8(dataB, _mm256_load_si256((const __m256i*)(lookupsAVX2->expandMergemix + bitIndexB*2*YMM_SIZE) + 1));
+					_mm256_storeu_si256((__m256i*)p, dataB);
+					p[YMM_SIZE] = es[i-1] + 42 + (64 & (maskB>>(YMM_SIZE-1-6)));
+					p += maskBitsB;
+				}
+				col += outputBytesA + maskBitsB;
+				
+				if(col >= 0)
+					goto _encode_loop_branch_fast_eol;
 			}
 		}
 	} while(i < 0);
