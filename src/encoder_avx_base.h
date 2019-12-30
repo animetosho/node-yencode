@@ -104,7 +104,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 	if(col < 0 && col != -line_size+1) {
 		// not the first/last character of a line
 		uint8_t c = es[i++];
-		if(HEDLEY_UNLIKELY(c == -42 || c == '\n'+214 || c == '\r'+214 || c == '='-42)) {
+		if(HEDLEY_UNLIKELY(c == 214 || c == '\n'+214 || c == '\r'+214 || c == '='-42)) {
 			*(uint16_t*)p = 0x6a3d + (((uint16_t)c) << 8);
 			p += 2;
 			col += 2;
@@ -356,13 +356,13 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 # endif
 				{
 					_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataA);
-					dataA = _mm256_mask_alignr_epi8(dataA, -maskA, dataA, _mm256_permute4x64_epi64(dataA, _MM_SHUFFLE(1,0,3,2)), 15);
+					dataA = _mm256_mask_alignr_epi8(dataA, (uint32_t)(-(int32_t)maskA), dataA, _mm256_permute4x64_epi64(dataA, _MM_SHUFFLE(1,0,3,2)), 15);
 					dataA = _mm256_ternarylogic_epi32(dataA, cmpA, _mm256_set1_epi8('='), 0xb8); // (data & ~cmp) | (cmp & '=')
 					_mm256_storeu_si256((__m256i*)p, dataA);
 					p += outputBytesA;
 					
 					_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataB);
-					dataB = _mm256_mask_alignr_epi8(dataB, -maskB, dataB, _mm256_permute4x64_epi64(dataB, _MM_SHUFFLE(1,0,3,2)), 15);
+					dataB = _mm256_mask_alignr_epi8(dataB, (uint32_t)(-(int32_t)maskB), dataB, _mm256_permute4x64_epi64(dataB, _MM_SHUFFLE(1,0,3,2)), 15);
 					dataB = _mm256_ternarylogic_epi32(dataB, cmpB, _mm256_set1_epi8('='), 0xb8);
 					_mm256_storeu_si256((__m256i*)p, dataB);
 					p += maskBitsB;
@@ -506,13 +506,13 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 # endif
 					{
 						_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataA);
-						dataA = _mm256_mask_alignr_epi8(dataA, -maskA, dataA, _mm256_permute4x64_epi64(dataA, _MM_SHUFFLE(1,0,3,2)), 15);
+						dataA = _mm256_mask_alignr_epi8(dataA, (uint32_t)(-(int32_t)maskA), dataA, _mm256_permute4x64_epi64(dataA, _MM_SHUFFLE(1,0,3,2)), 15);
 						dataA = _mm256_ternarylogic_epi32(dataA, cmpA, _mm256_set1_epi8('='), 0xb8); // (data & ~cmp) | (cmp & '=')
 						_mm256_storeu_si256((__m256i*)p, dataA);
 						p += outputBytesA;
 						
 						_mm256_mask_storeu_epi8(p+1, 1UL<<31, dataB);
-						dataB = _mm256_mask_alignr_epi8(dataB, -maskB, dataB, _mm256_permute4x64_epi64(dataB, _MM_SHUFFLE(1,0,3,2)), 15);
+						dataB = _mm256_mask_alignr_epi8(dataB, (uint32_t)(-(int32_t)maskB), dataB, _mm256_permute4x64_epi64(dataB, _MM_SHUFFLE(1,0,3,2)), 15);
 						dataB = _mm256_ternarylogic_epi32(dataB, cmpB, _mm256_set1_epi8('='), 0xb8);
 						_mm256_storeu_si256((__m256i*)p, dataB);
 						p += maskBitsB;

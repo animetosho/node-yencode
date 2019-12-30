@@ -212,11 +212,11 @@
           "variables": {"supports_avx3%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/decoder_avx3.cc -mavx512vl -mavx512bw 2>/dev/null || true)"},
           "conditions": [
             ['supports_avx3!=""', {
-              "cflags": ["-mavx512vl", "-mavx512bw", "-mbmi", "-mbmi2", "-mlzcnt"],
-              "cxxflags": ["-mavx512vl", "-mavx512bw", "-mbmi", "-mbmi2", "-mlzcnt"],
+              "cflags": ["-mavx512vl", "-mavx512bw", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
+              "cxxflags": ["-mavx512vl", "-mavx512bw", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
               "xcode_settings": {
-                "OTHER_CFLAGS": ["-mavx512vl", "-mavx512bw", "-mbmi", "-mbmi2", "-mlzcnt"],
-                "OTHER_CXXFLAGS": ["-mavx512vl", "-mavx512bw", "-mbmi", "-mbmi2", "-mlzcnt"],
+                "OTHER_CFLAGS": ["-mavx512vl", "-mavx512bw", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
+                "OTHER_CXXFLAGS": ["-mavx512vl", "-mavx512bw", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
               }
             }]
           ]

@@ -30,8 +30,14 @@ static struct {
 
 
 static HEDLEY_ALWAYS_INLINE __m256i force_align_read_256(const void* p) {
+#ifdef _MSC_VER
+	// MSVC complains about casting away volatile
+	return *(__m256i *)(p);
+#else
 	return *(volatile __m256i *)(p);
+#endif
 }
+
 // _mm256_castsi128_si256, but upper is defined to be 0
 #if defined(__clang__) && __clang_major__ >= 5
 // intrinsic unsupported in GCC 9 and MSVC < 2017
@@ -412,7 +418,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				unsigned tmp = lookups->eqFix[(maskEq&0xff) & ~(uint64_t)escFirst];
 				uint64_t maskEq2 = tmp;
 				for(int j=8; j<64; j+=8) {
-					tmp = lookups->eqFix[((maskEq>>j)&0xff) & ~(tmp>>7)];
+					tmp = lookups->eqFix[(unsigned)((maskEq>>j)&0xff) & ~(tmp>>7)];
 					maskEq2 |= (uint64_t)tmp<<j;
 				}
 				maskEq = maskEq2;

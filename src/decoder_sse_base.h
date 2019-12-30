@@ -30,7 +30,12 @@ static struct {
 
 
 static HEDLEY_ALWAYS_INLINE __m128i force_align_read_128(const void* p) {
+#ifdef _MSC_VER
+	// MSVC complains about casting away volatile
+	return *(__m128i *)(p);
+#else
 	return *(volatile __m128i *)(p);
+#endif
 }
 
 
