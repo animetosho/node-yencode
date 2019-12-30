@@ -99,6 +99,22 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 	i += INPUT_OFFSET;
 	const uint8_t* es = srcEnd - INPUT_OFFSET;
 	
+#if !defined(__tune_bdver4__) && !defined(__tune_znver1__)
+	// always process at least one byte to prevent underflow when doing a read with -1 offset
+	if(col < 0 && col != -line_size+1) {
+		// not the first/last character of a line
+		uint8_t c = es[i++];
+		if(HEDLEY_UNLIKELY(c == -42 || c == '\n'+214 || c == '\r'+214 || c == '='-42)) {
+			*(uint16_t*)p = 0x6a3d + (((uint16_t)c) << 8);
+			p += 2;
+			col += 2;
+		} else {
+			*p++ = c+42;
+			col++;
+		}
+	}
+#endif
+	
 	if(HEDLEY_UNLIKELY(col >= 0)) {
 		uint8_t c = es[i++];
 		if(col == 0) {
