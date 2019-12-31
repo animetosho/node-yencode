@@ -93,7 +93,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			lfCompare[1] = '.';
 	}
 #endif
-	for(long i = -len; i; i += sizeof(uint8x16_t)*2) {
+	long i;
+	for(i = -len; i; i += sizeof(uint8x16_t)*2) {
 		uint8x16x2_t data = vld1q_u8_x2_align(src+i, 32);
 		uint8x16_t dataA = data.val[0];
 		uint8x16_t dataB = data.val[1];
@@ -200,7 +201,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				uint8x16_t match2EqA, match2Cr_DotA;
 				uint8x16_t match2EqB, match2Cr_DotB;
 				if(searchEnd) {
-					match2EqA = vextq_u8(cmpEqA, cmpEqB, 2);
 					match2EqB = vceqq_u8(tmpData2, vdupq_n_u8('='));
 				}
 				if(isRaw) {
@@ -240,6 +240,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 							vreinterpretq_u8_u16(vceqq_u16(vreinterpretq_u16_u8(tmpData4), vdupq_n_u16(0x793d)))
 						);
 						
+						match2EqA = vextq_u8(cmpEqA, cmpEqB, 2);
 						uint8x16_t match3EqY = vbslq_u8(vdupq_n_u8('\r'),
 							vandq_u8(
 								vceqq_u8(vextq_u8(dataA, dataB, 3), vdupq_n_u8('y')),
@@ -302,6 +303,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 					), vget_high_u8(lfCompare));
 #endif
 				} else if(searchEnd) {
+					match2EqA = vextq_u8(cmpEqA, cmpEqB, 2);
 					uint8x16_t match3EqYA = vandq_u8(match2EqA, vceqq_u8(vextq_u8(dataA, dataB, 3), vdupq_n_u8('y')));
 					uint8x16_t match3EqYB = vandq_u8(match2EqB, vceqq_u8(NEXT_DATA(3), vdupq_n_u8('y')));
 					if(LIKELIHOOD(0.001, neon_vect_is_nonzero(vorrq_u8(
@@ -463,18 +465,18 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #endif
 		}
 	}
-#ifdef __aarch64__
-	nextMask = vget_lane_u16(vreinterpret_u16_u8(nextMaskMix), 0);
-	nextMask += nextMask >> 8;
-	nextMask &= 3;
-#else
-	if(lfCompare[0] == '.')
-		nextMask = 1;
-	else if(lfCompare[1] == '.')
-		nextMask = 2;
-	else
-		nextMask = 	0;
-#endif
+	
+	if(isRaw) {
+		if(len != 0) { // have to gone through at least one loop cycle
+			if(src[i-2] == '\r' && src[i-1] == '\n' && src[i] == '.')
+				nextMask = 1;
+			else if(src[i-1] == '\r' && src[i] == '\n' && src[i+1] == '.')
+				nextMask = 2;
+			else
+				nextMask = 0;
+		}
+	} else
+		nextMask = 0;
 }
 
 void decoder_set_neon_funcs() {
