@@ -16,7 +16,6 @@ HEDLEY_ALWAYS_INLINE void vst1q_u8_x2_unaligned(uint8_t* p, uint8x16x2_t data) {
 
 
 static uint8x16_t ALIGN_TO(16, shufLUT[256]);
-static uint8x16_t ALIGN_TO(16, nlShufLUT[256]);
 static uint16_t expandLUT[256];
 
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT es, long& i, uint8_t*& p, long& col, long lineSizeOffset) {
@@ -87,7 +86,23 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	uint8x16_t cmpMerge = vpaddq_u8(cmpAMasked, cmpBMasked);
 	cmpMerge = vpaddq_u8(cmpMerge, cmpMerge);
 	uint64_t mask = vgetq_lane_u64(vreinterpretq_u64_u8(cmpMerge), 0);
-	if(LIKELIHOOD(0.09, (mask & (mask-1)) != 0 || mask==1)) {
+	
+	// write out first char + newline
+	uint32_t firstChar = vgetq_lane_u8(dataA, 0);
+	if(LIKELIHOOD(0.0234, mask & 1)) {
+		firstChar <<= 8;
+		firstChar |= 0x0a0d003d;
+		memcpy(p, &firstChar, sizeof(firstChar));
+		p += 4;
+		mask ^= 1;
+		cmpMerge = vbicq_u8(cmpMerge, (uint8x16_t){1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0});
+	} else {
+		firstChar |= 0x0a0d00;
+		memcpy(p, &firstChar, sizeof(firstChar));
+		p += 3;
+	}
+	
+	if(LIKELIHOOD(0.09, (mask & (mask-1)) != 0)) {
 		mask |= mask >> 8;
 		uint8x8_t cmpPacked = vpadd_u8(vget_low_u8(cmpMerge), vget_low_u8(cmpMerge));
 		uint8_t m1 = (mask & 0xff);
@@ -106,7 +121,23 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	);
 	cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
 	uint32_t mask = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
-	if(LIKELIHOOD(0.09, (mask & (mask-1)) != 0 || mask==1)) {
+	
+	// write out first char + newline
+	uint32_t firstChar = vgetq_lane_u8(dataA, 0);
+	if(LIKELIHOOD(0.0234, mask & 1)) {
+		firstChar <<= 8;
+		firstChar |= 0x0a0d003d;
+		memcpy(p, &firstChar, sizeof(firstChar));
+		p += 4;
+		mask ^= 1;
+		cmpPacked = vbic_u8(cmpPacked, (uint8x8_t){1,0,0,0, 0,0,0,0});
+	} else {
+		firstChar |= 0x0a0d00;
+		memcpy(p, &firstChar, sizeof(firstChar));
+		p += 3;
+	}
+	
+	if(LIKELIHOOD(0.09, (mask & (mask-1)) != 0)) {
 		uint8_t m1 = (mask & 0xff);
 		uint8_t m2 = ((mask >> 8) & 0xff);
 		uint8_t m3 = ((mask >> 16) & 0xff);
@@ -114,26 +145,26 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 #endif
 		
 		// perform lookup for shuffle mask
+		uint8x16_t shuf1 = vld1q_u8((uint8_t*)(shufLUT + m1));
 		uint8x16_t shuf2 = vld1q_u8((uint8_t*)(shufLUT + m2));
 		uint8x16_t shuf3 = vld1q_u8((uint8_t*)(shufLUT + m3));
 		uint8x16_t shuf4 = vld1q_u8((uint8_t*)(shufLUT + m4));
-		
-		uint8x16_t shuf1 = vld1q_u8((uint8_t*)(nlShufLUT + m1));
-		uint8x16_t data1A = vqsubq_u8(shuf1, vdupq_n_u8(64));
 #ifdef __aarch64__
-		data1A = vqtbx1q_u8(data1A, dataA, shuf1);
+		uint8x16_t data1A = vqtbx1q_u8(shuf1, dataA, shuf1);
 		uint8x16_t data2A = vqtbx1q_u8(shuf2, vextq_u8(dataA, dataA, 8), shuf2);
 		uint8x16_t data1B = vqtbx1q_u8(shuf3, dataB, shuf3);
 		uint8x16_t data2B = vqtbx1q_u8(shuf4, vextq_u8(dataB, dataB, 8), shuf4);
 #else
-		data1A = vcombine_u8(vtbx1_u8(vget_low_u8(data1A),  vget_low_u8(dataA), vget_low_u8(shuf1)),
-		                     vtbx1_u8(vget_high_u8(data1A), vget_low_u8(dataA), vget_high_u8(shuf1)));
+		uint8x8_t shuf1l = vget_low_u8(shuf1);
+		uint8x8_t shuf1h = vget_high_u8(shuf1);
 		uint8x8_t shuf2l = vget_low_u8(shuf2);
 		uint8x8_t shuf2h = vget_high_u8(shuf2);
 		uint8x8_t shuf3l = vget_low_u8(shuf3);
 		uint8x8_t shuf3h = vget_high_u8(shuf3);
 		uint8x8_t shuf4l = vget_low_u8(shuf4);
 		uint8x8_t shuf4h = vget_high_u8(shuf4);
+		uint8x16_t data1A = vcombine_u8(vtbx1_u8(shuf1l, vget_low_u8(dataA), shuf1l),
+		                                vtbx1_u8(shuf1h, vget_low_u8(dataA), shuf1h));
 		uint8x16_t data2A = vcombine_u8(vtbx1_u8(shuf2l, vget_high_u8(dataA), shuf2l),
 		                                vtbx1_u8(shuf2h, vget_high_u8(dataA), shuf2h));
 		uint8x16_t data1B = vcombine_u8(vtbx1_u8(shuf3l, vget_low_u8(dataB), shuf3l),
@@ -141,8 +172,10 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		uint8x16_t data2B = vcombine_u8(vtbx1_u8(shuf4l, vget_high_u8(dataB), shuf4l),
 		                                vtbx1_u8(shuf4h, vget_high_u8(dataB), shuf4h));
 #endif
+		data1A = vextq_u8(data1A, data1A, 1); // shift out processed byte (last char of line)
+		
 		uint32_t counts = vget_lane_u32(vreinterpret_u32_u8(vcnt_u8(cmpPacked)), 0);
-		counts += 0x0808080A;
+		counts += 0x08080807;
 		
 		unsigned char shuf1Len = counts & 0xff;
 		unsigned char shuf2Len = (counts>>8) & 0xff;
@@ -150,17 +183,6 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		unsigned char shuf4Len = (counts>>24) & 0xff;
 		uint32_t shufTotalLen = counts * 0x1010101;
 		shufTotalLen >>= 24;
-		
-		if(LIKELIHOOD(0.001, shuf1Len > sizeof(uint8x16_t))) {
-			// unlikely special case, which would cause vectors to be overflowed
-			// we'll just handle this by only dealing with the first 2 characters, and let main loop handle the rest
-			// at least one of the first 2 chars is guaranteed to need escaping
-			vst1_u8(p, vget_low_u8(data1A));
-			col = lineSizeOffset + ((m1 & 2)>>1) - 32+2;
-			p += 4 + (m1 & 1) + ((m1 & 2)>>1);
-			i += 2;
-			return;
-		}
 		
 		vst1q_u8(p, data1A);
 		p += shuf1Len;
@@ -170,14 +192,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		p += shuf3Len;
 		vst1q_u8(p, data2B);
 		p += shuf4Len;
-		col = shufTotalLen-2 - (m1&1) + lineSizeOffset-32;
+		col = shufTotalLen+1 + lineSizeOffset-32;
 	} else {
-		// write out first char + newline
-		uint32_t firstChar = vgetq_lane_u8(dataA, 0);
-		firstChar |= 0x0a0d00;
-		memcpy(p, &firstChar, sizeof(firstChar));
-		p += 3;
-		
 		// shuffle stuff up
 #ifdef __aarch64__
 # ifdef _MSC_VER
@@ -510,28 +526,15 @@ void encoder_neon_init() {
 		int k = i;
 		uint16_t expand = 0;
 		uint8_t* res = (uint8_t*)(shufLUT + i);
-		uint8_t* nlShuf = (uint8_t*)(nlShufLUT + i);
-		int p = 0, pNl = 0;
+		int p = 0;
 		for(int j=0; j<8; j++) {
 			if(k & 1) {
 				res[j+p] = '=';
 				expand |= 1<<(j+p);
 				p++;
-				if(j+pNl < 16) {
-					nlShuf[j+pNl] = '='+64;
-					pNl++;
-				}
 			}
 			res[j+p] = j;
-			if(j+pNl < 16) nlShuf[j+pNl] = j;
 			k >>= 1;
-			
-			if(j == 0) {
-				// insert newline
-				nlShuf[pNl+1] = '\r'+64;
-				nlShuf[pNl+2] = '\n'+64;
-				pNl += 2;
-			}
 		}
 		for(; p<8; p++)
 			res[8+p] = 8+p +0x80; // +0x80 => 0 discarded entries; has no effect other than to ease debugging
