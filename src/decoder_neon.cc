@@ -163,7 +163,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 		);
 		cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
 		uint32_t mask = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
-		if(LIKELIHOOD(0.25, mask != 0)) {
+		if(LIKELIHOOD(0.42, mask != 0)) {
 			uint8x16_t cmpEqMaskedA = vandq_u8(cmpEqA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 			uint8x16_t cmpEqMaskedB = vandq_u8(cmpEqB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
 			uint8x8_t cmpEqPacked = vpadd_u8(
@@ -295,12 +295,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 					nextMaskMix = vget_high_u8(match2NlDotBMasked);
 					nextMaskMix = vreinterpret_u8_u64(vshr_n_u64(vreinterpret_u64_u8(nextMaskMix), 48+6));
 #else
-					// this bitiwse trick works because '.'|'\n' == '.'
-					lfCompare = vcombine_u8(vorr_u8(
-						vand_u8(
-							vext_u8(vget_high_u8(match2NlDotB), vdup_n_u8(0), 6),
-							vdup_n_u8('.')
-						),
+					lfCompare = vcombine_u8(vbsl_u8(
+						vext_u8(vget_high_u8(match2NlDotB), vdup_n_u8(0), 6),
+						vdup_n_u8('.'),
 						vget_high_u8(lfCompare)
 					), vget_high_u8(lfCompare));
 #endif
