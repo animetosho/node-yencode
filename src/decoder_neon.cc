@@ -49,21 +49,6 @@ static uint8_t eqFixLUT[256];
 
 
 
-static uint16_t neon_movemask(uint8x16_t in) {
-	uint8x16_t mask = vandq_u8(in, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-# if defined(__aarch64__)
-	/* if VADD is slow, can save one using 
-	mask = vzip1q_u8(mask, vextq_u8(mask, mask, 8));
-	return vaddvq_u16(vreinterpretq_u16_u8(mask));
-	*/
-	return (vaddv_u8(vget_high_u8(mask)) << 8) | vaddv_u8(vget_low_u8(mask));
-# else
-	uint8x8_t res = vpadd_u8(vget_low_u8(mask), vget_high_u8(mask));
-	res = vpadd_u8(res, res);
-	res = vpadd_u8(res, res);
-	return vget_lane_u16(vreinterpret_u16_u8(res), 0);
-# endif
-}
 static bool neon_vect_is_nonzero(uint8x16_t v) {
 # ifdef __aarch64__
 	return !!(vget_lane_u64(vreinterpret_u64_u32(vqmovn_u64(vreinterpretq_u64_u8(v))), 0));
@@ -81,7 +66,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 	HEDLEY_ASSUME(nextMask == 0 || nextMask == 1 || nextMask == 2);
 	uint8x16_t yencOffset = escFirst ? (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42} : vdupq_n_u8(42);
 #ifdef __aarch64__
-	uint8x8_t nextMaskMix = vdup_n_u8(0);
+	uint8x16_t nextMaskMix = vdupq_n_u8(0);
 	if(nextMask)
 		nextMaskMix[nextMask-1] = nextMask;
 #else
@@ -114,7 +99,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			(uint8x16_t){0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
 			dataB
 		);
-		if(isRaw) cmpA = vorrq_u8(cmpA, vcombine_u8(nextMaskMix, vdup_n_u8(0)));
+		if(isRaw) cmpA = vorrq_u8(cmpA, nextMaskMix);
 #else
 		cmpCrA = vceqq_u8(dataA, vdupq_n_u8('\r')),
 		cmpCrB = vceqq_u8(dataB, vdupq_n_u8('\r')),
@@ -289,15 +274,14 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 					);
 #endif
 					mergeKillDots2 = vpadd_u8(mergeKillDots2, mergeKillDots2);
-					uint32_t killDots = vget_lane_u32(vreinterpret_u32_u8(mergeKillDots2), 0);
-					mask |= (killDots << 2) & 0xffffffff;
-					cmpPacked = vreinterpret_u8_u32(vmov_n_u32(mask));
+					uint32x2_t mergeKillDotsShifted = vshl_n_u32(vreinterpret_u32_u8(mergeKillDots2), 2);
+					mask |= vget_lane_u32(mergeKillDotsShifted, 0);
+					cmpPacked = vorr_u8(cmpPacked, vreinterpret_u8_u32(mergeKillDotsShifted));
 #ifdef __aarch64__
-					nextMaskMix = vget_high_u8(match2NlDotBMasked);
-					nextMaskMix = vreinterpret_u8_u64(vshr_n_u64(vreinterpret_u64_u8(nextMaskMix), 48+6));
+					nextMaskMix = vextq_u8(match2NlDotB, vdupq_n_u8(0), 14);
 #else
 					lfCompare = vcombine_u8(vbsl_u8(
-						vext_u8(vget_high_u8(match2NlDotB), vdup_n_u8(0), 6),
+						vext_u8(vget_high_u8(match2NlDotB), vdup_n_u8('\n'), 6),
 						vdup_n_u8('.'),
 						vget_high_u8(lfCompare)
 					), vget_high_u8(lfCompare));
@@ -323,13 +307,13 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #undef NEXT_DATA
 					if(isRaw)
 #ifdef __aarch64__
-						nextMaskMix = vdup_n_u8(0);
+						nextMaskMix = vdupq_n_u8(0);
 #else
 						lfCompare = vcombine_u8(vget_high_u8(lfCompare), vget_high_u8(lfCompare));
 #endif
 				} else if(isRaw) // no \r_. found
 #ifdef __aarch64__
-					nextMaskMix = vdup_n_u8(0);
+					nextMaskMix = vdupq_n_u8(0);
 #else
 					lfCompare = vcombine_u8(vget_high_u8(lfCompare), vget_high_u8(lfCompare));
 #endif
@@ -350,11 +334,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq = (maskEq<<1) | escFirst;
 				mask &= ~maskEq;
-				cmpPacked = vreinterpret_u8_u32(vmov_n_u32(mask));
 				escFirst = tmp>>7;
 				
 				// unescape chars following `=`
 				uint8x8_t maskEqTemp = vreinterpret_u8_u32(vmov_n_u32(maskEq));
+				cmpPacked = vbic_u8(cmpPacked, maskEqTemp); // `mask &= ~maskEq` in vector form
 #ifdef __aarch64__
 				uint8x16_t vMaskEqA = vqtbl1q_u8(
 					vcombine_u8(maskEqTemp, vdup_n_u8(0)),
@@ -393,7 +377,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				dataA = vsubq_u8(
 					dataA,
 					vbslq_u8(
-						vextq_u8(vdupq_n_u8(0), cmpEqA, 15),
+						vextq_u8(vdupq_n_u8(42), cmpEqA, 15),
 						vdupq_n_u8(64+42),
 						yencOffset
 					)

@@ -47,7 +47,7 @@ template<bool isRaw, bool searchEnd>
 HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& escFirst, uint16_t& nextMask) {
 	HEDLEY_ASSUME(escFirst == 0 || escFirst == 1);
 	HEDLEY_ASSUME(nextMask == 0 || nextMask == 1 || nextMask == 2);
-	uint8x8_t nextMaskMix = vdup_n_u8(0);
+	uint8x16_t nextMaskMix = vdupq_n_u8(0);
 	if(nextMask)
 		nextMaskMix[nextMask-1] = nextMask;
 	uint8x16_t yencOffset = escFirst ? (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42} : vdupq_n_u8(42);
@@ -85,7 +85,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			(uint8x16_t){0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
 			dataD
 		);
-		if(isRaw) cmpA = vorrq_u8(cmpA, vcombine_u8(nextMaskMix, vdup_n_u8(0)));
+		if(isRaw) cmpA = vorrq_u8(cmpA, nextMaskMix);
 		
 		if (LIKELIHOOD(0.42 /*guess*/, neon_vect_is_nonzero(vorrq_u8(
 			vorrq_u8(cmpA, cmpB),
@@ -236,12 +236,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 							match2NlDotDMasked
 						)
 					);
-					uint8x8_t mergeKillDots2 = vget_low_u8(vpaddq_u8(mergeKillDots, mergeKillDots));
-					uint64_t killDots = vget_lane_u64(vreinterpret_u64_u8(mergeKillDots2), 0);
-					mask |= (killDots << 2) & 0xffffffffffffffffULL;
-					cmpCombined = vreinterpretq_u8_u64(vcombine_u64(vmov_n_u64(mask), vdup_n_u64(0)));
-					nextMaskMix = vget_high_u8(match2NlDotDMasked);
-					nextMaskMix = vreinterpret_u8_u64(vshr_n_u64(vreinterpret_u64_u8(nextMaskMix), 48+6));
+					mergeKillDots = vpaddq_u8(mergeKillDots, mergeKillDots);
+					uint64x2_t mergeKillDotsShifted = vshlq_n_u64(vreinterpretq_u64_u8(mergeKillDots), 2);
+					mask |= vgetq_lane_u64(mergeKillDotsShifted, 0);
+					cmpCombined = vorrq_u8(cmpCombined, vreinterpretq_u8_u64(mergeKillDotsShifted));
+					nextMaskMix = vextq_u8(match2NlDotD, vdupq_n_u8(0), 14);
 				} else if(searchEnd) {
 					match2EqA = vextq_u8(cmpEqA, cmpEqB, 2);
 					match2EqB = vextq_u8(cmpEqB, cmpEqC, 2);
@@ -275,9 +274,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 						}
 					}
 					if(isRaw)
-						nextMaskMix = vdup_n_u8(0);
+						nextMaskMix = vdupq_n_u8(0);
 				} else if(isRaw) // no \r_. found
-					nextMaskMix = vdup_n_u8(0);
+					nextMaskMix = vdupq_n_u8(0);
 			}
 			
 			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
@@ -295,28 +294,35 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq = (maskEq<<1) | escFirst;
 				mask &= ~maskEq;
-				cmpCombined = vreinterpretq_u8_u64(vcombine_u64(vmov_n_u64(mask), vdup_n_u64(0)));
 				escFirst = tmp>>7;
 				
 				// unescape chars following `=`
-				uint8x8_t maskEqTemp = vreinterpret_u8_u64(vmov_n_u64(maskEq));
+#if defined(__GNUC__) && !defined(__clang__)
+				// this seems to stop GCC9 producing slow code, for some reason... TODO: investigate why
+				uint8x8_t _maskEqTemp = vreinterpret_u8_u64(vmov_n_u64(maskEq));
+				uint8x16_t maskEqTemp = vcombine_u8(_maskEqTemp, vdup_n_u8(0));
+#else
+				uint8x16_t maskEqTemp = vreinterpretq_u8_u64(vmovq_n_u64(maskEq));
+#endif
+				cmpCombined = vbicq_u8(cmpCombined, maskEqTemp); // `mask &= ~maskEq` in vector form
+				
 				uint8x16_t vMaskEqA = vqtbl1q_u8(
-					vcombine_u8(maskEqTemp, vdup_n_u8(0)),
+					maskEqTemp,
 					(uint8x16_t){0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1}
 				);
-				maskEqTemp = vext_u8(maskEqTemp, maskEqTemp, 2);
+				maskEqTemp = vextq_u8(maskEqTemp, maskEqTemp, 2);
 				uint8x16_t vMaskEqB = vqtbl1q_u8(
-					vcombine_u8(maskEqTemp, vdup_n_u8(0)),
+					maskEqTemp,
 					(uint8x16_t){0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1}
 				);
-				maskEqTemp = vext_u8(maskEqTemp, maskEqTemp, 2);
+				maskEqTemp = vextq_u8(maskEqTemp, maskEqTemp, 2);
 				uint8x16_t vMaskEqC = vqtbl1q_u8(
-					vcombine_u8(maskEqTemp, vdup_n_u8(0)),
+					maskEqTemp,
 					(uint8x16_t){0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1}
 				);
-				maskEqTemp = vext_u8(maskEqTemp, maskEqTemp, 2);
+				maskEqTemp = vextq_u8(maskEqTemp, maskEqTemp, 2);
 				uint8x16_t vMaskEqD = vqtbl1q_u8(
-					vcombine_u8(maskEqTemp, vdup_n_u8(0)),
+					maskEqTemp,
 					(uint8x16_t){0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1}
 				);
 				vMaskEqA = vtstq_u8(vMaskEqA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
@@ -348,7 +354,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				dataA = vsubq_u8(
 					dataA,
 					vbslq_u8(
-						vextq_u8(vdupq_n_u8(0), cmpEqA, 15),
+						vextq_u8(vdupq_n_u8(42), cmpEqA, 15),
 						vdupq_n_u8(64+42),
 						yencOffset
 					)
