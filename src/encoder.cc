@@ -127,8 +127,28 @@ void encoder_avx_init();
 void encoder_avx2_init();
 void encoder_neon_init();
 
+#if defined(PLATFORM_X86) && defined(YENC_BUILD_NATIVE) && YENC_BUILD_NATIVE!=0
+# if defined(__AVX2__) && !defined(YENC_DISABLE_AVX256)
+#  include "encoder_avx_base.h"
+static inline void encoder_native_init() {
+	_do_encode = &do_encode_simd< do_encode_avx2<ISA_NATIVE> >;
+	encoder_avx2_lut<ISA_NATIVE>();
+}
+# else
+#  include "encoder_sse_base.h"
+static inline void encoder_native_init() {
+	_do_encode = &do_encode_simd< do_encode_sse<ISA_NATIVE> >;
+	encoder_sse_lut<ISA_NATIVE>();
+}
+# endif
+#endif
+
+
 void encoder_init() {
 #ifdef PLATFORM_X86
+# if defined(YENC_BUILD_NATIVE) && YENC_BUILD_NATIVE!=0
+	encoder_native_init();
+# else
 	int use_isa = cpu_supports_isa();
 	// add SSE4+POPCNT level, remove AVX3
 	if(use_isa >= ISA_LEVEL_AVX2)
@@ -139,6 +159,7 @@ void encoder_init() {
 		encoder_ssse3_init();
 	else
 		encoder_sse2_init();
+# endif
 #endif
 #ifdef PLATFORM_ARM
 	if(cpu_supports_neon())
