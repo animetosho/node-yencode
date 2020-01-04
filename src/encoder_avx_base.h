@@ -6,15 +6,6 @@
 #include "encoder_common.h"
 #define YMM_SIZE 32
 
-#if defined(__x86_64__) || \
-    defined(__amd64__ ) || \
-    defined(__LP64    ) || \
-    defined(_M_X64    ) || \
-    defined(_M_AMD64  ) || \
-    defined(_WIN64    )
-# define PLATFORM_AMD64 1
-#endif
-
 #if defined(__GNUC__) && __GNUC__ >= 7
 # define KLOAD32(a, offs) _load_mask32((__mmask32*)(a) + (offs))
 #else

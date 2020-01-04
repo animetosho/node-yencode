@@ -1,15 +1,6 @@
 
 #ifdef __AVX2__
 
-#if defined(__x86_64__) || \
-    defined(__amd64__ ) || \
-    defined(__LP64    ) || \
-    defined(_M_X64    ) || \
-    defined(_M_AMD64  ) || \
-    defined(_WIN64    )
-# define PLATFORM_AMD64 1
-#endif
-
 // GCC (ver 6-10(dev)) fails to optimize pure C version of mask testing, but has this intrinsic; Clang >= 7 optimizes C version fine
 #if defined(__GNUC__) && __GNUC__ >= 7
 # define KORTEST32(a, b) !_kortestz_mask32_u8((a), (b))

@@ -40,7 +40,7 @@ static size_t do_encode_simd(int line_size, int* colOffset, const uint8_t* HEDLE
 	if(*colOffset < 0) *colOffset = 0; // sanity check
 	
 	kernel(line_size, colOffset, es, p, len);
-		
+	
 	// scalar loop to process remaining
 	long i = -(long)len;
 	if(*colOffset == 0 && i < 0) {

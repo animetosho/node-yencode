@@ -8,7 +8,10 @@
     defined(__LP64    ) || \
     defined(_M_X64    ) || \
     defined(_M_AMD64  ) || \
-    defined(_WIN64    ) || \
+    defined(_WIN64    )
+	#define PLATFORM_AMD64 1
+#endif
+#if defined(PLATFORM_AMD64) || \
     defined(__i386__  ) || \
     defined(__i486__  ) || \
     defined(__i586__  ) || \
