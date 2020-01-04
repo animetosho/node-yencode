@@ -139,24 +139,20 @@ size_t do_decode_noend_scalar(const unsigned char* HEDLEY_RESTRICT src, unsigned
 	return p - dest;
 }
 
-// return values:
-// - 0: no end sequence found
-// - 1: \r\n=y sequence found, src points to byte after 'y'
-// - 2: \r\n.\r\n sequence found, src points to byte after last '\n'
 template<bool isRaw>
-int do_decode_end_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HEDLEY_RESTRICT* dest, size_t len, YencDecoderState* state) {
+YencDecoderEnd do_decode_end_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HEDLEY_RESTRICT* dest, size_t len, YencDecoderState* state) {
 	const unsigned char *es = (*src) + len; // end source pointer
 	unsigned char *p = *dest; // destination pointer
 	long i = -(long)len; // input position
 	unsigned char c; // input character
 	
-	if(len < 1) return 0;
+	if(len < 1) return YDEC_END_NONE;
 	
 #define YDEC_CHECK_END(s) if(i == 0) { \
 	*state = s; \
 	*src = es; \
 	*dest = p; \
-	return 0; \
+	return YDEC_END_NONE; \
 }
 	if(state) switch(*state) {
 		case YDEC_STATE_CRLFEQ: do_decode_endable_scalar_ceq:
@@ -164,7 +160,7 @@ int do_decode_end_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned cha
 				*state = YDEC_STATE_NONE;
 				*src = es+i+1;
 				*dest = p;
-				return 1;
+				return YDEC_END_CONTROL;
 			} // Else fall-thru
 		case YDEC_STATE_EQ:
 			c = es[i];
@@ -206,7 +202,7 @@ int do_decode_end_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned cha
 					*state = YDEC_STATE_CRLF;
 					*src = es + i + 1;
 					*dest = p;
-					return 2;
+					return YDEC_END_ARTICLE;
 				} else {
 					i++;
 					YDEC_CHECK_END(YDEC_STATE_CRLF)
@@ -234,7 +230,7 @@ int do_decode_end_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned cha
 							*src = es + i + 1;
 							*dest = p;
 							*state = YDEC_STATE_CRLF;
-							return 2;
+							return YDEC_END_ARTICLE;
 						} else i--;
 					} else if(es[i] == '=') {
 						i++;
@@ -243,7 +239,7 @@ int do_decode_end_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned cha
 							*src = es + i + 1;
 							*dest = p;
 							*state = YDEC_STATE_NONE;
-							return 1;
+							return YDEC_END_CONTROL;
 						} else {
 							// escape char & continue
 							c = es[i];
@@ -260,7 +256,7 @@ int do_decode_end_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned cha
 						*src = es + i + 1;
 						*dest = p;
 						*state = YDEC_STATE_NONE;
-						return 1;
+						return YDEC_END_CONTROL;
 					} else {
 						// escape char & continue
 						c = es[i];
@@ -290,7 +286,7 @@ int do_decode_end_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned cha
 					*state = YDEC_STATE_CRLF;
 					*src = es;
 					*dest = p;
-					return 0;
+					return YDEC_END_NONE;
 				}
 				// Else fall-thru
 			case '\n':
@@ -321,22 +317,22 @@ int do_decode_end_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned cha
 	
 	*src = es;
 	*dest = p;
-	return 0;
+	return YDEC_END_NONE;
 }
 
 template<bool isRaw, bool searchEnd>
-int do_decode_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HEDLEY_RESTRICT* dest, size_t len, YencDecoderState* state) {
+YencDecoderEnd do_decode_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HEDLEY_RESTRICT* dest, size_t len, YencDecoderState* state) {
 	if(searchEnd)
 		return do_decode_end_scalar<isRaw>(src, dest, len, state);
 	*dest += do_decode_noend_scalar<isRaw>(*src, *dest, len, state);
 	*src += len;
-	return 0;
+	return YDEC_END_NONE;
 }
 
 
 
 template<bool isRaw, bool searchEnd, int width, void(&kernel)(const uint8_t* HEDLEY_RESTRICT, long&, unsigned char* HEDLEY_RESTRICT &, unsigned char&, uint16_t&)>
-int do_decode_simd(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HEDLEY_RESTRICT* dest, size_t len, YencDecoderState* state) {
+YencDecoderEnd do_decode_simd(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HEDLEY_RESTRICT* dest, size_t len, YencDecoderState* state) {
 	if(len <= width*2) return do_decode_scalar<isRaw, searchEnd>(src, dest, len, state);
 	
 	YencDecoderState tState = YDEC_STATE_CRLF;
@@ -346,7 +342,7 @@ int do_decode_simd(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HED
 		unsigned char* aSrc = (unsigned char*)(((uintptr_t)(*src) + (width-1)) & ~(width-1));
 		int amount = aSrc - *src;
 		len -= amount;
-		int ended = do_decode_scalar<isRaw, searchEnd>(src, dest, amount, pState);
+		YencDecoderEnd ended = do_decode_scalar<isRaw, searchEnd>(src, dest, amount, pState);
 		if(ended) return ended;
 	}
 	
@@ -366,18 +362,18 @@ int do_decode_simd(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HED
 					if(searchEnd && *(uint16_t*)(*src +1) == UINT16_PACK('\r','\n')) {
 						(*src) += 3;
 						*pState = YDEC_STATE_CRLF;
-						return 2;
+						return YDEC_END_ARTICLE;
 					}
 					if(searchEnd && *(uint16_t*)(*src +1) == UINT16_PACK('=','y')) {
 						(*src) += 3;
 						*pState = YDEC_STATE_NONE;
-						return 1;
+						return YDEC_END_CONTROL;
 					}
 				}
 				else if(searchEnd && *(uint16_t*)(*src) == UINT16_PACK('=','y')) {
 					(*src) += 2;
 					*pState = YDEC_STATE_NONE;
-					return 1;
+					return YDEC_END_CONTROL;
 				}
 				break;
 			case YDEC_STATE_CR:
@@ -386,44 +382,44 @@ int do_decode_simd(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HED
 					if(searchEnd && *(uint16_t*)(*src +2) == UINT16_PACK('\r','\n')) {
 						(*src) += 4;
 						*pState = YDEC_STATE_CRLF;
-						return 2;
+						return YDEC_END_ARTICLE;
 					}
 					if(searchEnd && *(uint16_t*)(*src +2) == UINT16_PACK('=','y')) {
 						(*src) += 4;
 						*pState = YDEC_STATE_NONE;
-						return 1;
+						return YDEC_END_CONTROL;
 					}
 				}
 				else if(searchEnd && (*(uint32_t*)(*src) & 0xffffff) == UINT32_PACK('\n','=','y',0)) {
 					(*src) += 3;
 					*pState = YDEC_STATE_NONE;
-					return 1;
+					return YDEC_END_CONTROL;
 				}
 				break;
 			case YDEC_STATE_CRLFDT:
 				if(searchEnd && isRaw && *(uint16_t*)(*src) == UINT16_PACK('\r','\n')) {
 					(*src) += 2;
 					*pState = YDEC_STATE_CRLF;
-					return 2;
+					return YDEC_END_ARTICLE;
 				}
 				if(searchEnd && isRaw && *(uint16_t*)(*src) == UINT16_PACK('=','y')) {
 					(*src) += 2;
 					*pState = YDEC_STATE_NONE;
-					return 1;
+					return YDEC_END_CONTROL;
 				}
 				break;
 			case YDEC_STATE_CRLFDTCR:
 				if(searchEnd && isRaw && **src == '\n') {
 					(*src) += 1;
 					*pState = YDEC_STATE_CRLF;
-					return 2;
+					return YDEC_END_ARTICLE;
 				}
 				break;
 			case YDEC_STATE_CRLFEQ:
 				if(searchEnd && **src == 'y') {
 					(*src) += 1;
 					*pState = YDEC_STATE_NONE;
-					return 1;
+					return YDEC_END_CONTROL;
 				}
 				break;
 			default: break; // silence compiler warning
@@ -462,7 +458,7 @@ int do_decode_simd(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HED
 		return ended;
 	}
 	*/
-	return 0;
+	return YDEC_END_NONE;
 }
 
 static inline void decoder_init_lut(uint8_t* eqFixLUT, void* compactLUT) {
