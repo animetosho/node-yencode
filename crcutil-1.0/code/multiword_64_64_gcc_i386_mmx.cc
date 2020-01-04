@@ -16,7 +16,7 @@
 
 #include "generic_crc.h"
 
-#if defined(__GNUC__) && CRCUTIL_USE_ASM && HAVE_I386 && HAVE_MMX
+#if defined(__GNUC__) && !defined(__clang__) && CRCUTIL_USE_ASM && HAVE_I386 && HAVE_MMX
 
 #if defined(__PIC__) && __GNUC__ < 5
 /* workaround for issue with PIC reserving ebx: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=54232 */
