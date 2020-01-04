@@ -14,8 +14,6 @@ module.exports = {
 	encodeTo: y.encodeTo,
 	decode: y.decode,
 	decodeTo: y.decodeTo,
-	decodeNntp: y.decodeNntp,
-	decodeNntpTo: y.decodeNntpTo,
 	
 	minSize: function(length, line_size) {
 		if(!length) return 0;

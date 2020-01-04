@@ -58,10 +58,12 @@ static inline size_t YENC_MAX_SIZE(size_t len, size_t line_size) {
 #  define NEW_STRING(s) String::NewFromOneByte(isolate, (const uint8_t*)(s), NewStringType::kNormal).ToLocalChecked()
 #  define RETURN_ERROR(e) { isolate->ThrowException(Exception::Error(String::NewFromOneByte(isolate, (const uint8_t*)(e), NewStringType::kNormal).ToLocalChecked())); return; }
 #  define ARG_TO_INT(a) (a).As<Integer>()->Value()
+#  define ARG_TO_BOOL(a) (a).As<Boolean>()->Value()
 # else
 #  define NEW_STRING(s) String::NewFromUtf8(isolate, s)
 #  define RETURN_ERROR(e) { isolate->ThrowException(Exception::Error(String::NewFromUtf8(isolate, e))); return; }
 #  define ARG_TO_INT(a) (a)->ToInteger()->Value()
+#  define ARG_TO_BOOL(a) (a)->ToBoolean()->Value()
 # endif
 # define NEW_OBJECT Object::New(isolate)
 # if NODE_VERSION_AT_LEAST(3, 0, 0) // iojs3
@@ -84,6 +86,7 @@ static inline size_t YENC_MAX_SIZE(size_t len, size_t line_size) {
 #define NEW_OBJECT Object::New()
 #define NEW_BUFFER(...) Local<Object>::New(node::Buffer::New(ISOLATE __VA_ARGS__)->handle_)
 #define ARG_TO_INT(a) (a)->ToInteger()->Value()
+#define ARG_TO_BOOL(a) (a)->ToBoolean()->Value()
 
 #define RETURN_ERROR(e) \
 	return ThrowException(Exception::Error( \
@@ -170,7 +173,6 @@ FUNC(EncodeTo) {
 	RETURN_VAL( Integer::New(ISOLATE len) );
 }
 
-template<bool isRaw>
 FUNC(Decode) {
 	FUNC_START;
 	
@@ -181,14 +183,17 @@ FUNC(Decode) {
 	if (arg_len == 0)
 		RETURN_VAL( NEW_BUFFER(0) );
 	
+	bool isRaw = false;
+	if (args.Length() > 1)
+		isRaw = ARG_TO_BOOL(args[1]);
+	
 	unsigned char *result = (unsigned char*) malloc(arg_len);
-	size_t len = do_decode<isRaw>((const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL);
+	size_t len = (isRaw ? do_decode<true> : do_decode<false>)((const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL);
 	result = (unsigned char*)realloc(result, len);
 	MARK_EXT_MEM(len);
 	RETURN_VAL( NEW_BUFFER((char*)result, len, free_buffer, (void*)len) );
 }
 
-template<bool isRaw>
 FUNC(DecodeTo) {
 	FUNC_START;
 	
@@ -203,7 +208,11 @@ FUNC(DecodeTo) {
 	if(node::Buffer::Length(args[1]) < arg_len)
 		RETURN_VAL( Integer::New(ISOLATE 0) );
 	
-	size_t len = do_decode<isRaw>((const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL);
+	bool isRaw = false;
+	if (args.Length() > 2)
+		isRaw = ARG_TO_BOOL(args[2]);
+	
+	size_t len = (isRaw ? do_decode<true> : do_decode<false>)((const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL);
 	RETURN_VAL( Integer::New(ISOLATE len) );
 }
 
@@ -365,11 +374,9 @@ void yencode_init(
 {
 	NODE_SET_METHOD(exports, "encode", Encode);
 	NODE_SET_METHOD(exports, "encodeTo", EncodeTo);
-	NODE_SET_METHOD(exports, "decode", Decode<false>);
-	NODE_SET_METHOD(exports, "decodeTo", DecodeTo<false>);
-	NODE_SET_METHOD(exports, "decodeNntp", Decode<true>);
-	NODE_SET_METHOD(exports, "decodeNntpTo", DecodeTo<true>);
-	NODE_SET_METHOD(exports, "decodeNntpIncr", DecodeIncr);
+	NODE_SET_METHOD(exports, "decode", Decode);
+	NODE_SET_METHOD(exports, "decodeTo", DecodeTo);
+	NODE_SET_METHOD(exports, "decodeIncr", DecodeIncr);
 	NODE_SET_METHOD(exports, "crc32", CRC32);
 	NODE_SET_METHOD(exports, "crc32_combine", CRC32Combine);
 	NODE_SET_METHOD(exports, "crc32_zeroes", CRC32Zeroes);

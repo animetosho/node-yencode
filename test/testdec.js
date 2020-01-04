@@ -59,13 +59,15 @@ var refYDecRaw = function(src, findEnd) {
 	return refYDec(data, findEnd);
 };
 var testFuncs = [
-	{l: 'nntp', r: refYDecRaw, a: y.decodeNntp},
+	{l: 'nntp', r: refYDecRaw, a: function(s) {
+		return y.decode(s, true);
+	}},
 	{l: 'plain', r: refYDec, a: y.decode},
 	{l: 'nntp-end', r: function(s) {
 		return refYDecRaw(s, true);
 	}, a: function(s) {
 		if(!s.length) return Buffer(0);
-		return y.decodeNntpIncr(s).output;
+		return y.decodeIncr(s).output;
 	}}
 ];
 var doTest = function(msg, data, expected) {

@@ -80,10 +80,8 @@ such as `-mavx`, `-mpopcnt` and `"EnableEnhancedInstructionSet": "3"`
 API
 ===
 
-Note that for the *encode*, *crc32* and *crc32_combine* functions, the *data*
-parameter must be a Buffer and not a string. Also, on node v0.10, these
-functions actually return a *SlowBuffer* object, similar to how node’s crypto
-functions work.
+Note, on node v0.10, functions returning a Buffer actually return a *SlowBuffer*
+object, similar to how node’s crypto functions work.
 
 Buffer encode(Buffer data, int line_size=128, int column_offset=0)
 ------------------------------------------------------------------
@@ -105,7 +103,7 @@ is usually not required, for performance reasons this is not checked during
 encoding, so the space is needed to prevent possible overflow conditions.
 
 int maxSize(int length, int line_size=128, float escape_ratio=1)
-------------------------------------------
+----------------------------------------------------------------
 
 Returns the maximum possible size for a raw yEnc encoded message of *length*
 bytes. Note that this does include some provision for dealing with alignment
@@ -115,39 +113,31 @@ value is actually an over-estimate for the maximum size.
 You can manually specify expected yEnc character escaping ratio with the *escape_ratio* parameter if you wish to calculate an “expected size” rather than the maximum. The ratio must be between 0 (no characters ever escaped) and 1 (all characters escaped, i.e. calculates maximum possible size, the default behavior).
 For random data, and a line size of 128, the expected escape ratio for yEnc is roughly 0.0158. For 1KB of random data, the probability that the escape ratio exceeds 5% would be about 2.188\*10^-12^ (or 1 in 4.571\*10^11^). For 128KB of random data, exceeding a 1.85% ratio has a likelihood of 1.174\*10^-14^ (or 1 in 8.517\*10^13^).
 
+For usage with *encodeTo*, the *escape_ratio* must be 1.
+
 ## int minSize(int length, int line_size=128)
 
 Returns the minimum possible size for a raw yEnc encoded message of *length* bytes. Unlike `maxSize`, this does not include alignment provisions for *yencode*‘s implementation of yEnc.
 
 This is equivalent to `maxSize(length, line_size, 0) - 2` (`maxSize` adds a 2 to provision for an early end-of-line due to a line offset being used).
 
-Buffer decode(Buffer data)
---------------------------
+Buffer decode(Buffer data, bool stripDots=false)
+------------------------------------------------
 
-Performs raw yEnc decoding on *data* returning the result. Note, this assumes
-that NNTP's "dot unstuffing" has already been performed, use `decodeNntp` if
-this is not the case.
+Performs raw yEnc decoding on *data* returning the result. If *stripDots* is true,
+will perform NNTP's "dot unstuffing" during decode. If *data* was sourced from an
+NNTP abstraction layer which already performs unstuffing, *stripDots* should be
+false, otherwise, if you're processing data from the socket yourself and haven't
+othewise performed unstuffing, *stripDots* should be set to true.
 
-int decodeTo(Buffer data, Buffer output)
-----------------------------------------
+int decodeTo(Buffer data, Buffer output, bool stripDots=false)
+--------------------------------------------------------------
 
 Same as above, but instead of returning a Buffer, writes it to the supplied
 *output* Buffer. Returns the length of the decoded data.  
 Note that the *output* Buffer must be at least large enough to hold the largest
 possible output size (i.e. length of the input), otherwise the function returns
 0 and does not decode anything.
-
-Buffer decodeNntp(Buffer data)
-------------------------------
-
-Performs raw yEnc decoding on *data* returning the result. This differs from
-`decode` in that *data* is assumed to be from a socket and NNTP's "dot
-unstuffing" has not yet been performed.
-
-int decodeNntpTo(Buffer data, Buffer output)
---------------------------------------------
-
-See `decodeNntp` and `decodeTo` for descriptions.
 
 Buffer(4) crc32(Buffer data, Buffer(4) initial=false)
 -----------------------------------------------------
@@ -186,7 +176,7 @@ y.crc32_combine(
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Buffer(4) crc32_zeroes(int len, Buffer(4) initial=false)
--------------------------------
+--------------------------------------------------------
 
 Calculates the CRC32 of a sequence of *len* null bytes, returning the resulting
 CRC32 as a 4 byte Buffer.
