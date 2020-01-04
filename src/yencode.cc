@@ -335,31 +335,48 @@ FUNC(CRC32Zeroes) {
 	RETURN_CRC(crc1);
 }
 
-
-void yencode_init(
-#if NODE_VERSION_AT_LEAST(4, 0, 0)
- Local<Object> target,
- Local<Value> module,
- void* priv
-#else
- Handle<Object> target
-#endif
-) {
-	NODE_SET_METHOD(target, "encode", Encode);
-	NODE_SET_METHOD(target, "encodeTo", EncodeTo);
-	NODE_SET_METHOD(target, "decode", Decode<false>);
-	NODE_SET_METHOD(target, "decodeTo", DecodeTo<false>);
-	NODE_SET_METHOD(target, "decodeNntp", Decode<true>);
-	NODE_SET_METHOD(target, "decodeNntpTo", DecodeTo<true>);
-	NODE_SET_METHOD(target, "decodeIncr", DecodeIncr<false>);
-	NODE_SET_METHOD(target, "decodeNntpIncr", DecodeIncr<true>);
-	NODE_SET_METHOD(target, "crc32", CRC32);
-	NODE_SET_METHOD(target, "crc32_combine", CRC32Combine);
-	NODE_SET_METHOD(target, "crc32_zeroes", CRC32Zeroes);
-	
+static void init_all() {
 	encoder_init();
 	decoder_init();
-	crc_init();
+	crc_init();	
 }
 
+#if NODE_VERSION_AT_LEAST(10, 7, 0)
+// signal context aware module for node if it supports it
+# include <uv.h>
+static uv_once_t init_once = UV_ONCE_INIT;
+NODE_MODULE_INIT(/* exports, module, context */)
+#else
+void yencode_init(
+# if NODE_VERSION_AT_LEAST(4, 0, 0)
+ Local<Object> exports,
+ Local<Value> module,
+ void* priv
+# else
+ Handle<Object> exports
+# endif
+)
+#endif
+{
+	NODE_SET_METHOD(exports, "encode", Encode);
+	NODE_SET_METHOD(exports, "encodeTo", EncodeTo);
+	NODE_SET_METHOD(exports, "decode", Decode<false>);
+	NODE_SET_METHOD(exports, "decodeTo", DecodeTo<false>);
+	NODE_SET_METHOD(exports, "decodeNntp", Decode<true>);
+	NODE_SET_METHOD(exports, "decodeNntpTo", DecodeTo<true>);
+	NODE_SET_METHOD(exports, "decodeIncr", DecodeIncr<false>);
+	NODE_SET_METHOD(exports, "decodeNntpIncr", DecodeIncr<true>);
+	NODE_SET_METHOD(exports, "crc32", CRC32);
+	NODE_SET_METHOD(exports, "crc32_combine", CRC32Combine);
+	NODE_SET_METHOD(exports, "crc32_zeroes", CRC32Zeroes);
+	
+#if NODE_VERSION_AT_LEAST(10, 7, 0)
+	uv_once(&init_once, init_all);
+#else
+	init_all();
+#endif
+}
+
+#if !NODE_VERSION_AT_LEAST(10, 7, 0)
 NODE_MODULE(yencode, yencode_init);
+#endif

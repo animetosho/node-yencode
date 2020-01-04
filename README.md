@@ -5,7 +5,7 @@ x86/ARM SIMD optimised routines if such CPU features are available.
 
 This module should be several times faster than pure Javascript versions.
 
-Supports:
+Features:
 ---------
 
 -   fast raw yEnc encoding and the ability to specify line length. A single
@@ -35,7 +35,9 @@ Supports:
 -   eventually may support incremental processing (algorithms internally support
     it, they’re just not exposed to the Javascript interface)
 
-Should work on nodejs 0.10.x and later.
+-   [context awareness](https://nodejs.org/api/addons.html#addons_context_aware_addons) (NodeJS 10.7.0 or later), enabling use within [worker threads](https://nodejs.org/api/worker_threads.html)
+
+-   supports NodeJS 0.10.x to 12.x.x and beyond
 
 Installing
 ==========
