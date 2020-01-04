@@ -150,7 +150,6 @@ void encoder_init() {
 	encoder_native_init();
 # else
 	int use_isa = cpu_supports_isa();
-	// add SSE4+POPCNT level, remove AVX3
 	if(use_isa >= ISA_LEVEL_AVX2)
 		encoder_avx2_init();
 	else if(use_isa >= ISA_LEVEL_AVX)

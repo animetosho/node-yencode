@@ -11,7 +11,6 @@ void decoder_set_sse2_funcs();
 void decoder_set_ssse3_funcs();
 void decoder_set_avx_funcs();
 void decoder_set_avx2_funcs();
-void decoder_set_avx3_funcs();
 void decoder_set_neon_funcs();
 
 
@@ -45,9 +44,7 @@ void decoder_init() {
 	decoder_set_native_funcs();
 # else
 	int use_isa = cpu_supports_isa();
-	if(use_isa >= ISA_LEVEL_AVX3)
-		decoder_set_avx3_funcs();
-	else if(use_isa >= ISA_LEVEL_AVX2)
+	if(use_isa >= ISA_LEVEL_AVX2)
 		decoder_set_avx2_funcs();
 	else if(use_isa >= ISA_LEVEL_AVX)
 		decoder_set_avx_funcs();
