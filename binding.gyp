@@ -51,7 +51,15 @@
       "OTHER_CFLAGS": ["-Wno-unused-function"],
       "OTHER_CXXFLAGS": ["-Wno-unused-function"]
     },
-    "msvs_settings": {"VCCLCompilerTool": {"Optimization": "MaxSpeed"}}
+    "msvs_settings": {"VCCLCompilerTool": {"Optimization": "MaxSpeed"}},
+    "configurations": {"Release": {
+      "cflags": ["-fomit-frame-pointer"],
+      "cxxflags": ["-fomit-frame-pointer"],
+      "xcode_settings": {
+        "OTHER_CFLAGS": ["-fomit-frame-pointer"],
+        "OTHER_CXXFLAGS": ["-fomit-frame-pointer"]
+      }
+    }}
   },
   "targets": [
     {
