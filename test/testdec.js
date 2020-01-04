@@ -66,12 +66,6 @@ var testFuncs = [
 	}, a: function(s) {
 		if(!s.length) return Buffer(0);
 		return y.decodeNntpIncr(s).output;
-	}},
-	{l: 'plain-end', r: function(s) {
-		return refYDec(s, true);
-	}, a: function(s) {
-		if(!s.length) return Buffer(0);
-		return y.decodeIncr(s).output;
 	}}
 ];
 var doTest = function(msg, data, expected) {

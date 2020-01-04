@@ -19,7 +19,6 @@ typedef enum {
 
 extern YencDecoderEnd (*_do_decode)(const unsigned char*HEDLEY_RESTRICT*, unsigned char*HEDLEY_RESTRICT*, size_t, YencDecoderState*);
 extern YencDecoderEnd (*_do_decode_raw)(const unsigned char*HEDLEY_RESTRICT*, unsigned char*HEDLEY_RESTRICT*, size_t, YencDecoderState*);
-extern YencDecoderEnd (*_do_decode_end)(const unsigned char*HEDLEY_RESTRICT*, unsigned char*HEDLEY_RESTRICT*, size_t, YencDecoderState*);
 extern YencDecoderEnd (*_do_decode_end_raw)(const unsigned char*HEDLEY_RESTRICT*, unsigned char*HEDLEY_RESTRICT*, size_t, YencDecoderState*);
 
 template<bool isRaw>
@@ -29,9 +28,8 @@ static inline size_t do_decode(const unsigned char* HEDLEY_RESTRICT src, unsigne
 	return ds - dest;
 }
 
-template<bool isRaw>
 static inline YencDecoderEnd do_decode_end(const unsigned char*HEDLEY_RESTRICT* src, unsigned char*HEDLEY_RESTRICT* dest, size_t len, YencDecoderState* state) {
-	return (*(isRaw ? _do_decode_end_raw : _do_decode_end))(src, dest, len, state);
+	return _do_decode_end_raw(src, dest, len, state);
 }
 
 void decoder_init();

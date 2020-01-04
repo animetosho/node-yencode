@@ -467,7 +467,6 @@ void decoder_set_neon_funcs() {
 	decoder_init_lut(eqFixLUT, compactLUT);
 	_do_decode = &do_decode_simd<false, false, sizeof(uint8x16_t)*2, do_decode_neon<false, false> >;
 	_do_decode_raw = &do_decode_simd<true, false, sizeof(uint8x16_t)*2, do_decode_neon<true, false> >;
-	_do_decode_end = &do_decode_simd<false, true, sizeof(uint8x16_t)*2, do_decode_neon<false, true> >;
 	_do_decode_end_raw = &do_decode_simd<true, true, sizeof(uint8x16_t)*2, do_decode_neon<true, true> >;
 }
 #else

@@ -202,7 +202,6 @@ FUNC(DecodeTo) {
 }
 
 
-template<bool isRaw>
 FUNC(DecodeIncr) {
 	FUNC_START;
 	
@@ -237,7 +236,7 @@ FUNC(DecodeIncr) {
 	
 	if(allocResult) result = (unsigned char*) malloc(arg_len);
 	unsigned char* dp = result;
-	int ended = do_decode_end<isRaw>(&sp, &dp, arg_len, &state);
+	int ended = do_decode_end(&sp, &dp, arg_len, &state);
 	size_t len = dp - result;
 	if(allocResult) result = (unsigned char*)realloc(result, len);
 	
@@ -364,8 +363,7 @@ void yencode_init(
 	NODE_SET_METHOD(exports, "decodeTo", DecodeTo<false>);
 	NODE_SET_METHOD(exports, "decodeNntp", Decode<true>);
 	NODE_SET_METHOD(exports, "decodeNntpTo", DecodeTo<true>);
-	NODE_SET_METHOD(exports, "decodeIncr", DecodeIncr<false>);
-	NODE_SET_METHOD(exports, "decodeNntpIncr", DecodeIncr<true>);
+	NODE_SET_METHOD(exports, "decodeNntpIncr", DecodeIncr);
 	NODE_SET_METHOD(exports, "crc32", CRC32);
 	NODE_SET_METHOD(exports, "crc32_combine", CRC32Combine);
 	NODE_SET_METHOD(exports, "crc32_zeroes", CRC32Zeroes);
