@@ -51,9 +51,10 @@
 #if (defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(_M_X64)
 	#define __SSE2__ 1
 	#define __SSSE3__ 1
-	//#define __SSE4_1__ 1
+	#define __SSE4_1__ 1
 	#if defined(_MSC_VER) && _MSC_VER >= 1600
 		#define __POPCNT__ 1
+		#define __LZCNT__ 1
 	#endif
 	#if !defined(__AVX__) && (_MSC_VER >= 1700 && defined(__SSE2__))
 		#define __AVX__ 1
@@ -134,30 +135,8 @@
 #ifdef __ARM_NEON
 # include <arm_neon.h>
 #endif
-
 #ifdef PLATFORM_ARM
-# ifdef __ANDROID__
-#  include <cpu-features.h>
-# elif defined(__linux__)
-#  include <sys/auxv.h>
-#  include <asm/hwcap.h>
-# endif
-static bool cpu_supports_neon() {
-# if defined(AT_HWCAP)
-#  ifdef __aarch64__
-	return getauxval(AT_HWCAP) & HWCAP_ASIMD;
-#  else
-	return getauxval(AT_HWCAP) & HWCAP_NEON;
-#  endif
-# elif defined(ANDROID_CPU_FAMILY_ARM)
-#  ifdef __aarch64__
-	return android_getCpuFeatures() & ANDROID_CPU_ARM64_FEATURE_ASIMD;
-#  else
-	return android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_NEON;
-#  endif
-# endif
-	return true; // assume NEON support, if compiled as such, otherwise
-}
+bool cpu_supports_neon();
 #endif
 
 #ifdef _MSC_VER
@@ -167,43 +146,7 @@ static bool cpu_supports_neon() {
 #endif
 
 
-
 #ifdef PLATFORM_X86
-#ifdef _MSC_VER
-# define _cpuid1(ar) __cpuid(ar, 1)
-# define _cpuid1x(ar) __cpuid(ar, 0x80000001)
-# if _MSC_VER >= 1600
-#  define _cpuidX __cpuidex
-#  include <immintrin.h>
-#  define _GET_XCR() _xgetbv(_XCR_XFEATURE_ENABLED_MASK)
-# else
-// not supported
-#  define _cpuidX(ar, eax, ecx) ar[0]=0, ar[1]=0, ar[2]=0, ar[3]=0
-#  define _GET_XCR() 0
-# endif
-#else
-# include <cpuid.h>
-# define _cpuid1(ar) __cpuid(1, ar[0], ar[1], ar[2], ar[3])
-# define _cpuid1x(ar) __cpuid(0x80000001, ar[0], ar[1], ar[2], ar[3])
-# define _cpuidX(ar, eax, ecx) __cpuid_count(eax, ecx, ar[0], ar[1], ar[2], ar[3])
-static inline int _GET_XCR() {
-	int xcr0;
-	__asm__ __volatile__("xgetbv" : "=a" (xcr0) : "c" (0) : "%edx");
-	return xcr0;
-}
-#endif
-// checks if CPU has 128-bit AVX units; currently not used as AVX2 is beneficial even on Zen1
-// static bool cpu_has_slow_avx(cpuid1flag0) {
-	// int family = ((cpuid1flag0>>8) & 0xf) + ((cpuid1flag0>>16) & 0xff0),
-		// model = ((cpuid1flag0>>4) & 0xf) + ((cpuid1flag0>>12) & 0xf0);
-	// return (
-		   // family == 0x6f // AMD Bulldozer family
-		// || family == 0x7f // AMD Jaguar/Puma family
-		// || (family == 0x8f && (model == 0 /*Summit Ridge ES*/ || model == 1 /*Zen*/ || model == 8 /*Zen+*/ || model == 0x11 /*Zen APU*/ || model == 0x18 /*Zen+ APU*/ || model == 0x50 /*Subor Z+*/)) // AMD Zen1 family
-		// || (family == 6 && model == 0xf) // Centaur/Zhaoxin; overlaps with Intel Core 2, but they don't support AVX
-	// );
-// }
-
 enum YEncDecIsaLevel {
 	ISA_FEATURE_POPCNT = 0x1,
 	ISA_FEATURE_LZCNT = 0x2,
@@ -211,11 +154,12 @@ enum YEncDecIsaLevel {
 	ISA_LEVEL_SSSE3 = 0x200,
 	ISA_LEVEL_SSE41 = 0x300,
 	ISA_LEVEL_SSE4_POPCNT = 0x301,
-	ISA_LEVEL_AVX2 = 0x303, // also includes BMI1/2
+	ISA_LEVEL_AVX = 0x381, // same as above, just used as a differentiator for `cpu_supports_isa`
+	ISA_LEVEL_AVX2 = 0x383, // also includes BMI1/2 and LZCNT
 	ISA_LEVEL_AVX3 = 0x403, // SKX variant; AVX512VL + AVX512BW
 	ISA_LEVEL_VBMI2 = 0x503 // ICL
 };
-# ifdef _MSC_VER
+#ifdef _MSC_VER
 // native tuning not supported in MSVC
 # define ISA_NATIVE ISA_LEVEL_SSE2
 #else
@@ -243,7 +187,15 @@ enum YEncDecIsaLevel {
 # endif
 #endif
 
+#ifdef _MSC_VER
+# define _cpuid1(ar) __cpuid(ar, 1)
+#else
+# include <cpuid.h>
+# define _cpuid1(ar) __cpuid(1, ar[0], ar[1], ar[2], ar[3])
 #endif
+
+int cpu_supports_isa();
+#endif // PLATFORM_X86
 
 #include <string.h>
 #if !defined(_MSC_VER) || defined(_STDINT) || _MSC_VER >= 1900

@@ -129,26 +129,15 @@ void encoder_neon_init();
 
 void encoder_init() {
 #ifdef PLATFORM_X86
-	int flags[4];
-	_cpuid1(flags);
-	if((flags[2] & 0x200) == 0x200) {
-		if((flags[2] & 0x18800000) == 0x18800000) { // POPCNT + OSXSAVE + AVX
-			int xcr = _GET_XCR() & 0xff; // ignore unused bits
-			if((xcr & 6) == 6) { // AVX enabled
-				int cpuInfo[4];
-				_cpuidX(cpuInfo, 7, 0);
-				int flags2[4];
-				_cpuid1x(flags2);
-				if((cpuInfo[1] & 0x128) == 0x128 && (flags2[2] & 0x20) == 0x20) { // BMI2 + AVX2 + BMI1 + ABM
-					// AVX2 is beneficial even on Zen1
-					encoder_avx2_init();
-				} else
-					encoder_avx_init();
-			} else
-				encoder_ssse3_init();
-		} else
-			encoder_ssse3_init();
-	} else
+	int use_isa = cpu_supports_isa();
+	// add SSE4+POPCNT level, remove AVX3
+	if(use_isa >= ISA_LEVEL_AVX2)
+		encoder_avx2_init();
+	else if(use_isa >= ISA_LEVEL_AVX)
+		encoder_avx_init();
+	else if(use_isa >= ISA_LEVEL_SSSE3)
+		encoder_ssse3_init();
+	else
 		encoder_sse2_init();
 #endif
 #ifdef PLATFORM_ARM

@@ -56,6 +56,7 @@
       "dependencies": ["crcutil", "yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_avx", "yencode_avx2", "yencode_avx3", "yencode_neon", "yencode_armcrc"],
       "sources": [
         "src/yencode.cc",
+        "src/platform.cc",
         "src/encoder.cc",
         "src/decoder.cc",
         "src/crc.cc"
