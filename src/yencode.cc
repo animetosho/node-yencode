@@ -115,12 +115,15 @@ FUNC(Encode) {
 	
 	int line_size = 128, col = 0;
 	if (args.Length() >= 2) {
-		// TODO: probably should throw errors instead of transparently fixing these...
 		line_size = (int)ARG_TO_INT(args[1]);
-		if (line_size < 1) line_size = 128;
+		if (line_size == 0) line_size = 128; // allow this case
+		if (line_size < 0)
+			RETURN_ERROR("Line size must be at least 1 byte");
 		if (args.Length() >= 3) {
 			col = (int)ARG_TO_INT(args[2]);
-			if (col >= line_size) col = 0;
+			if (col > line_size || col < 0)
+				RETURN_ERROR("Column offset cannot exceed the line size and cannot be negative");
+			if (col == line_size) col = 0; // allow this case
 		}
 	}
 	
@@ -146,12 +149,15 @@ FUNC(EncodeTo) {
 	
 	int line_size = 128, col = 0;
 	if (args.Length() >= 3) {
-		// TODO: probably should throw errors instead of transparently fixing these...
 		line_size = (int)ARG_TO_INT(args[2]);
-		if (line_size < 1) line_size = 128;
+		if (line_size == 0) line_size = 128; // allow this case
+		if (line_size < 0)
+			RETURN_ERROR("Line size must be at least 1 byte");
 		if (args.Length() >= 4) {
 			col = (int)ARG_TO_INT(args[3]);
-			if (col >= line_size) col = 0;
+			if (col > line_size || col < 0)
+				RETURN_ERROR("Column offset cannot exceed the line size and cannot be negative");
+			if (col == line_size) col = 0; // allow this case
 		}
 	}
 	
