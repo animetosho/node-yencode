@@ -167,10 +167,74 @@ FUNC(EncodeTo) {
 	// check that destination buffer has enough space
 	size_t dest_len = YENC_MAX_SIZE(arg_len, line_size);
 	if(node::Buffer::Length(args[1]) < dest_len)
-		RETURN_VAL(Integer::New(ISOLATE 0));
+		RETURN_ERROR("Destination buffer does not have enough space (use `maxSize` to compute required space)");
 	
 	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, true);
 	RETURN_VAL( Integer::New(ISOLATE len) );
+}
+
+FUNC(EncodeIncr) {
+	FUNC_START;
+	
+	if (args.Length() == 0 || !node::Buffer::HasInstance(args[0]))
+		RETURN_ERROR("You must supply a Buffer");
+	
+	int line_size = 128, col = 0;
+	bool allocResult = true;
+	unsigned char* result;
+	size_t arg_len = node::Buffer::Length(args[0]);
+	if(args.Length() > 1) {
+		int argp = 1;
+		if(node::Buffer::HasInstance(args[1])) {
+			// grab destination
+			allocResult = false;
+			// check that destination buffer has enough space
+			size_t dest_len = YENC_MAX_SIZE(arg_len, line_size);
+			if(node::Buffer::Length(args[1]) < dest_len)
+				RETURN_ERROR("Destination buffer does not have enough space (use `maxSize` to compute required space)");
+			result = (unsigned char*)node::Buffer::Data(args[1]);
+			argp++;
+		}
+		if (args.Length() > argp) {
+			line_size = (int)ARG_TO_INT(args[argp]);
+			if (line_size == 0) line_size = 128; // allow this case
+			if (line_size < 0)
+				RETURN_ERROR("Line size must be at least 1 byte");
+			argp++;
+			if (args.Length() > argp) {
+				col = (int)ARG_TO_INT(args[argp]);
+				if (col > line_size || col < 0)
+					RETURN_ERROR("Column offset cannot exceed the line size and cannot be negative");
+				if (col == line_size) col = 0; // allow this case
+			}
+		}
+	}
+	
+	Local<Object> ret = NEW_OBJECT;
+	
+	if (arg_len == 0) {
+		SET_OBJ(ret, "written", Integer::New(ISOLATE 0));
+		// TODO: set 'output'?
+		SET_OBJ(ret, "col", Integer::New(ISOLATE col));
+		RETURN_VAL( ret );
+	}
+	
+	if(allocResult) {
+		// allocate enough memory to handle worst case requirements
+		size_t dest_len = YENC_MAX_SIZE(arg_len, line_size);
+		result = (unsigned char*) malloc(dest_len);
+	}
+	
+	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, false);
+	
+	SET_OBJ(ret, "written", Integer::New(ISOLATE len));
+	if(allocResult) {
+		result = (unsigned char*)realloc(result, len);
+		SET_OBJ(ret, "output", NEW_BUFFER((char*)result, len, free_buffer, (void*)len));
+		MARK_EXT_MEM(len);
+	}
+	SET_OBJ(ret, "col", Integer::New(ISOLATE col));
+	RETURN_VAL( ret );
 }
 
 FUNC(Decode) {
@@ -235,7 +299,7 @@ FUNC(DecodeIncr) {
 		state = (YencDecoderState)(ARG_TO_INT(args[1]));
 		if (args.Length() > 2 && node::Buffer::HasInstance(args[2])) {
 			if(node::Buffer::Length(args[2]) < arg_len)
-				RETURN_UNDEF;
+				RETURN_ERROR("Destination buffer does not have enough space");
 			result = (unsigned char*)node::Buffer::Data(args[2]);
 			allocResult = false;
 		}
@@ -251,7 +315,7 @@ FUNC(DecodeIncr) {
 	
 	if(allocResult) result = (unsigned char*) malloc(arg_len);
 	unsigned char* dp = result;
-	int ended = do_decode_end(&sp, &dp, arg_len, &state);
+	YencDecoderEnd ended = do_decode_end(&sp, &dp, arg_len, &state);
 	size_t len = dp - result;
 	if(allocResult) result = (unsigned char*)realloc(result, len);
 	
@@ -262,10 +326,12 @@ FUNC(DecodeIncr) {
 	Local<Object> ret = NEW_OBJECT;
 	SET_OBJ(ret, "read", Integer::New(ISOLATE sp - src));
 	SET_OBJ(ret, "written", Integer::New(ISOLATE len));
-	if(allocResult) SET_OBJ(ret, "output", NEW_BUFFER((char*)result, len, free_buffer, (void*)len));
-	SET_OBJ(ret, "ended", Integer::New(ISOLATE ended));
+	if(allocResult) {
+		SET_OBJ(ret, "output", NEW_BUFFER((char*)result, len, free_buffer, (void*)len));
+		MARK_EXT_MEM(len);
+	}
+	SET_OBJ(ret, "ended", Integer::New(ISOLATE (int)ended));
 	SET_OBJ(ret, "state", Integer::New(ISOLATE state));
-	MARK_EXT_MEM(len);
 	RETURN_VAL( ret );
 }
 
@@ -374,6 +440,7 @@ void yencode_init(
 {
 	NODE_SET_METHOD(exports, "encode", Encode);
 	NODE_SET_METHOD(exports, "encodeTo", EncodeTo);
+	NODE_SET_METHOD(exports, "encodeIncr", EncodeIncr);
 	NODE_SET_METHOD(exports, "decode", Decode);
 	NODE_SET_METHOD(exports, "decodeTo", DecodeTo);
 	NODE_SET_METHOD(exports, "decodeIncr", DecodeIncr);
