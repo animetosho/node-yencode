@@ -10,17 +10,17 @@ var RE_YPROP = /([a-z_][a-z_0-9]*)=/;
 var RE_NUMBER = /^\d+$/;
 var decodePrev = ['\r\n', '=', '\r', '', '\r\n.', '\r\n.\r', '\r\n='];
 
-var decoderError = function(code, message) {
+var DecoderError = function(code, message) {
 	var err = new Error(message);
 	err.code = code;
 	return err;
 }
-var decoderWarning = function(code, message) {
-	if(!this) return new decoderWarning(code, message);
+var DecoderWarning = function(code, message) {
+	if(!this) return new DecoderWarning(code, message);
 	this.code = code;
 	this.message = message;
 }
-decoderWarning.prototype = { toString: function() { return this.message; } };
+DecoderWarning.prototype = { toString: function() { return this.message; } };
 
 var bufferFind, bufferFindRev;
 if(Buffer.prototype.indexOf)
@@ -86,7 +86,7 @@ var decoderParseLines = function(lines, ydata) {
 		var m = line.match(RE_YPROP);
 		while(m) {
 			if(m.index != 0) {
-				warnings.push(decoderWarning('ignored_line_data', 'Unknown additional data ignored: "' + line.substr(0, m.index) + '"'));
+				warnings.push(DecoderWarning('ignored_line_data', 'Unknown additional data ignored: "' + line.substr(0, m.index) + '"'));
 			}
 			var prop = m[1], val;
 			var valPos = m.index + m[0].length;
@@ -100,17 +100,17 @@ var decoderParseLines = function(lines, ydata) {
 				line = line.substr(valPos + val.length +1);
 			}
 			if(prop in yprops) {
-				warnings.push(decoderWarning('duplicate_property', 'Duplicate property encountered: `' + prop + '`'));
+				warnings.push(DecoderWarning('duplicate_property', 'Duplicate property encountered: `' + prop + '`'));
 			}
 			yprops[prop] = val;
 			m = line.match(RE_YPROP);
 		}
 		if(line != '') {
-			warnings.push(decoderWarning('ignored_line_data', 'Unknown additional end-of-line data ignored: "' + line + '"'));
+			warnings.push(DecoderWarning('ignored_line_data', 'Unknown additional end-of-line data ignored: "' + line + '"'));
 		}
 		
 		if(tag in ydata) {
-			warnings.push(decoderWarning('duplicate_line', 'Duplicate line encountered: `' + tag + '`'));
+			warnings.push(DecoderWarning('duplicate_line', 'Duplicate line encountered: `' + tag + '`'));
 		}
 		ydata[tag] = yprops;
 	}
@@ -140,6 +140,7 @@ module.exports = {
 		
 		if(Buffer.isBuffer(prev)) prev = prev.toString();
 		prev = prev.substr(-4); // only care about the last 4 chars of previous state
+		if(prev == '\r\n.=') prev = '\r\n='; // aliased after dot stripped
 		if(data.length == 0) return {
 			read: 0,
 			written: 0,
@@ -220,7 +221,7 @@ module.exports = {
 			// otherwise, we have to search for the beginning marker
 			yencStart = bufferFind(data, '\r\n=ybegin ');
 			if(yencStart < 0)
-				return decoderError('no_start_found', 'yEnc start marker not found');
+				return DecoderError('no_start_found', 'yEnc start marker not found');
 			yencStart += 2;
 		}
 		ret.yencStart = yencStart;
@@ -245,7 +246,7 @@ module.exports = {
 			p = bufferFind(data, '\r\n', sp);
 		}
 		if(!ret.dataStart && !ret.yencEnd) // reached end of data but '=yend' not found
-			return decoderError('no_end_found', 'yEnd end marker not found');
+			return DecoderError('no_end_found', 'yEnd end marker not found');
 		
 		var ydata = {};
 		var warnings = decoderParseLines(lines, ydata);
@@ -253,13 +254,13 @@ module.exports = {
 		if(!ret.yencEnd) {
 			var yencEnd = bufferFindRev(data.slice(ret.dataStart), '\r\n=yend ');
 			if(yencEnd < 0)
-				return decoderError('no_end_found', 'yEnd end marker not found');
+				return DecoderError('no_end_found', 'yEnd end marker not found');
 			
 			yencEnd += ret.dataStart;
 			ret.dataEnd = yencEnd;
 			p = bufferFind(data, '\r\n', yencEnd+8);
 			if(p < 0) {
-				warnings.push(decoderWarning('missing_yend_newline', 'No line terminator found for =yend line'));
+				warnings.push(DecoderWarning('missing_yend_newline', 'No line terminator found for =yend line'));
 				p = data.length;
 				ret.yencEnd = p;
 			} else
@@ -272,9 +273,9 @@ module.exports = {
 		ret.props = ydata;
 		// check properties
 		if(!ydata.begin.line || !ydata.begin.size || !('name' in ydata.begin)) // required properties, according to yEnc 1.2 spec
-			return decoderError('missing_required_properties', 'Could not find line/size/name properties on ybegin line');
+			return DecoderError('missing_required_properties', 'Could not find line/size/name properties on ybegin line');
 		if(!ydata.end.size)
-			return decoderError('missing_required_properties', 'Could not find size properties on yend line');
+			return DecoderError('missing_required_properties', 'Could not find size properties on yend line');
 		
 		// check numerical fields
 		var NUMERICAL_FIELDS = {
@@ -287,37 +288,37 @@ module.exports = {
 			NUMERICAL_FIELDS[tag].forEach(function(key) {
 				if(!ydata[tag][key]) return;
 				if(!RE_NUMBER.test(ydata[tag][key]))
-					warnings.push(decoderWarning('invalid_prop_'+key, '`'+key+'` is not a number'));
+					warnings.push(DecoderWarning('invalid_prop_'+key, '`'+key+'` is not a number'));
 				else if(ydata[tag][key] === '0' && key != 'size') // most fields have to be at least one
-					warnings.push(decoderWarning('zero_prop_'+key, '`'+key+'` cannot be 0'));
+					warnings.push(DecoderWarning('zero_prop_'+key, '`'+key+'` cannot be 0'));
 			});
 		}
 		if(ydata.begin.part && ydata.end.part && ydata.begin.part != ydata.end.part)
-			warnings.push(decoderWarning('part_number_mismatch', 'Part number specified in begin and end do not match'));
+			warnings.push(DecoderWarning('part_number_mismatch', 'Part number specified in begin and end do not match'));
 		else if(ydata.begin.total && ((ydata.begin.part && +ydata.begin.total < +ydata.begin.part) || (ydata.end.part && +ydata.begin.total < +ydata.end.part)))
-			warnings.push(decoderWarning('part_number_exceeds_total', 'Specified part number exceeds specified total'));
+			warnings.push(DecoderWarning('part_number_exceeds_total', 'Specified part number exceeds specified total'));
 		
 		var expectedSize = +ydata.end.size;
 		if(ydata.part && ydata.part.begin && ydata.part.end) {
 			var partBegin = +ydata.part.begin;
 			var partEnd = +ydata.part.end;
 			if(partBegin > partEnd)
-				warnings.push(decoderWarning('invalid_part_range', 'begin offset cannot exceed end offset'));
+				warnings.push(DecoderWarning('invalid_part_range', 'begin offset cannot exceed end offset'));
 			else if(expectedSize != partEnd-partBegin +1)
-				warnings.push(decoderWarning('size_mismatch_part_range', 'Specified size does not match part range'));
+				warnings.push(DecoderWarning('size_mismatch_part_range', 'Specified size does not match part range'));
 			else if(partEnd > +ydata.begin.size)
-				warnings.push(decoderWarning('part_range_exceeds_size', 'Specified part range exceeds total file size'));
+				warnings.push(DecoderWarning('part_range_exceeds_size', 'Specified part range exceeds total file size'));
 		} else if(+ydata.begin.total > 1 || +ydata.begin.part > 1 || +ydata.end.part > 1)
-			warnings.push(decoderWarning('missing_part_range', 'Part range not specified for multi-part post'));
+			warnings.push(DecoderWarning('missing_part_range', 'Part range not specified for multi-part post'));
 		
 		['pcrc32','crc32'].forEach(function(prop) {
 			if(ydata.end[prop] && !/^[a-fA-F0-9]{8}$/.test(ydata.end[prop]))
-				warnings.push(decoderWarning('invalid_prop_'+prop, '`'+prop+'` is not a valid CRC32 value'));
+				warnings.push(DecoderWarning('invalid_prop_'+prop, '`'+prop+'` is not a valid CRC32 value'));
 		});
 		if(!ydata.begin.part && ydata.begin.size != ydata.end.size)
-			warnings.push(decoderWarning('size_mismatch', 'Size specified in begin and end do not match'));
+			warnings.push(DecoderWarning('size_mismatch', 'Size specified in begin and end do not match'));
 		else if(+ydata.begin.size < +ydata.end.size)
-			warnings.push(decoderWarning('size_mismatch', 'Size specified for part exceeds size specified for whole file'));
+			warnings.push(DecoderWarning('size_mismatch', 'Size specified for part exceeds size specified for whole file'));
 		
 		if(ret.dataStart) {
 			ret.data = y.decode(data.slice(ret.dataStart, ret.dataEnd), isRaw);
@@ -325,20 +326,20 @@ module.exports = {
 			var hexCrc = ret.crc32.toString('hex');
 			
 			if(expectedSize != ret.data.length)
-				warnings.push(decoderWarning('data_size_mismatch', 'Decoded data length doesn\'t match size specified in yend'));
+				warnings.push(DecoderWarning('data_size_mismatch', 'Decoded data length doesn\'t match size specified in yend'));
 			if(ydata.end.pcrc32 && hexCrc != ydata.end.pcrc32.toLowerCase())
-				warnings.push(decoderWarning('pcrc32_mismatch', 'Specified pcrc32 is invalid'));
+				warnings.push(DecoderWarning('pcrc32_mismatch', 'Specified pcrc32 is invalid'));
 			if(ydata.end.crc32 && !ydata.part && hexCrc != ydata.end.crc32.toLowerCase())
 				// if single part, check CRC32 as well
-				warnings.push(decoderWarning('crc32_mismatch', 'Specified crc32 is invalid'));
+				warnings.push(DecoderWarning('crc32_mismatch', 'Specified crc32 is invalid'));
 		} else {
 			// empty article
 			if(expectedSize != 0)
-				warnings.push(decoderWarning('data_size_mismatch', 'Decoded data length doesn\'t match size specified in yend'));
+				warnings.push(DecoderWarning('data_size_mismatch', 'Decoded data length doesn\'t match size specified in yend'));
 			if(ydata.end.pcrc32 && ydata.end.pcrc32 != '00000000')
-				warnings.push(decoderWarning('pcrc32_mismatch', 'Specified pcrc32 is invalid'));
+				warnings.push(DecoderWarning('pcrc32_mismatch', 'Specified pcrc32 is invalid'));
 			if(ydata.end.crc32 && !ydata.part && ydata.end.crc32 != '00000000')
-				warnings.push(decoderWarning('crc32_mismatch', 'Specified crc32 is invalid'));
+				warnings.push(DecoderWarning('crc32_mismatch', 'Specified crc32 is invalid'));
 		}
 		
 		if(warnings.length)

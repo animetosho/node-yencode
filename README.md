@@ -98,7 +98,7 @@ Same as above, but instead of returning a Buffer, writes it to the supplied
 *output* Buffer. Returns the length of the encoded data.  
 Note that the *output* Buffer must be at least large enough to hold the largest
 possible output size (use the *maxSize* function to determine this), otherwise
-the function returns 0 and does not encode anything. Whilst this amount of space
+an error will be thrown. Whilst this amount of space
 is usually not required, for performance reasons this is not checked during
 encoding, so the space is needed to prevent possible overflow conditions.
 
@@ -136,8 +136,55 @@ int decodeTo(Buffer data, Buffer output, bool stripDots=false)
 Same as above, but instead of returning a Buffer, writes it to the supplied
 *output* Buffer. Returns the length of the decoded data.  
 Note that the *output* Buffer must be at least large enough to hold the largest
-possible output size (i.e. length of the input), otherwise the function returns
-0 and does not decode anything.
+possible output size (i.e. length of the input), otherwise an error is thrown.
+
+Object decodeChunk\(Buffer data \[, string state=null\]\[, Buffer output\]\)
+-----------------------------------------------------------------------------
+
+Perform raw yEnc decoding on a chunk of data sourced from NNTP. This function is
+designed to incrementally process a stream from the network, and will perform NNTP
+"dot unstuffing" as well as stop when the end of the data is reached.
+
+*data* is the data to be decoded  
+*state* is the current state of the incremental decode. Set to *null* if this is starting the decode of a new article, otherwise this should be set to the value of *state* given from the previous invocation of *decodeChunk*  
+If *output* is supplied, the output will be written here \(see *decodeTo* for notes
+on required size\), otherwise a new buffer will be created where the output will be
+written to.
+
+Returns an object with the following keys:
+
+- *int read*: number of bytes read from the *data*. Will be equal to the length of
+  the input unless the end was reached (*ended* set to *true*).
+- *int written*: number of bytes written to the output
+- *Buffer output*: the output data. If the *output* parameter was supplied to this
+  function, this will just be a reference to it.
+- *bool ended*: whether the end of the yEnc data was reached. The *state* value will indicate the type of end which was reached
+- *string state*: the state after decoding. This indicates the last few (up to 4) characters encountered, if they affect the decoding of subsequent characters. For example, a state of `"="` suggests that the first byte of the next call to *decodeChunk* needs to be unescaped. Feed this into the next invocation of *decodeChunk*
+  Note that this value is after NNTP “dot unstuffing”, where applicable (`\r\n.=` sequences are replaced with `\r\n=`)
+  If the end was reached (*ended* set to true), this will indicate the type of end which was reached, which can be either `\r\n=y`  (yEnc control line encountered) or `\r\n.\r\n` (end of article marker encountered)
+
+## {Object|DecoderError} from_post\(Buffer data \[, bool stripDots=false\]\)
+
+Decode post specified in *data*. Set *stripDots* to true if NNTP “dot unstuffing” has not yet been performed.
+
+Returns an object detailing the info parsed from the post, where the keys are:
+
+* *int yencStart*: location of the `=ybegin` sequence (is usually `0` for most posts)
+* *int dataStart*: location of where the yEnc raw data begins
+* *int dataEnd*: location of where the yEnc raw data ends
+* *int yencEnd*: location of the end of the `=yend` line (after the trailing newline)
+* *Buffer data*: decoded data
+* *Buffer crc32*: 4 byte CRC32 of decoded data
+* *Object\<Object\<string\>\> props*: two-level structure listing the properties given in the yEnc metadata. First level represents the line type (e.g. `=ybegin` line is keyed as `begin`), and the second level maps keys to values within that line. For example, the line `=ybegin line=128 name=my-file.dat` would be decoded as `{begin: {line: "128", name: "my-file.dat"}}`
+* *Array\<DecoderWarning\> warnings*: a list of non-fatal issues encountered when decoding the post. Each *DecoderWarning* is an object with two properties:
+  * *string code*: type of issue
+  * *string message*: description of issue
+
+If the post failed to decode, a *DecoderError* is returned, which is an *Error* object where the *code* property indicates the type of error. There are 3 possible error codes which could be returned:
+
+* *no_start_found*: the `=ybegin` sequence could not be found
+* *no_end_found*: the `=yend` sequence could not be found
+* *missing_required_properties*: required properties could not be found
 
 Buffer(4) crc32(Buffer data, Buffer(4) initial=false)
 -----------------------------------------------------
