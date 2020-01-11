@@ -2,6 +2,7 @@
 var sz = 768000;
 var rounds = 80;
 var trials = 8;
+var asyncWait = 1000;
 
 var maxSize = require('./_maxsize');
 var decimal = (''+1.1).substr(1, 1);
@@ -52,7 +53,7 @@ module.exports = {
 	bufAvg2x: null,
 	bufTarget: null,
 	
-	run: function(name, fn, sz2) {
+	bench: function(fn) {
 		var times = Array(trials);
 		for(var trial=0; trial<trials; trial++) {
 			var p=process.hrtime();
@@ -61,9 +62,26 @@ module.exports = {
 			
 			times[trial] = t[0] + t[1]/1000000000;
 		}
-		
 		// pick fastest time to try to avoid issues with clockspeed throttling
-		var time = Math.min.apply(null, times);
+		return Math.min.apply(null, times);
+	},
+	_benchAsync: function(fn, cb, trials, results) {
+		var p=process.hrtime();
+		for(var i=0;i<rounds;i++) fn();
+		results.push(process.hrtime(p));
+		
+		if(--trials)
+			setTimeout(module.exports._benchAsync.bind(null, fn, cb, trials, results), asyncWait);
+		else
+			cb(Math.min.apply(null, results));
+	},
+	benchAsync: function(fn, cb) {
+		setTimeout(function() {
+			module.exports._benchAsync(fn, cb, trials, []);
+		}, asyncWait);
+	},
+	run: function(name, fn, sz2) {
+		var time = module.exports.bench(fn);
 		console.log(
 			(name+'                         ').substr(0, 25) + ':'
 			+ fmtSpeed(sz*rounds, time)
