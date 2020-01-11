@@ -1,42 +1,31 @@
-This module provides a very fast (as in gigabytes per second) compiled implementation of
-[yEnc](http://www.yenc.org/yenc-draft.1.3.txt) and CRC32 (IEEE) hash calculation for
-node.js. The implementations are optimised for speed, and uses
-x86/ARM SIMD optimised routines if such CPU features are available.
+This module provides a very fast (as in gigabytes per second), compiled implementation of [yEnc](http://www.yenc.org/yenc-draft.1.3.txt) and CRC32 (IEEE) hash calculation for node.js. The implementations are optimised for speed, and uses x86/ARM SIMD optimised routines if such CPU features are available.
 
-This module should be several times faster than pure Javascript versions.
+This module should be 1-2 orders of magnitude faster than pure Javascript versions.
 
 Features:
 ---------
 
--   fast raw yEnc encoding and the ability to specify line length. A single
-    thread can achieve \>500MB/s on a low power Atom CPU, or \>3GB/s on a Core-i
+-   fast raw yEnc encoding with the ability to specify line length. A single
+    thread can achieve \>450MB/s on a Raspberry Pi 3, or \>5GB/s on a Core-i
     series CPU.
-
--   fast yEnc decoding, with and without NNTP layer dot unstuffing. (algorithm
-    internally also supports stopping on end markers, but not exposed via node)
-    Can achieve \>2GB/s on one thread on a modern Intel CPU.
-
+-   fast yEnc decoding, with and without NNTP layer dot unstuffing.
+    A single thread can achieve \>300MB/s on a Raspberry Pi 3, or \>4.5GB/s on a Core-i series CPU.
 -   SIMD optimised encoding and decoding routines, which can use ARM NEON or the
     following x86 CPU features when available (with dynamic dispatch): SSE2,
-    SSSE3, AVX, AVX512BW (128-bit), VBMI2
-
+    SSSE3, AVX, AVX2, AVX512-BW (128/256-bit), AVX512-VBMI2
 -   full yEnc encoding for single and multi-part posts, according to the
     [version 1.3 specifications](http://www.yenc.org/yenc-draft.1.3.txt)
-
+-   full yEnc decoding of posts
 -   fast compiled CRC32 implementation via
     [crcutil](https://code.google.com/p/crcutil/) or [PCLMULQDQ
     instruction](http://www.intel.com/content/dam/www/public/us/en/documents/white-papers/fast-crc-computation-generic-polynomials-pclmulqdq-paper.pdf)
     (if available) or ARMv8’s CRC instructions, with incremental support
     (\>1GB/s on a low power Atom/ARM CPU, \>15GB/s on a modern Intel CPU)
-
 -   ability to combine two CRC32 hashes into one (useful for amalgamating
     *pcrc32s* into a *crc32* for yEnc), as well as quickly compute the CRC32 of a sequence of null bytes
-
 -   eventually may support incremental processing (algorithms internally support
     it, they’re just not exposed to the Javascript interface)
-
 -   [context awareness](https://nodejs.org/api/addons.html#addons_context_aware_addons) (NodeJS 10.7.0 or later), enabling use within [worker threads](https://nodejs.org/api/worker_threads.html)
-
 -   supports NodeJS 0.10.x to 12.x.x and beyond
 
 Installing
@@ -63,8 +52,8 @@ Redistributable Builds
 By default, non-Windows builds are built with `-march=native` flag, which means
 that the compiler will optimise the build for the CPU of the build machine. If
 you’re looking to run built binaries elsewhere, this may be undesirable. To make
-builds redistributable, replace `supports_native!=""` from
-*binding.gyp* with `""!=""` and recompiling.
+builds redistributable, replace `"enable_native_tuning%": 1,` from
+*binding.gyp* with `"enable_native_tuning%": 0,` and (re)compile.
 
 Windows builds are redistributable by default as MSVC doesn’t support native CPU targeting.
 
@@ -162,29 +151,6 @@ Returns an object with the following keys:
 - *string state*: the state after decoding. This indicates the last few (up to 4) characters encountered, if they affect the decoding of subsequent characters. For example, a state of `"="` suggests that the first byte of the next call to *decodeChunk* needs to be unescaped. Feed this into the next invocation of *decodeChunk*
   Note that this value is after NNTP “dot unstuffing”, where applicable (`\r\n.=` sequences are replaced with `\r\n=`)
   If the end was reached (*ended* set to true), this will indicate the type of end which was reached, which can be either `\r\n=y`  (yEnc control line encountered) or `\r\n.\r\n` (end of article marker encountered)
-
-## {Object|DecoderError} from_post\(Buffer data \[, bool stripDots=false\]\)
-
-Decode post specified in *data*. Set *stripDots* to true if NNTP “dot unstuffing” has not yet been performed.
-
-Returns an object detailing the info parsed from the post, where the keys are:
-
-* *int yencStart*: location of the `=ybegin` sequence (is usually `0` for most posts)
-* *int dataStart*: location of where the yEnc raw data begins
-* *int dataEnd*: location of where the yEnc raw data ends
-* *int yencEnd*: location of the end of the `=yend` line (after the trailing newline)
-* *Buffer data*: decoded data
-* *Buffer crc32*: 4 byte CRC32 of decoded data
-* *Object\<Object\<string\>\> props*: two-level structure listing the properties given in the yEnc metadata. First level represents the line type (e.g. `=ybegin` line is keyed as `begin`), and the second level maps keys to values within that line. For example, the line `=ybegin line=128 name=my-file.dat` would be decoded as `{begin: {line: "128", name: "my-file.dat"}}`
-* *Array\<DecoderWarning\> warnings*: a list of non-fatal issues encountered when decoding the post. Each *DecoderWarning* is an object with two properties:
-  * *string code*: type of issue
-  * *string message*: description of issue
-
-If the post failed to decode, a *DecoderError* is returned, which is an *Error* object where the *code* property indicates the type of error. There are 3 possible error codes which could be returned:
-
-* *no_start_found*: the `=ybegin` sequence could not be found
-* *no_end_found*: the `=yend` sequence could not be found
-* *missing_required_properties*: required properties could not be found
 
 Buffer(4) crc32(Buffer data, Buffer(4) initial=false)
 -----------------------------------------------------
@@ -300,6 +266,29 @@ enc.encode([0, 1, 2, 3]).toString()
 enc.encode([4]).toString()
 // '=ybegin part=2 total=2 line=128 size=5 name=bytes.bin\r\n=ypart begin=5 end=5\r\n=n\r\n=yend size=1 part=2 pcrc32=d56f2b94 crc32=515ad3cc'
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## {Object|DecoderError} from_post\(Buffer data, bool stripDots=false\)
+
+Decode post specified in *data*. Set *stripDots* to true if NNTP “dot unstuffing” has not yet been performed.
+
+Returns an object detailing the info parsed from the post, where the keys are:
+
+- *int yencStart*: location of the `=ybegin` sequence (is usually `0` for most posts)
+- *int dataStart*: location of where the yEnc raw data begins
+- *int dataEnd*: location of where the yEnc raw data ends
+- *int yencEnd*: location of the end of the `=yend` line (after the trailing newline)
+- *Buffer data*: decoded data
+- *Buffer(4) crc32*: 4 byte CRC32 of decoded data
+- *Object\<Object\<string\>\> props*: two-level structure listing the properties given in the yEnc metadata. First level represents the line type (e.g. `=ybegin` line is keyed as `begin`), and the second level maps keys to values within that line. For example, the line `=ybegin line=128 name=my-file.dat` would be decoded as `{begin: {line: "128", name: "my-file.dat"}}`
+- *Array\<DecoderWarning\> warnings*: a list of non-fatal issues encountered when decoding the post. Each *DecoderWarning* is an object with two properties:
+  - *string code*: type of issue
+  - *string message*: description of issue
+
+If the post failed to decode, a *DecoderError* is returned, which is an *Error* object where the *code* property indicates the type of error. There are 3 possible error codes which could be returned:
+
+- *no_start_found*: the `=ybegin` sequence could not be found
+- *no_end_found*: the `=yend` sequence could not be found
+- *missing_required_properties*: required properties could not be found
 
 string encoding='utf8'
 ----------------------
