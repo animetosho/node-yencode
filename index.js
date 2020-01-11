@@ -174,7 +174,7 @@ module.exports = {
 	},
 	maxSize: function(length, line_size, esc_ratio) {
 		if(!length) return 0;
-		if(!esc_ratio || esc_ratio !== 0)
+		if(!esc_ratio && esc_ratio !== 0)
 			esc_ratio = 2;
 		else
 			esc_ratio++;
