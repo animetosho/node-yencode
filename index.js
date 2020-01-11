@@ -129,6 +129,43 @@ module.exports = {
 	decode: y.decode,
 	decodeTo: y.decodeTo,
 	
+	decodeChunk: function(data, output, prev) {
+		// both output and prev are optional
+		if(typeof output !== 'undefined' && !Buffer.isBuffer(output)) {
+			prev = output;
+			output = null;
+		}
+		if(prev === null || typeof prev === 'undefined')
+			prev = '\r\n';
+		
+		if(Buffer.isBuffer(prev)) prev = prev.toString();
+		prev = prev.substr(-4); // only care about the last 4 chars of previous state
+		if(data.length == 0) return {
+			read: 0,
+			written: 0,
+			output: toBuffer([]),
+			ended: 0,
+			state: prev
+		};
+		var state = decodePrev.indexOf(prev);
+		if(state < 0) {
+			for(var l=-3; l<0; i++) {
+				state = decodePrev.indexOf(prev.substr(l));
+				if(state >= 0) break;
+			}
+			if(state < 0) state = decodePrev.indexOf('');
+		}
+		var ret = y.decodeIncr(data, state, output);
+		
+		return {
+			read: ret.read,
+			written: ret.written,
+			output: ret.output || output,
+			ended: !!ret.ended,
+			state: [decodePrev[ret.state], '\r\n=y', '\r\n.\r\n'][ret.ended]
+		};
+	},
+	
 	minSize: function(length, line_size) {
 		if(!length) return 0;
 		return length // no characters escaped
