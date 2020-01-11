@@ -10,7 +10,7 @@ Features:
     series CPU.
 -   fast yEnc decoding, with and without NNTP layer dot unstuffing.
     A single thread can achieve \>300MB/s on a Raspberry Pi 3, or \>4.5GB/s on a Core-i series CPU.
--   SIMD optimised encoding and decoding routines, which can use ARM NEON or the
+-   SIMD optimised encoding and decoding routines, which can use ARMv7 NEON, ARMv8 ASIMD or the
     following x86 CPU features when available (with dynamic dispatch): SSE2,
     SSSE3, AVX, AVX2, AVX512-BW (128/256-bit), AVX512-VBMI2
 -   full yEnc encoding for single and multi-part posts, according to the
@@ -65,6 +65,10 @@ detection. As such, the build script assumes the compiler isn’t too old and
 supports AVX. If you are trying to build using an older compiler (such as Visual
 Studio 2008), you may need to edit *binding.gyp* to remove AVX related options,
 such as `-mavx`, `-mpopcnt` and `"EnableEnhancedInstructionSet": "3"`
+
+## GCC 9 on ARMv7
+
+I’ve noticed that GCC 9.2.1 (which may include GCC 9.x.x), with ARMv7 targets, seems to generate code which crashes. I‘m not yet sure on the reason, but have not seen the issue with GCC 8.3.0 or Clang, or GCC 9 with ARMv8 targets.
 
 API
 ===
