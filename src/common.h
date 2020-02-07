@@ -35,7 +35,7 @@
 #endif
 
 
-#if defined(__cplusplus) && __cplusplus > 201100 && !(defined(_MSC_VER) && defined(__clang__))
+#if defined(__cplusplus) && __cplusplus > 201100 && !(defined(_MSC_VER) && defined(__clang__)) && !defined(__APPLE__)
 	// C++11 method
 	// len needs to be a multiple of alignment, although it sometimes works if it isn't...
 	#include <cstdlib>
@@ -217,6 +217,11 @@ int cpu_supports_isa();
 #else
 # define KNOT16(x) ((__mmask16)~(x))
 # define KNOT32(x) ((__mmask32)~(x))
+#endif
+
+// weird thing with Apple's Clang; doesn't seem to always occur, so assume that Clang >= 9 is fine: https://github.com/animetosho/node-yencode/issues/8#issuecomment-583385864
+#if defined(__clang__) && defined(__APPLE__) && __clang_major__ < 9
+# define _lzcnt_u32 __lzcnt32
 #endif
 
 #ifdef __GNUC__
