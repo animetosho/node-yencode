@@ -37,6 +37,10 @@ void do_crc32_zeros(unsigned char crc1[4], size_t len) {
 extern "C" void crc_clmul_set_funcs(crc_func*, crc_func*);
 void crc_arm_set_funcs(crc_func*, crc_func*);
 
+#if defined(PLATFORM_ARM) && defined(_WIN32)
+# define WIN32_LEAN_AND_MEAN
+# include <Windows.h>
+#endif
 void crc_init() {
 	crc = crcutil_interface::CRC::Create(
 		0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
@@ -56,7 +60,10 @@ void crc_init() {
 		getauxval(AT_HWCAP) & HWCAP_CRC32
 # elif defined(ANDROID_CPU_FAMILY_ARM) && defined(__aarch64__)
 		android_getCpuFeatures() & ANDROID_CPU_ARM64_FEATURE_CRC32
-	/* no 32-bit flag - presumably CRC not allowed on 32-bit CPUs on Android */
+# elif defined(ANDROID_CPU_FAMILY_ARM) /* aarch32 */
+		android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_CRC32
+# elif defined(_WIN32)
+		IsProcessorFeaturePresent(PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE)
 # elif defined(__ARM_FEATURE_CRC32)
 		true /* assume available if compiled as such */
 # else

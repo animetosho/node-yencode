@@ -220,7 +220,8 @@ int cpu_supports_isa();
 #endif
 
 // weird thing with Apple's Clang; doesn't seem to always occur, so assume that Clang >= 9 is fine: https://github.com/animetosho/node-yencode/issues/8#issuecomment-583385864
-#if defined(__clang__) && defined(__APPLE__) && __clang_major__ < 9
+// seems that Clang < 3.6 also uses the old name
+#if defined(__clang__) && ((defined(__APPLE__) && __clang_major__ < 9) || __clang_major__ < 3 || (__clang_major__ == 3 && __clang_minor__ < 6))
 # define _lzcnt_u32 __lzcnt32
 #endif
 

@@ -24,7 +24,7 @@
 # define vld1q_u8_x2_align(p, n) vld1q_u8_x2((uint8_t*)__builtin_assume_aligned(p, n))
 #else
 HEDLEY_ALWAYS_INLINE uint8x16x2_t vld1q_u8_x2_align(const uint8_t* p, int n) {
-	return (uint8x16x2_t){vld1q_u8_align(p, n), vld1q_u8_align(p+16, n)};
+	return (uint8x16x2_t){vld1q_u8_align(p, n), vld1q_u8_align(p+16, n-16)};
 }
 #endif
 // Clang wrongly assumes alignment on vld1q_u8_x2, and ARMv7 GCC doesn't support the function, so effectively, it can only be used in ARMv8 compilers

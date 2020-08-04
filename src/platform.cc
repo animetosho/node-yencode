@@ -20,7 +20,7 @@ bool cpu_supports_neon() {
 	return android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_NEON;
 #  endif
 # endif
-	return true; // assume NEON support, if compiled as such, otherwise
+	return true; // assume NEON support, if compiled as such, otherwise (I think Windows and iOS require it)
 }
 #endif
 
