@@ -30,13 +30,17 @@ static HEDLEY_ALWAYS_INLINE __m256i force_align_read_256(const void* p) {
 }
 
 // _mm256_castsi128_si256, but upper is defined to be 0
-#if defined(__clang__) && __clang_major__ >= 5
+#if (defined(__clang__) && __clang_major__ >= 5 && (!defined(__APPLE__) || __clang_major__ >= 7)) || (defined(__GNUC__) && __GNUC__ >= 10)
 // intrinsic unsupported in GCC 9 and MSVC < 2017
 # define zext128_256 _mm256_zextsi128_si256
 #else
 // technically a cast is incorrect, due to upper 128 bits being undefined, but should usually work fine
 // alternative may be `_mm256_set_m128i(_mm_setzero_si128(), v)` but unsupported on GCC < 7, and most compilers generate a VINSERTF128 instruction for it
-# define zext128_256 _mm256_castsi128_si256
+# ifdef __OPTIMIZE__
+#  define zext128_256 _mm256_castsi128_si256
+# else
+#  define zext128_256(x) _mm256_inserti128_si256(_mm256_setzero_si256(), x, 0)
+# endif
 #endif
 
 
