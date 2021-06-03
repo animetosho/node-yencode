@@ -493,14 +493,10 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 #endif
 				{
 					// << 1 byte
-					cmpEqB = _mm256_cmpeq_epi8(_mm256_set1_epi8('='), _mm256_loadu_si256((__m256i *)(src+i-1) + 1));
-#if defined(__tune_znver1__) || defined(__tune_bdver4__)
 					cmpEqA = _mm256_alignr_epi8(cmpEqA, _mm256_inserti128_si256(
-						_mm256_setzero_si256(), _mm256_castsi256_si128(cmpEqA), 1
+						_mm256_set1_epi8('='), _mm256_castsi256_si128(cmpEqA), 1
 					), 15);
-#else
-					cmpEqA = _mm256_alignr_epi8(cmpEqA, _mm256_permute2x128_si256(cmpEqA, cmpEqA, 0x08), 15);
-#endif
+					cmpEqB = _mm256_cmpeq_epi8(_mm256_set1_epi8('='), _mm256_loadu_si256((__m256i *)(src+i-1) + 1));
 					dataA = _mm256_add_epi8(
 						oDataA,
 						_mm256_blendv_epi8(
