@@ -11,7 +11,7 @@ static uint8_t eqFixLUT[256];
 
 
 
-#if !defined(__clang__)
+#if !defined(__clang__) && (!defined(__aarch64__) || !HEDLEY_GCC_VERSION_CHECK(10,0,0))
 HEDLEY_ALWAYS_INLINE uint8x16x4_t vld1q_u8_x4(const uint8_t* p) {
 	uint8x16x4_t ret;
 	ret.val[0] = vld1q_u8(p);
