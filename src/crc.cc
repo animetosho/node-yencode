@@ -41,6 +41,14 @@ void crc_arm_set_funcs(crc_func*, crc_func*);
 # define WIN32_LEAN_AND_MEAN
 # include <Windows.h>
 #endif
+#ifdef PLATFORM_ARM
+# ifdef __ANDROID__
+#  include <cpu-features.h>
+# elif defined(__linux__)
+#  include <sys/auxv.h>
+#  include <asm/hwcap.h>
+# endif
+#endif
 void crc_init() {
 	crc = crcutil_interface::CRC::Create(
 		0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
