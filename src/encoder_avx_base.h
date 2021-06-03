@@ -215,7 +215,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				// duplicate halves
 				data1A = _mm256_inserti128_si256(dataA, _mm256_castsi256_si128(dataA), 1);
 				data1B = _mm256_inserti128_si256(dataB, _mm256_castsi256_si128(dataB), 1);
-#ifdef __tune_znver2__
+#if defined(__tune_znver2__) || defined(__tune_znver3__)
 				data2A = _mm256_permute2x128_si256(dataA, dataA, 0x11);
 				data2B = _mm256_permute2x128_si256(dataB, dataB, 0x11);
 #else
