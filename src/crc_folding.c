@@ -142,15 +142,11 @@ ALIGN(16, local const unsigned crc_k[]) = {
     0x751997d0, 0x00000001, /* rk2 */
     0xccaa009e, 0x00000000, /* rk5 */
     0x63cd6124, 0x00000001, /* rk6 */
-    0xf7011640, 0x00000001, /* rk7 */
+    0xf7011641, 0x00000000, /* rk7 */
     0xdb710640, 0x00000001  /* rk8 */
 };
 
 ALIGN(16, local const unsigned crc_mask[4]) = {
-    0xFFFFFFFF, 0xFFFFFFFF, 0x00000000, 0x00000000
-};
-
-ALIGN(16, local const unsigned crc_mask2[4]) = {
     0x00000000, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF
 };
 
@@ -339,8 +335,7 @@ partial:
         &xmm_crc_part);
 done:
 {
-    const __m128i xmm_mask  = _mm_load_si128((__m128i *)crc_mask);
-    const __m128i xmm_mask2 = _mm_load_si128((__m128i *)crc_mask2);
+    const __m128i xmm_mask = _mm_load_si128((__m128i *)crc_mask);
     __m128i x_tmp0, x_tmp1, x_tmp2, crc_fold;
 
     /*
@@ -390,38 +385,27 @@ done:
     xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0x10);
 #ifdef __AVX512VL__
     //xmm_crc3 = _mm_maskz_xor_epi32(14, xmm_crc3, xmm_crc0);
-    xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, xmm_crc0, xmm_mask2, 0x28);
+    xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, xmm_crc0, xmm_mask, 0x28);
 #else
+    xmm_crc0 = _mm_and_si128(xmm_crc0, xmm_mask);
     xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc0);
-    xmm_crc3 = _mm_and_si128(xmm_crc3, xmm_mask2);
 #endif
 
     /*
      * k7
      */
     xmm_crc1 = xmm_crc3;
-    xmm_crc2 = xmm_crc3;
     crc_fold = _mm_load_si128((__m128i *)crc_k + 2);
 
     xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0);
-#ifdef __AVX512VL__
-    //xmm_crc3 = _mm_maskz_xor_epi32(3, xmm_crc3, xmm_crc2);
-    xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, xmm_crc2, xmm_mask, 0x28);
-#else
-    xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
-    xmm_crc3 = _mm_and_si128(xmm_crc3, xmm_mask);
-#endif
-
-    xmm_crc2 = xmm_crc3;
     xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0x10);
 #ifdef __AVX512VL__
-    xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, xmm_crc2, xmm_crc1, 0x69); // NOT(double-XOR)
-    return _mm_extract_epi32(xmm_crc3, 2);
+    xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, xmm_crc1, xmm_crc1, 0xC3); // NOT(xmm_crc3 ^ xmm_crc1)
 #else
-    xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
+    xmm_crc1 = _mm_xor_si128(xmm_crc1, xmm_mask);
     xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc1);
-    return ~_mm_extract_epi32(xmm_crc3, 2);
 #endif
+    return _mm_extract_epi32(xmm_crc3, 2);
 }
 
 }
