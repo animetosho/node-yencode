@@ -8,7 +8,7 @@
 #define _BX _B3(0), _B3(64), _B3(128), _B3(192)
 
 static const unsigned char escapeLUT[256] = { // whether or not the character is critical
-#define _B(n) ((n == 214 || n == 214+'\r' || n == 214+'\n' || n == '='-42) ? 0 : (n+42) & 0xff)
+#define _B(n) ((n == 214 || n == '\r'+214 || n == '\n'+214 || n == '='-42) ? 0 : (n+42) & 0xff)
 	_BX
 #undef _B
 };

@@ -44,9 +44,22 @@ void crc_arm_set_funcs(crc_func*, crc_func*);
 #ifdef PLATFORM_ARM
 # ifdef __ANDROID__
 #  include <cpu-features.h>
-# elif defined(__linux__)
+# elif defined(__linux__) || (defined(__FreeBSD__) && __FreeBSD__ >= 12)
 #  include <sys/auxv.h>
 #  include <asm/hwcap.h>
+# elif (defined(__FreeBSD__) && __FreeBSD__ < 12)
+#  include <sys/sysctl.h>
+#  include <asm/hwcap.h>
+# elif defined(__APPLE__)
+#  include <sys/types.h>
+#  include <sys/sysctl.h>
+# endif
+# ifdef __FreeBSD__
+static unsigned long getauxval(unsigned long cap) {
+	unsigned long ret;
+	elf_aux_info(cap, &ret, sizeof(ret));
+	return ret;
+}
 # endif
 #endif
 void crc_init() {
@@ -61,6 +74,12 @@ void crc_init() {
 		crc_clmul_set_funcs(&_do_crc32, &_do_crc32_incremental);
 #endif
 #ifdef PLATFORM_ARM
+# ifdef __APPLE__
+	int supported = 0;
+	size_t len = sizeof(supported);
+	if(sysctlbyname("hw.optional.armv8_crc32", &supported, &len, NULL, 0))
+		supported = 0;
+# endif
 	if(
 # if defined(AT_HWCAP2) && defined(HWCAP2_CRC32)
 		getauxval(AT_HWCAP2) & HWCAP2_CRC32
@@ -72,6 +91,8 @@ void crc_init() {
 		android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_CRC32
 # elif defined(_WIN32)
 		IsProcessorFeaturePresent(PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE)
+# elif defined(__APPLE__)
+		supported
 # elif defined(__ARM_FEATURE_CRC32)
 		true /* assume available if compiled as such */
 # else

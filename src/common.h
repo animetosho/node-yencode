@@ -8,7 +8,7 @@
     defined(__LP64    ) || \
     defined(_M_X64    ) || \
     defined(_M_AMD64  ) || \
-    defined(_WIN64    )
+    (defined(_WIN64) && !defined(_M_ARM64))
 	#define PLATFORM_AMD64 1
 #endif
 #if defined(PLATFORM_AMD64) || \
@@ -18,7 +18,7 @@
     defined(__i686__  ) || \
     defined(_M_I86    ) || \
     defined(_M_IX86   ) || \
-    defined(_WIN32    )
+    (defined(_WIN32) && !defined(_M_ARM) && !defined(_M_ARM64))
 	#define PLATFORM_X86 1
 #endif
 #if defined(__aarch64__) || \
@@ -36,6 +36,7 @@
 
 
 #if defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
+	#include <stdlib.h> // MSVC ARM64 seems to need this
 	#define ALIGN_ALLOC(buf, len, align) *(void**)&(buf) = _aligned_malloc((len), align)
 	#define ALIGN_FREE _aligned_free
 #elif defined(__cplusplus) && __cplusplus >= 201100 && !(defined(_MSC_VER) && (defined(__clang__) || defined(_M_ARM64) || defined(_M_ARM))) && !defined(__APPLE__)
@@ -86,12 +87,16 @@
 	#define __ARM_NEON 1
 #endif
 #if defined(_M_ARM)
-	/*#define __ARM_NEON 1*/
+	#define __ARM_NEON 1
 #endif
 #ifdef _MSC_VER
-#define __BYTE_ORDER__ 1234
-#define __ORDER_BIG_ENDIAN__ 4321
-#include <intrin.h>
+# ifndef __BYTE_ORDER__
+#  define __BYTE_ORDER__ 1234
+# endif
+# ifndef __ORDER_BIG_ENDIAN__
+#  define __ORDER_BIG_ENDIAN__ 4321
+# endif
+# include <intrin.h>
 #endif
 
 
@@ -138,6 +143,53 @@
 
 #ifdef __ARM_NEON
 # include <arm_neon.h>
+
+// ARM provides no standard way to inline define a vector :(
+static HEDLEY_ALWAYS_INLINE uint8x8_t vmake_u8(
+	uint8_t a, uint8_t b, uint8_t c, uint8_t d, uint8_t e, uint8_t f, uint8_t g, uint8_t h
+) {
+# if defined(_MSC_VER)
+	uint8_t t[] = {a,b,c,d,e,f,g,h};
+	return vld1_u8(t);
+# else
+	return (uint8x8_t){a,b,c,d,e,f,g,h};
+# endif
+}
+static HEDLEY_ALWAYS_INLINE uint8x16_t vmakeq_u8(
+	uint8_t a, uint8_t b, uint8_t c, uint8_t d, uint8_t e, uint8_t f, uint8_t g, uint8_t h,
+	uint8_t i, uint8_t j, uint8_t k, uint8_t l, uint8_t m, uint8_t n, uint8_t o, uint8_t p
+) {
+# if defined(_MSC_VER)
+	uint8_t t[] = {a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p};
+	return vld1q_u8(t);
+# else
+	return (uint8x16_t){a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p};
+# endif
+}
+static HEDLEY_ALWAYS_INLINE int8x16_t vmakeq_s8(
+	int8_t a, int8_t b, int8_t c, int8_t d, int8_t e, int8_t f, int8_t g, int8_t h,
+	int8_t i, int8_t j, int8_t k, int8_t l, int8_t m, int8_t n, int8_t o, int8_t p
+) {
+# if defined(_MSC_VER)
+	int8_t t[] = {a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p};
+	return vld1q_s8(t);
+# else
+	return (int8x16_t){a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p};
+# endif
+}
+
+static HEDLEY_ALWAYS_INLINE uint8x16x2_t vcreate2_u8(uint8x16_t a, uint8x16_t b) {
+	return {a, b};
+}
+static HEDLEY_ALWAYS_INLINE int8x16x2_t vcreate2_s8(int8x16_t a, int8x16_t b) {
+	return {a, b};
+}
+static HEDLEY_ALWAYS_INLINE uint8x16x3_t vcreate3_u8(uint8x16_t a, uint8x16_t b, uint8x16_t c) {
+	return {a, b, c};
+}
+static HEDLEY_ALWAYS_INLINE uint8x16x4_t vcreate4_u8(uint8x16_t a, uint8x16_t b, uint8x16_t c, uint8x16_t d) {
+	return {a, b, c, d};
+}
 #endif
 #ifdef PLATFORM_ARM
 bool cpu_supports_neon();
@@ -225,6 +277,8 @@ int cpu_supports_isa();
 #if defined(__clang__) && ((defined(__APPLE__) && __clang_major__ < 9) || __clang_major__ < 3 || (__clang_major__ == 3 && __clang_minor__ < 6))
 # define _lzcnt_u32 __lzcnt32
 #endif
+
+
 
 #ifdef __GNUC__
 # if __GNUC__ >= 9

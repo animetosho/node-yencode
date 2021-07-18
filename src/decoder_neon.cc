@@ -7,9 +7,9 @@
 #include "decoder_common.h"
 
 
-#ifdef _MSC_VER
-# define vld1_u8_align vld1_u8_ex
-# define vld1q_u8_align vld1q_u8_ex
+#if defined(_MSC_VER) && !defined(__clang__)
+# define vld1_u8_align(p, a) vld1_u8_ex(p, a*8)
+# define vld1q_u8_align(p, a) vld1q_u8_ex(p, a*8)
 #elif defined(__GNUC__)
 # define vld1_u8_align(p, n) vld1_u8((uint8_t*)__builtin_assume_aligned(p, n))
 # define vld1q_u8_align(p, n) vld1q_u8((uint8_t*)__builtin_assume_aligned(p, n))
@@ -24,7 +24,7 @@
 # define vld1q_u8_x2_align(p, n) vld1q_u8_x2((uint8_t*)__builtin_assume_aligned(p, n))
 #else
 HEDLEY_ALWAYS_INLINE uint8x16x2_t vld1q_u8_x2_align(const uint8_t* p, int n) {
-	return (uint8x16x2_t){vld1q_u8_align(p, n), vld1q_u8_align(p+16, n-16)};
+	return vcreate2_u8(vld1q_u8_align(p, n/2), vld1q_u8_align(p+16, n/2));
 }
 #endif
 // Clang wrongly assumes alignment on vld1q_u8_x2, and ARMv7 GCC doesn't support the function, so effectively, it can only be used in ARMv8 compilers
@@ -64,18 +64,20 @@ template<bool isRaw, bool searchEnd>
 HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& escFirst, uint16_t& nextMask) {
 	HEDLEY_ASSUME(escFirst == 0 || escFirst == 1);
 	HEDLEY_ASSUME(nextMask == 0 || nextMask == 1 || nextMask == 2);
-	uint8x16_t yencOffset = escFirst ? (uint8x16_t){42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42} : vdupq_n_u8(42);
+	uint8x16_t yencOffset = escFirst ? vmakeq_u8(42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42) : vdupq_n_u8(42);
 #ifdef __aarch64__
 	uint8x16_t nextMaskMix = vdupq_n_u8(0);
-	if(nextMask)
-		nextMaskMix[nextMask-1] = nextMask;
+	if(nextMask == 1)
+		nextMaskMix = vsetq_lane_u8(1, nextMaskMix, 0);
+	if(nextMask == 2)
+		nextMaskMix = vsetq_lane_u8(2, nextMaskMix, 1);
 #else
 	uint8x16_t lfCompare = vdupq_n_u8('\n');
 	if(isRaw) {
 		if(nextMask == 1)
-			lfCompare[0] = '.';
+			lfCompare = vsetq_lane_u8('.', lfCompare, 0);
 		if(nextMask == 2)
-			lfCompare[1] = '.';
+			lfCompare = vsetq_lane_u8('.', lfCompare, 1);
 	}
 #endif
 	long i;
@@ -90,13 +92,13 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #ifdef __aarch64__
 		cmpA = vqtbx1q_u8(
 			cmpEqA,
-			//                                \n      \r
-			(uint8x16_t){0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
+			//                             \n      \r
+			vmakeq_u8(0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0),
 			dataA
 		),
 		cmpB = vqtbx1q_u8(
 			cmpEqB,
-			(uint8x16_t){0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
+			vmakeq_u8(0,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0),
 			dataB
 		);
 		if(isRaw) cmpA = vorrq_u8(cmpA, nextMaskMix);
@@ -122,12 +124,12 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 		
 #ifdef __aarch64__
 		if (LIKELIHOOD(0.42 /*guess*/, neon_vect_is_nonzero(vorrq_u8(cmpA, cmpB)))) {
-			cmpA = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-			cmpB = vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+			cmpA = vandq_u8(cmpA, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
+			cmpB = vandq_u8(cmpB, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
 			uint8x16_t cmpMerge = vpaddq_u8(cmpA, cmpB);
 			uint8x16_t cmpEqMerge = vpaddq_u8(
-				vandq_u8(cmpEqA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128}),
-				vandq_u8(cmpEqB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128})
+				vandq_u8(cmpEqA, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128)),
+				vandq_u8(cmpEqB, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128))
 			);
 			
 			uint8x16_t cmpCombined = vpaddq_u8(cmpMerge, cmpEqMerge);
@@ -136,8 +138,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 			uint32_t mask = vgetq_lane_u32(vreinterpretq_u32_u8(cmpCombined), 0);
 			uint32_t maskEq = vgetq_lane_u32(vreinterpretq_u32_u8(cmpCombined), 1);
 #else
-		cmpA = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-		cmpB = vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+		cmpA = vandq_u8(cmpA, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
+		cmpB = vandq_u8(cmpB, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
 		// no vpaddq_u8 in ARMv7, so need extra 64-bit VPADD
 		uint8x8_t cmpPacked = vpadd_u8(
 			vpadd_u8(
@@ -150,8 +152,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 		cmpPacked = vpadd_u8(cmpPacked, cmpPacked);
 		uint32_t mask = vget_lane_u32(vreinterpret_u32_u8(cmpPacked), 0);
 		if(LIKELIHOOD(0.42, mask != 0)) {
-			uint8x16_t cmpEqMaskedA = vandq_u8(cmpEqA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-			uint8x16_t cmpEqMaskedB = vandq_u8(cmpEqB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+			uint8x16_t cmpEqMaskedA = vandq_u8(cmpEqA, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
+			uint8x16_t cmpEqMaskedB = vandq_u8(cmpEqB, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
 			uint8x8_t cmpEqPacked = vpadd_u8(
 				vpadd_u8(
 					vget_low_u8(cmpEqMaskedA), vget_high_u8(cmpEqMaskedA)
@@ -170,7 +172,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 				// vext seems to be a cheap operation on ARM, relative to loads, so only avoid it if there's only one load (isRaw only)
 				uint8x16_t tmpData2, nextData;
 				if(isRaw && !searchEnd) {
-					tmpData2 = vld1q_u8_align(src+i + 2 + sizeof(uint8x16_t), 2);
+					tmpData2 = vld1q_u8(src+i + 2 + sizeof(uint8x16_t));
 				} else {
 					nextData = vld1q_u8_align(src+i + sizeof(uint8x16_t)*2, 16); // only 32-bits needed, but there doesn't appear a nice way to do this via intrinsics: https://stackoverflow.com/questions/46910799/arm-neon-intrinsics-convert-d-64-bit-register-to-low-half-of-q-128-bit-regis
 					tmpData2 = vextq_u8(dataB, nextData, 2);
@@ -255,15 +257,15 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 						}
 					}
 #ifdef __aarch64__
-					uint8x16_t match2NlDotBMasked = vandq_u8(match2NlDotB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+					uint8x16_t match2NlDotBMasked = vandq_u8(match2NlDotB, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
 					uint8x16_t mergeKillDots = vpaddq_u8(
-						vandq_u8(match2NlDotA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128}),
+						vandq_u8(match2NlDotA, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128)),
 						match2NlDotBMasked
 					);
 					uint8x8_t mergeKillDots2 = vget_low_u8(vpaddq_u8(mergeKillDots, mergeKillDots));
 #else
-					uint8x16_t match2NlDotMaskedA = vandq_u8(match2NlDotA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-					uint8x16_t match2NlDotMaskedB = vandq_u8(match2NlDotB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+					uint8x16_t match2NlDotMaskedA = vandq_u8(match2NlDotA, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
+					uint8x16_t match2NlDotMaskedB = vandq_u8(match2NlDotB, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
 					uint8x8_t mergeKillDots2 = vpadd_u8(
 						vpadd_u8(
 							vget_low_u8(match2NlDotMaskedA), vget_high_u8(match2NlDotMaskedA)
@@ -342,11 +344,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 #ifdef __aarch64__
 				uint8x16_t vMaskEqA = vqtbl1q_u8(
 					vcombine_u8(maskEqTemp, vdup_n_u8(0)),
-					(uint8x16_t){0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1}
+					vmakeq_u8(0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1)
 				);
 				uint8x16_t vMaskEqB = vqtbl1q_u8(
 					vcombine_u8(maskEqTemp, vdup_n_u8(0)),
-					(uint8x16_t){2,2,2,2,2,2,2,2, 3,3,3,3,3,3,3,3}
+					vmakeq_u8(2,2,2,2,2,2,2,2, 3,3,3,3,3,3,3,3)
 				);
 #else
 				uint8x16_t vMaskEqA = vcombine_u8(
@@ -358,8 +360,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 					vdup_lane_u8(maskEqTemp, 3)
 				);
 #endif
-				vMaskEqA = vtstq_u8(vMaskEqA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-				vMaskEqB = vtstq_u8(vMaskEqB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+				vMaskEqA = vtstq_u8(vMaskEqA, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
+				vMaskEqB = vtstq_u8(vMaskEqB, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
 				
 				dataA = vsubq_u8(
 					dataA,
@@ -391,7 +393,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 					)
 				);
 			}
-			yencOffset[0] = (escFirst << 6) | 42;
+			yencOffset = vsetq_lane_u8((escFirst << 6) | 42, yencOffset, 0);
 			
 			// all that's left is to 'compress' the data (skip over masked chars)
 			uint32_t counts = 0x08080808 - vget_lane_u32(vreinterpret_u32_u8(vcnt_u8(cmpPacked)), 0);
@@ -439,7 +441,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, lon
 		} else {
 			dataA = vsubq_u8(dataA, yencOffset);
 			dataB = vsubq_u8(dataB, vdupq_n_u8(42));
-			vst1q_u8_x2_unaligned(p, ((uint8x16x2_t){dataA, dataB}));
+			vst1q_u8_x2_unaligned(p, vcreate2_u8(dataA, dataB));
 			p += sizeof(uint8x16_t)*2;
 			escFirst = 0;
 #ifdef __aarch64__

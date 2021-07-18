@@ -2,16 +2,36 @@
 #ifdef PLATFORM_ARM
 # ifdef __ANDROID__
 #  include <cpu-features.h>
-# elif defined(__linux__)
+# elif defined(__linux__) || (defined(__FreeBSD__) && __FreeBSD__ >= 12)
 #  include <sys/auxv.h>
 #  include <asm/hwcap.h>
+# elif (defined(__FreeBSD__) && __FreeBSD__ < 12)
+#  include <sys/sysctl.h>
+#  include <asm/hwcap.h>
+# elif defined(_WIN32)
+#  define WIN32_LEAN_AND_MEAN
+#  define NOMINMAX
+#  include <Windows.h>
+# elif defined(__APPLE__)
+#  include <sys/types.h>
+#  include <sys/sysctl.h>
 # endif
 bool cpu_supports_neon() {
 # if defined(AT_HWCAP)
-#  ifdef __aarch64__
-	return getauxval(AT_HWCAP) & HWCAP_ASIMD;
+#  ifdef __FreeBSD__
+	unsigned long supported;
+	elf_aux_info(AT_HWCAP, &supported, sizeof(supported));
+#   ifdef __aarch64__
+	return supported & HWCAP_ASIMD;
+#   else
+	return supported & HWCAP_NEON;
+#   endif
 #  else
+#   ifdef __aarch64__
+	return getauxval(AT_HWCAP) & HWCAP_ASIMD;
+#   else
 	return getauxval(AT_HWCAP) & HWCAP_NEON;
+#   endif
 #  endif
 # elif defined(ANDROID_CPU_FAMILY_ARM)
 #  ifdef __aarch64__
@@ -19,6 +39,14 @@ bool cpu_supports_neon() {
 #  else
 	return android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_NEON;
 #  endif
+# elif defined(_WIN32)
+	return IsProcessorFeaturePresent(PF_ARM_NEON_INSTRUCTIONS_AVAILABLE);
+# elif defined(__APPLE__)
+	int supported = 0;
+	size_t len = sizeof(supported);
+	if(sysctlbyname("hw.optional.neon", &supported, &len, NULL, 0))
+		return false;
+	return (bool)supported;
 # endif
 	return true; // assume NEON support, if compiled as such, otherwise (I think Windows and iOS require it)
 }

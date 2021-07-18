@@ -26,7 +26,7 @@
 # include <v8.h>
 #endif
 
-#if (defined(__PCLMUL__) && defined(__SSSE3__) && defined(__SSE4_1__)) || (defined(_MSC_VER) && _MSC_VER >= 1600)
+#if (defined(__PCLMUL__) && defined(__SSSE3__) && defined(__SSE4_1__)) || (defined(_MSC_VER) && _MSC_VER >= 1600 && defined(PLATFORM_X86))
 #include <inttypes.h>
 #include <immintrin.h>
 #include <wmmintrin.h>

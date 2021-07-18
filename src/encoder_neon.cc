@@ -26,16 +26,16 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 #ifdef __aarch64__
 	uint8x16_t cmpA = vreinterpretq_u8_s8(vqtbx2q_s8(
 		vdupq_n_s8('='-42),
-		(int8x16x2_t){'\0'-42,-128,-128,'\0'-42,'\t'-42,'\n'-42,'\r'-42,'\t'-42,'\n'-42,'\r'-42,-128,-128,'\0'-42,-128,-128,-128, ' '-42,'\n'-42,'\r'-42,' '-42,-128,-128,-128,-128,-128,-128,'.'-42,-128,-128,-128,'='-42,-128},
-		vreinterpretq_u8_s8(vhaddq_s8(vreinterpretq_s8_u8(dataA), (int8x16_t){42,48,66,66, 66,66,66,66, 66,66,66,66, 66,66,66,66}))
+		vcreate2_s8(vmakeq_s8('\0'-42,-128,-128,'\0'-42,'\t'-42,'\n'-42,'\r'-42,'\t'-42,'\n'-42,'\r'-42,-128,-128,'\0'-42,-128,-128,-128), vmakeq_s8(' '-42,'\n'-42,'\r'-42,' '-42,-128,-128,-128,-128,-128,-128,'.'-42,-128,-128,-128,'='-42,-128)),
+		vreinterpretq_u8_s8(vhaddq_s8(vreinterpretq_s8_u8(dataA), vmakeq_s8(42,48,66,66, 66,66,66,66, 66,66,66,66, 66,66,66,66)))
 	));
 	cmpA = vceqq_u8(cmpA, dataA);
 	
 	dataB = vaddq_u8(oDataB, vdupq_n_u8(42));
 	uint8x16_t cmpB = vqtbx1q_u8(
 		vceqq_u8(oDataB, vdupq_n_u8('='-42)),
-		//            \0                    \n      \r
-		(uint8x16_t){255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
+		//         \0                    \n      \r
+		vmakeq_u8(255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0),
 		dataB
 	);
 	dataA = vaddq_u8(dataA, vbslq_u8(cmpA, vdupq_n_u8(64+42), vdupq_n_u8(42)));
@@ -64,9 +64,9 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	
 	// dup low 2 bytes & compare
 	uint8x8_t firstTwoChars = vreinterpret_u8_u16(vdup_lane_u16(vreinterpret_u16_u8(vget_low_u8(oDataA)), 0));
-	uint8x8_t cmpNl = vceq_u8(firstTwoChars, vreinterpret_u8_s8((int8x8_t){
-		' '-42,' '-42,'\t'-42,'\t'-42,'\r'-42,'.'-42,'='-42,'='-42
-	}));
+	uint8x8_t cmpNl = vceq_u8(firstTwoChars, vreinterpret_u8_s8(vmake_u8(
+		' '+216,' '+216,'\t'+216,'\t'+216,'\r'+216,'.'-42,'='-42,'='-42
+	)));
 	// use padd to merge comparisons
 	uint16x4_t cmpNl2 = vreinterpret_u16_u8(cmpNl);
 	cmpNl2 = vpadd_u16(cmpNl2, vdup_n_u16(0));
@@ -80,8 +80,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 #endif
 	
 	
-	uint8x16_t cmpAMasked = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-	uint8x16_t cmpBMasked = vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+	uint8x16_t cmpAMasked = vandq_u8(cmpA, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
+	uint8x16_t cmpBMasked = vandq_u8(cmpB, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
 #ifdef __aarch64__
 	uint8x16_t cmpMerge = vpaddq_u8(cmpAMasked, cmpBMasked);
 	cmpMerge = vpaddq_u8(cmpMerge, cmpMerge);
@@ -95,7 +95,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		memcpy(p, &firstChar, sizeof(firstChar));
 		p += 4;
 		mask ^= 1;
-		cmpMerge = vbicq_u8(cmpMerge, (uint8x16_t){1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0});
+		cmpMerge = vbicq_u8(cmpMerge, vmakeq_u8(1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0));
 	} else {
 		firstChar |= 0x0a0d00;
 		memcpy(p, &firstChar, sizeof(firstChar));
@@ -130,7 +130,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		memcpy(p, &firstChar, sizeof(firstChar));
 		p += 4;
 		mask ^= 1;
-		cmpPacked = vbic_u8(cmpPacked, (uint8x8_t){1,0,0,0, 0,0,0,0});
+		cmpPacked = vbic_u8(cmpPacked, vmake_u8(1,0,0,0, 0,0,0,0));
 	} else {
 		firstChar |= 0x0a0d00;
 		memcpy(p, &firstChar, sizeof(firstChar));
@@ -198,7 +198,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 #ifdef __aarch64__
 # ifdef _MSC_VER
 		long bitIndex;
-		if(_BitScanReverse64(&bitIndex, mask))
+		if(_BitScanReverse64((unsigned long*)&bitIndex, mask))
 			bitIndex ^= 63;
 		else
 			bitIndex = 64;
@@ -217,11 +217,11 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		
 		uint8x16_t vClz = vdupq_n_u8(bitIndex & ~(sizeof(mask)*8));
 #ifdef __aarch64__
-		uint8x16_t blendA = vcgtq_u8((uint8x16_t){63,62,61,60,51,50,49,48,47,46,45,44,35,34,33,32}, vClz);
-		uint8x16_t blendB = vcgtq_u8((uint8x16_t){31,30,29,28,19,18,17,16,15,14,13,12, 3, 2, 1, 0}, vClz);
+		uint8x16_t blendA = vcgtq_u8(vmakeq_u8(63,62,61,60,51,50,49,48,47,46,45,44,35,34,33,32), vClz);
+		uint8x16_t blendB = vcgtq_u8(vmakeq_u8(31,30,29,28,19,18,17,16,15,14,13,12, 3, 2, 1, 0), vClz);
 #else
-		uint8x16_t blendA = vcgtq_u8((uint8x16_t){31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16}, vClz);
-		uint8x16_t blendB = vcgtq_u8((uint8x16_t){15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0}, vClz);
+		uint8x16_t blendA = vcgtq_u8(vmakeq_u8(31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16), vClz);
+		uint8x16_t blendB = vcgtq_u8(vmakeq_u8(15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0), vClz);
 #endif
 		uint8x16_t dataAShifted = vbslq_u8(cmpA, vdupq_n_u8('='), dataA);
 		uint8x16_t dataBShifted = vbslq_u8(cmpB, vdupq_n_u8('='), dataB);
@@ -230,7 +230,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		dataA = vbslq_u8(blendA, dataAShifted, dataA);
 		dataB = vbslq_u8(blendB, dataBShifted, dataB);
 		
-		vst1q_u8_x2_unaligned(p, ((uint8x16x2_t){dataA, dataB}));
+		vst1q_u8_x2_unaligned(p, vcreate2_u8(dataA, dataB));
 		p += sizeof(uint8x16_t)*2 - 1;
 		p += (mask != 0);
 		col = lineSizeOffset + (mask != 0);
@@ -296,14 +296,14 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 		dataB = vaddq_u8(dataB, vdupq_n_u8(42));
 		uint8x16_t cmpA = vqtbx1q_u8(
 			cmpEqA,
-			//            \0                    \n      \r
-			(uint8x16_t){255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
+			//         \0                    \n      \r
+			vmakeq_u8(255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0),
 			dataA
 		);
 		uint8x16_t cmpB = vqtbx1q_u8(
 			cmpEqB,
-			//            \0                    \n      \r
-			(uint8x16_t){255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0},
+			//         \0                    \n      \r
+			vmakeq_u8(255,0,0,0,0,0,0,0,0,0,255,0,0,255,0,0),
 			dataB
 		);
 		
@@ -338,8 +338,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 		
 		
 		long bitIndex; // prevent compiler whining
-		uint8x16_t cmpAMasked = vandq_u8(cmpA, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
-		uint8x16_t cmpBMasked = vandq_u8(cmpB, (uint8x16_t){1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128});
+		uint8x16_t cmpAMasked = vandq_u8(cmpA, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
+		uint8x16_t cmpBMasked = vandq_u8(cmpB, vmakeq_u8(1,2,4,8,16,32,64,128, 1,2,4,8,16,32,64,128));
 #ifdef __aarch64__
 		uint8x16_t cmpMerge = vpaddq_u8(cmpAMasked, cmpBMasked);
 		cmpMerge = vpaddq_u8(cmpMerge, cmpMerge);
@@ -453,7 +453,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 #ifdef __aarch64__
 # ifdef _MSC_VER
 				// does this work?
-				if(_BitScanReverse64(&bitIndex, mask))
+				if(_BitScanReverse64((unsigned long*)&bitIndex, mask))
 					bitIndex ^= 63;
 				else
 					bitIndex = 64;
@@ -472,11 +472,11 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 				
 				uint8x16_t vClz = vdupq_n_u8(bitIndex & ~(sizeof(mask)*8));
 #ifdef __aarch64__
-				uint8x16_t blendA = vcgeq_u8((uint8x16_t){63,62,61,60,51,50,49,48,47,46,45,44,35,34,33,32}, vClz);
-				uint8x16_t blendB = vcgeq_u8((uint8x16_t){31,30,29,28,19,18,17,16,15,14,13,12, 3, 2, 1, 0}, vClz);
+				uint8x16_t blendA = vcgeq_u8(vmakeq_u8(63,62,61,60,51,50,49,48,47,46,45,44,35,34,33,32), vClz);
+				uint8x16_t blendB = vcgeq_u8(vmakeq_u8(31,30,29,28,19,18,17,16,15,14,13,12, 3, 2, 1, 0), vClz);
 #else
-				uint8x16_t blendA = vcgeq_u8((uint8x16_t){31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16}, vClz);
-				uint8x16_t blendB = vcgeq_u8((uint8x16_t){15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0}, vClz);
+				uint8x16_t blendA = vcgeq_u8(vmakeq_u8(31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16), vClz);
+				uint8x16_t blendB = vcgeq_u8(vmakeq_u8(15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0), vClz);
 #endif
 				uint8x16_t dataAShifted = vextq_u8(dataA, dataA, 15);
 				uint8x16_t dataBShifted = vextq_u8(dataA, dataB, 15);
@@ -485,7 +485,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 				dataA = vbslq_u8(blendA, dataA, dataAShifted);
 				outDataB = vbslq_u8(blendB, outDataB, dataBShifted);
 				
-				vst1q_u8_x2_unaligned(p, ((uint8x16x2_t){dataA, outDataB}));
+				vst1q_u8_x2_unaligned(p, vcreate2_u8(dataA, outDataB));
 				p += sizeof(uint8x16_t)*2;
 				// write last byte
 				*p = vgetq_lane_u8(dataB, 15);
