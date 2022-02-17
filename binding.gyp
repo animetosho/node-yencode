@@ -41,7 +41,7 @@
       ['disable_avx256!=0', {
         "defines": ["YENC_DISABLE_AVX256=1"]
       }],
-      ['enable_native_tuning!=0', {
+      ['OS!="win" and enable_native_tuning!=0', {
         "defines": ["YENC_BUILD_NATIVE=1"]
       }]
     ],
