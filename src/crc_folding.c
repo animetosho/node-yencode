@@ -17,46 +17,32 @@
  * For conditions of distribution and use, see copyright notice in zlib.h
  */
 
+#include "common.h"
 #include "crc_common.h"
  
-#if !defined(_MSC_VER) || defined(_STDINT) || _MSC_VER >= 1900
-# include <stdint.h>
-#else
-/* Workaround for older MSVC not supporting stdint.h - just pull it from V8 */
-# include <v8.h>
-#endif
-
 #if (defined(__PCLMUL__) && defined(__SSSE3__) && defined(__SSE4_1__)) || (defined(_MSC_VER) && _MSC_VER >= 1600 && defined(PLATFORM_X86))
 #include <inttypes.h>
 #include <immintrin.h>
 #include <wmmintrin.h>
 
-#define local static
 
-#ifdef _MSC_VER
-# define ALIGN(_a, v) __declspec(align(_a)) v
-/* Because we don't have dynamic dispatch for AVX, disable it for MSVC builds (only use AVX for -march=native style builds) */
-# undef __AVX__
-# undef __AVX512F__
-# undef __AVX512VL__
-# undef __GFNI__
-#else
-# define ALIGN(_a, v) v __attribute__((aligned(_a)))
+#if defined(__AVX512VL__) && defined(YENC_BUILD_NATIVE) && YENC_BUILD_NATIVE!=0
+# define ENABLE_AVX512 1
 #endif
 
 
 // interestingly, MSVC seems to generate better code if using VXORPS over VPXOR
 // original Intel code uses XORPS for many XOR operations, but PXOR is pretty much always better (more port freedom on Intel CPUs). The only advantage of XORPS is that it's 1 byte shorter, an advantage which disappears under AVX as both instructions have the same length
-#ifdef __AVX__
+#if defined(__AVX__) && defined(YENC_BUILD_NATIVE) && YENC_BUILD_NATIVE!=0
 # define fold_xor _mm_xor_si128
 #else
-local __m128i fold_xor(__m128i a, __m128i b) {
+static __m128i fold_xor(__m128i a, __m128i b) {
 	return _mm_castps_si128(_mm_xor_ps(_mm_castsi128_ps(a), _mm_castsi128_ps(b)));
 }
 #endif
 
-#ifdef __AVX512VL__
-local __m128i do_one_fold_merge(__m128i src, __m128i data) {
+#ifdef ENABLE_AVX512
+static __m128i do_one_fold_merge(__m128i src, __m128i data) {
     const __m128i xmm_fold4 = _mm_set_epi32(
             0x00000001, 0x54442bd4,
             0x00000001, 0xc6e41596);
@@ -68,7 +54,7 @@ local __m128i do_one_fold_merge(__m128i src, __m128i data) {
     );
 }
 #else
-local __m128i do_one_fold(__m128i src) {
+static __m128i do_one_fold(__m128i src) {
     const __m128i xmm_fold4 = _mm_set_epi32(
             0x00000001, 0x54442bd4,
             0x00000001, 0xc6e41596);
@@ -79,7 +65,7 @@ local __m128i do_one_fold(__m128i src) {
 }
 #endif
 
-ALIGN(32, local const unsigned  pshufb_shf_table[60]) = {
+ALIGN_TO(32, static const unsigned  pshufb_shf_table[60]) = {
     0x84838281, 0x88878685, 0x8c8b8a89, 0x008f8e8d, /* shl 15 (16 - 1)/shr1 */
     0x85848382, 0x89888786, 0x8d8c8b8a, 0x01008f8e, /* shl 14 (16 - 3)/shr2 */
     0x86858483, 0x8a898887, 0x8e8d8c8b, 0x0201008f, /* shl 13 (16 - 4)/shr3 */
@@ -97,7 +83,7 @@ ALIGN(32, local const unsigned  pshufb_shf_table[60]) = {
     0x0201008f, 0x06050403, 0x0a090807, 0x0e0d0c0b  /* shl  1 (16 -15)/shr15*/
 };
 
-local void partial_fold(const size_t len, __m128i *xmm_crc0, __m128i *xmm_crc1,
+static void partial_fold(const size_t len, __m128i *xmm_crc0, __m128i *xmm_crc1,
         __m128i *xmm_crc2, __m128i *xmm_crc3, __m128i *xmm_crc_part) {
 
     const __m128i xmm_mask3 = _mm_set1_epi32(0x80808080);
@@ -127,7 +113,7 @@ local void partial_fold(const size_t len, __m128i *xmm_crc0, __m128i *xmm_crc1,
     *xmm_crc_part = _mm_shuffle_epi8(*xmm_crc_part, xmm_shl);
     *xmm_crc3 = _mm_or_si128(*xmm_crc3, *xmm_crc_part);
 
-#ifdef __AVX512VL__
+#ifdef ENABLE_AVX512
     *xmm_crc3 = do_one_fold_merge(xmm_a0_0, *xmm_crc3);
 #else
     *xmm_crc3 = fold_xor(
@@ -137,7 +123,7 @@ local void partial_fold(const size_t len, __m128i *xmm_crc0, __m128i *xmm_crc1,
 #endif
 }
 
-ALIGN(16, local const unsigned crc_k[]) = {
+ALIGN_TO(16, static const unsigned crc_k[]) = {
     0xccaa009e, 0x00000000, /* rk1 */
     0x751997d0, 0x00000001, /* rk2 */
     0xccaa009e, 0x00000000, /* rk5 */
@@ -146,12 +132,12 @@ ALIGN(16, local const unsigned crc_k[]) = {
     0xdb710640, 0x00000001  /* rk8 */
 };
 
-ALIGN(16, local const unsigned crc_mask[4]) = {
+ALIGN_TO(16, static const unsigned crc_mask[4]) = {
     0x00000000, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF
 };
 
-local __m128i reverse_bits_epi8(__m128i src) {
-#ifdef __GFNI__
+static __m128i reverse_bits_epi8(__m128i src) {
+#if defined(__GFNI__) && defined(YENC_BUILD_NATIVE) && YENC_BUILD_NATIVE!=0
     return _mm_gf2p8affine_epi64_epi8(src, _mm_set_epi32(
       0x80402010, 0x08040201,
       0x80402010, 0x08040201
@@ -177,7 +163,7 @@ local __m128i reverse_bits_epi8(__m128i src) {
 # define BSWAP32(n) ((((n)&0xff)<<24) | (((n)&0xff00)<<8) | (((n)&0xff0000)>>8) | (((n)&0xff000000)>>24))
 #endif
 
-local uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
+static uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
     unsigned long algn_diff;
     __m128i xmm_t0, xmm_t1, xmm_t2, xmm_t3;
 
@@ -231,7 +217,7 @@ local uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
         xmm_t2 = _mm_load_si128((__m128i *)src + 2);
         xmm_t3 = _mm_load_si128((__m128i *)src + 3);
 
-#ifdef __AVX512VL__
+#ifdef ENABLE_AVX512
         xmm_crc0 = do_one_fold_merge(xmm_crc0, xmm_t0);
         xmm_crc1 = do_one_fold_merge(xmm_crc1, xmm_t1);
         xmm_crc2 = do_one_fold_merge(xmm_crc2, xmm_t2);
@@ -262,7 +248,7 @@ local uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
         xmm_t2 = _mm_load_si128((__m128i *)src + 2);
 
         xmm_t3 = xmm_crc3;
-#ifdef __AVX512VL__
+#ifdef ENABLE_AVX512
         xmm_crc3 = do_one_fold_merge(xmm_crc2, xmm_t2);
         xmm_crc2 = do_one_fold_merge(xmm_crc1, xmm_t1);
         xmm_crc1 = do_one_fold_merge(xmm_crc0, xmm_t0);
@@ -288,7 +274,7 @@ local uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
 
         xmm_t2 = xmm_crc2;
         xmm_t3 = xmm_crc3;
-#ifdef __AVX512VL__
+#ifdef ENABLE_AVX512
         xmm_crc3 = do_one_fold_merge(xmm_crc1, xmm_t1);
         xmm_crc2 = do_one_fold_merge(xmm_crc0, xmm_t0);
 #else
@@ -310,7 +296,7 @@ local uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
         xmm_t0 = _mm_load_si128((__m128i *)src);
 
         xmm_t3 = xmm_crc3;
-#ifdef __AVX512VL__
+#ifdef ENABLE_AVX512
         xmm_crc3 = do_one_fold_merge(xmm_crc0, xmm_t0);
 #else
         xmm_crc3 = _mm_xor_si128(do_one_fold(xmm_crc0), xmm_t0);
@@ -345,7 +331,7 @@ done:
 
     x_tmp0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x10);
     xmm_crc0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x01);
-#ifdef __AVX512VL__
+#ifdef ENABLE_AVX512
     xmm_crc1 = _mm_ternarylogic_epi32(xmm_crc1, x_tmp0, xmm_crc0, 0x96);
 #else
     xmm_crc1 = _mm_xor_si128(xmm_crc1, x_tmp0);
@@ -354,7 +340,7 @@ done:
 
     x_tmp1 = _mm_clmulepi64_si128(xmm_crc1, crc_fold, 0x10);
     xmm_crc1 = _mm_clmulepi64_si128(xmm_crc1, crc_fold, 0x01);
-#ifdef __AVX512VL__
+#ifdef ENABLE_AVX512
     xmm_crc2 = _mm_ternarylogic_epi32(xmm_crc2, x_tmp1, xmm_crc1, 0x96);
 #else
     xmm_crc2 = _mm_xor_si128(xmm_crc2, x_tmp1);
@@ -363,7 +349,7 @@ done:
 
     x_tmp2 = _mm_clmulepi64_si128(xmm_crc2, crc_fold, 0x10);
     xmm_crc2 = _mm_clmulepi64_si128(xmm_crc2, crc_fold, 0x01);
-#ifdef __AVX512VL__
+#ifdef ENABLE_AVX512
     xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, x_tmp2, xmm_crc2, 0x96);
 #else
     xmm_crc3 = _mm_xor_si128(xmm_crc3, x_tmp2);
@@ -383,7 +369,7 @@ done:
     xmm_crc0 = xmm_crc3;
     xmm_crc3 = _mm_slli_si128(xmm_crc3, 4);
     xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0x10);
-#ifdef __AVX512VL__
+#ifdef ENABLE_AVX512
     //xmm_crc3 = _mm_maskz_xor_epi32(14, xmm_crc3, xmm_crc0);
     xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, xmm_crc0, xmm_mask, 0x28);
 #else
@@ -399,7 +385,7 @@ done:
 
     xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0);
     xmm_crc3 = _mm_clmulepi64_si128(xmm_crc3, crc_fold, 0x10);
-#ifdef __AVX512VL__
+#ifdef ENABLE_AVX512
     xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, xmm_crc1, xmm_crc1, 0xC3); // NOT(xmm_crc3 ^ xmm_crc1)
 #else
     xmm_crc1 = _mm_xor_si128(xmm_crc1, xmm_mask);
