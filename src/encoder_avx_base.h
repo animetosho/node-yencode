@@ -112,7 +112,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 			// last char
 			uint32_t eolChar = (use_isa >= ISA_LEVEL_VBMI2 ? lookupsVBMI2->eolLastChar[c] : lookupsAVX2->eolLastChar[c]);
 			*(uint32_t*)p = eolChar;
-			p += 3 + (eolChar>>27);
+			p += 3 + (uintptr_t)(eolChar>>27);
 			col = -line_size+1;
 		} else {
 			// line overflowed, insert a newline
@@ -254,7 +254,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				// we overflowed - find correct position to revert back to
 				// this is perhaps sub-optimal on 32-bit, but who still uses that with AVX2?
 				uint64_t eqMask;
-				int shiftAmt = maskBitsB + YMM_SIZE - col -1;
+				int shiftAmt = maskBitsB + YMM_SIZE -1 - col;
 				if(HEDLEY_UNLIKELY(shiftAmt < 0)) {
 					uint32_t eqMask1, eqMask2;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
@@ -429,7 +429,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				_encode_eol_handle_pre:
 				uint32_t eolChar = (use_isa >= ISA_LEVEL_VBMI2 ? lookupsVBMI2->eolLastChar[es[i]] : lookupsAVX2->eolLastChar[es[i]]);
 				*(uint32_t*)p = eolChar;
-				p += 3 + (eolChar>>27);
+				p += 3 + (uintptr_t)(eolChar>>27);
 				col = lineSizeOffset;
 				
 				if(HEDLEY_UNLIKELY(i >= 0)) { // this isn't really a proper check - it's only needed to support short lines; basically, if the line is too short, `i` never gets checked, so we need one somewhere
