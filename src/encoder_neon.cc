@@ -65,7 +65,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	// dup low 2 bytes & compare
 	uint8x8_t firstTwoChars = vreinterpret_u8_u16(vdup_lane_u16(vreinterpret_u16_u8(vget_low_u8(oDataA)), 0));
 	uint8x8_t cmpNl = vceq_u8(firstTwoChars, vmake_u8(
-		' '+216,' '+216,'\t'+216,'\t'+216,'\r'+216,'.'-42,'='-42,'='-42
+		' '+214,' '+214,'\t'+214,'\t'+214,'\r'+214,'.'-42,'='-42,'='-42
 	));
 	// use padd to merge comparisons
 	uint16x4_t cmpNl2 = vreinterpret_u16_u8(cmpNl);
