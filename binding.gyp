@@ -128,7 +128,7 @@
       "target_name": "yencode_clmul",
       "type": "static_library",
       "sources": [
-        "src/crc_folding.c"
+        "src/crc_folding.cc"
       ],
       "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
       "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
