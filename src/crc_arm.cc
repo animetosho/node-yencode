@@ -1,4 +1,3 @@
-#include "common.h"
 #include "crc_common.h"
 
 #if defined(PLATFORM_ARM) && defined(_MSC_VER) && defined(__clang__) && !defined(__ARM_FEATURE_CRC32)

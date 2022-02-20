@@ -17,7 +17,6 @@
  * For conditions of distribution and use, see copyright notice in zlib.h
  */
 
-#include "common.h"
 #include "crc_common.h"
  
 #if (defined(__PCLMUL__) && defined(__SSSE3__) && defined(__SSE4_1__)) || (defined(_MSC_VER) && _MSC_VER >= 1600 && defined(PLATFORM_X86))

@@ -1,3 +1,4 @@
+#include "common.h"
 
 #define PACK_4(arr) (((uint_fast32_t)arr[0] << 24) | ((uint_fast32_t)arr[1] << 16) | ((uint_fast32_t)arr[2] << 8) | (uint_fast32_t)arr[3])
 #define UNPACK_4(arr, val) { \
