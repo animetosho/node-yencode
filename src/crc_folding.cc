@@ -395,20 +395,14 @@ done:
 
 }
 
-static void do_crc32_clmul(const void* data, size_t length, unsigned char out[4]) {
-	uint32_t tmp = crc_fold((const unsigned char*)data, (long)length, 0);
-	UNPACK_4(out, tmp);
-}
-static void do_crc32_incremental_clmul(const void* data, size_t length, unsigned char init[4]) {
-	uint32_t tmp = crc_fold((const unsigned char*)data, (long)length, PACK_4(init));
-	UNPACK_4(init, tmp);
+static uint32_t do_crc32_incremental_clmul(const void* data, size_t length, uint32_t init) {
+	return crc_fold((const unsigned char*)data, (long)length, init);
 }
 
-void crc_clmul_set_funcs(crc_func* _do_crc32, crc_func* _do_crc32_incremental) {
-	*_do_crc32 = &do_crc32_clmul;
+void crc_clmul_set_funcs(crc_func* _do_crc32_incremental) {
 	*_do_crc32_incremental = &do_crc32_incremental_clmul;
 }
 #else
-void crc_clmul_set_funcs(crc_func* _do_crc32, crc_func* _do_crc32_incremental) {}
+void crc_clmul_set_funcs(crc_func* _do_crc32_incremental) {}
 #endif
 

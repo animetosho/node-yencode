@@ -12,11 +12,6 @@
 
 using namespace v8;
 
-union crc32 {
-	uint32_t u32;
-	unsigned char u8a[4];
-};
-
 static void free_buffer(char* data, void* _size) {
 #if !NODE_VERSION_AT_LEAST(0, 11, 0)
 	int size = (int)(size_t)_size;
@@ -336,17 +331,23 @@ FUNC(DecodeIncr) {
 }
 
 
-#if NODE_VERSION_AT_LEAST(3, 0, 0)
-// for whatever reason, iojs 3 gives buffer corruption if you pass in a pointer without a free function
-#define RETURN_CRC(x) do { \
-	Local<Object> buff = NEW_BUFFER(4); \
-	memcpy(node::Buffer::Data(buff), &x.u32, sizeof(uint32_t)); \
-	args.GetReturnValue().Set( buff ); \
-} while(0)
-#else
-#define RETURN_CRC(x) RETURN_VAL( NEW_BUFFER((char*)x.u8a, 4) )
+static inline uint32_t read_crc32(const Local<Value>& buf) {
+	const uint8_t* arr = (const uint8_t*)node::Buffer::Data(buf);
+	return (((uint_fast32_t)arr[0] << 24) | ((uint_fast32_t)arr[1] << 16) | ((uint_fast32_t)arr[2] << 8) | (uint_fast32_t)arr[3]);
+}
+static inline Local<Object> pack_crc32(
+#if NODE_VERSION_AT_LEAST(0, 11, 0)
+	Isolate* isolate,
 #endif
-
+uint32_t crc) {
+	Local<Object> buff = NEW_BUFFER(4);
+	unsigned char* d = (unsigned char*)node::Buffer::Data(buff);
+	d[0] = (unsigned char)(crc >> 24) & 0xFF;
+	d[1] = (unsigned char)(crc >> 16) & 0xFF;
+	d[2] = (unsigned char)(crc >>  8) & 0xFF;
+	d[3] = (unsigned char)crc & 0xFF;
+	return buff;
+}
 
 // crc32(str, init)
 FUNC(CRC32) {
@@ -356,25 +357,18 @@ FUNC(CRC32) {
 		RETURN_ERROR("You must supply a Buffer");
 	// TODO: support string args??
 	
-	union crc32 init;
-	init.u32 = 0;
+	uint32_t crc = 0;
 	if (args.Length() >= 2) {
 		if (!node::Buffer::HasInstance(args[1]) || node::Buffer::Length(args[1]) != 4)
 			RETURN_ERROR("Second argument must be a 4 byte buffer");
-		memcpy(&init.u32, node::Buffer::Data(args[1]), sizeof(uint32_t));
-		do_crc32_incremental(
-			(const void*)node::Buffer::Data(args[0]),
-			node::Buffer::Length(args[0]),
-			init.u8a
-		);
-	} else {
-		do_crc32(
-			(const void*)node::Buffer::Data(args[0]),
-			node::Buffer::Length(args[0]),
-			init.u8a
-		);
+		crc = read_crc32(args[1]);
 	}
-	RETURN_CRC(init);
+	crc = do_crc32(
+		(const void*)node::Buffer::Data(args[0]),
+		node::Buffer::Length(args[0]),
+		crc
+	);
+	RETURN_VAL(pack_crc32(ISOLATE crc));
 }
 
 FUNC(CRC32Combine) {
@@ -386,14 +380,11 @@ FUNC(CRC32Combine) {
 	|| !node::Buffer::HasInstance(args[1]) || node::Buffer::Length(args[1]) != 4)
 		RETURN_ERROR("You must supply a 4 byte Buffer for the first two arguments");
 	
-	union crc32 crc1, crc2;
+	uint32_t crc1 = read_crc32(args[0]), crc2 = read_crc32(args[1]);
 	size_t len = (size_t)ARG_TO_INT(args[2]);
 	
-	memcpy(&crc1.u32, node::Buffer::Data(args[0]), sizeof(uint32_t));
-	memcpy(&crc2.u32, node::Buffer::Data(args[1]), sizeof(uint32_t));
-	
-	do_crc32_combine(crc1.u8a, crc2.u8a, len);
-	RETURN_CRC(crc1);
+	crc1 = do_crc32_combine(crc1, crc2, len);
+	RETURN_VAL(pack_crc32(ISOLATE crc1));
 }
 
 FUNC(CRC32Zeroes) {
@@ -402,17 +393,15 @@ FUNC(CRC32Zeroes) {
 	if (args.Length() < 1)
 		RETURN_ERROR("At least 1 argument required");
 	
-	union crc32 crc1;
+	uint32_t crc1 = 0;
 	if (args.Length() >= 2) {
 		if (!node::Buffer::HasInstance(args[1]) || node::Buffer::Length(args[1]) != 4)
 			RETURN_ERROR("Second argument must be a 4 byte buffer");
-		memcpy(&crc1.u32, node::Buffer::Data(args[1]), sizeof(uint32_t));
-	} else {
-		crc1.u32 = 0;
+		crc1 = read_crc32(args[1]);
 	}
 	size_t len = (size_t)ARG_TO_INT(args[0]);
-	do_crc32_zeros(crc1.u8a, len);
-	RETURN_CRC(crc1);
+	crc1 = do_crc32_zeros(crc1, len);
+	RETURN_VAL(pack_crc32(ISOLATE crc1));
 }
 
 static void init_all() {

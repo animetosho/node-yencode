@@ -4,37 +4,29 @@
 #include "interface.h"
 crcutil_interface::CRC* crc = NULL;
 
-
-static void do_crc32_generic(const void* data, size_t length, unsigned char out[4]) {
-	crcutil_interface::UINT64 tmp = 0;
+static uint32_t do_crc32_incremental_generic(const void* data, size_t length, uint32_t init) {
+	crcutil_interface::UINT64 tmp = init;
 	crc->Compute(data, length, &tmp);
-	UNPACK_4(out, tmp);
-}
-crc_func _do_crc32 = &do_crc32_generic;
-
-static void do_crc32_incremental_generic(const void* data, size_t length, unsigned char init[4]) {
-	crcutil_interface::UINT64 tmp = PACK_4(init);
-	crc->Compute(data, length, &tmp);
-	UNPACK_4(init, tmp);
+	return tmp;
 }
 crc_func _do_crc32_incremental = &do_crc32_incremental_generic;
 
 
 
-void do_crc32_combine(unsigned char crc1[4], const unsigned char crc2[4], size_t len2) {
-	crcutil_interface::UINT64 crc1_ = PACK_4(crc1), crc2_ = PACK_4(crc2);
+uint32_t do_crc32_combine(uint32_t crc1, uint32_t crc2, size_t len2) {
+	crcutil_interface::UINT64 crc1_ = crc1, crc2_ = crc2;
 	crc->Concatenate(crc2_, 0, len2, &crc1_);
-	UNPACK_4(crc1, crc1_);
+	return crc1_;
 }
 
-void do_crc32_zeros(unsigned char crc1[4], size_t len) {
-	crcutil_interface::UINT64 crc_ = PACK_4(crc1);
+uint32_t do_crc32_zeros(uint32_t crc1, size_t len) {
+	crcutil_interface::UINT64 crc_ = crc1;
 	crc->CrcOfZeroes(len, &crc_);
-	UNPACK_4(crc1, crc_);
+	return crc_;
 }
 
-extern "C" void crc_clmul_set_funcs(crc_func*, crc_func*);
-void crc_arm_set_funcs(crc_func*, crc_func*);
+void crc_clmul_set_funcs(crc_func*);
+void crc_arm_set_funcs(crc_func*);
 
 #if defined(PLATFORM_ARM) && defined(_WIN32)
 # define WIN32_LEAN_AND_MEAN
@@ -70,7 +62,7 @@ void crc_init() {
 	int flags[4];
 	_cpuid1(flags);
 	if((flags[2] & 0x80202) == 0x80202) // SSE4.1 + SSSE3 + CLMUL
-		crc_clmul_set_funcs(&_do_crc32, &_do_crc32_incremental);
+		crc_clmul_set_funcs(&_do_crc32_incremental);
 #endif
 #ifdef PLATFORM_ARM
 # ifdef __APPLE__
@@ -98,7 +90,7 @@ void crc_init() {
 		false
 # endif
 	) {
-		crc_arm_set_funcs(&_do_crc32, &_do_crc32_incremental);
+		crc_arm_set_funcs(&_do_crc32_incremental);
 	}
 #endif
 }

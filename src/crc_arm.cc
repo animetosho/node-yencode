@@ -161,20 +161,13 @@ static uint32_t arm_crc_calc(uint32_t crc, const unsigned char *src, long len) {
 	return crc;
 }
 
-static void do_crc32_arm(const void* data, size_t length, unsigned char out[4]) {
-	uint32_t crc = arm_crc_calc(~0, (const unsigned char*)data, (long)length);
-	UNPACK_4(out, ~crc);
-}
-static void do_crc32_incremental_arm(const void* data, size_t length, unsigned char init[4]) {
-	uint32_t crc = PACK_4(init);
-	crc = arm_crc_calc(~crc, (const unsigned char*)data, (long)length);
-	UNPACK_4(init, ~crc);
+static uint32_t do_crc32_incremental_arm(const void* data, size_t length, uint32_t init) {
+	return ~arm_crc_calc(~init, (const unsigned char*)data, (long)length);
 }
 
-void crc_arm_set_funcs(crc_func* _do_crc32, crc_func* _do_crc32_incremental) {
-	*_do_crc32 = &do_crc32_arm;
+void crc_arm_set_funcs(crc_func* _do_crc32_incremental) {
 	*_do_crc32_incremental = &do_crc32_incremental_arm;
 }
 #else
-void crc_arm_set_funcs(crc_func* _do_crc32, crc_func* _do_crc32_incremental) {}
+void crc_arm_set_funcs(crc_func* _do_crc32_incremental) {}
 #endif
