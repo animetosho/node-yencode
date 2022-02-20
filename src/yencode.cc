@@ -252,7 +252,7 @@ FUNC(Decode) {
 		isRaw = ARG_TO_BOOL(args[1]);
 	
 	unsigned char *result = (unsigned char*) malloc(arg_len);
-	size_t len = (isRaw ? do_decode<true> : do_decode<false>)((const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL);
+	size_t len = do_decode(isRaw, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL);
 	result = (unsigned char*)realloc(result, len);
 	MARK_EXT_MEM(len);
 	RETURN_VAL( NEW_BUFFER((char*)result, len, free_buffer, (void*)len) );
@@ -276,7 +276,7 @@ FUNC(DecodeTo) {
 	if (args.Length() > 2)
 		isRaw = ARG_TO_BOOL(args[2]);
 	
-	size_t len = (isRaw ? do_decode<true> : do_decode<false>)((const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL);
+	size_t len = do_decode(isRaw, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL);
 	RETURN_VAL( Integer::New(ISOLATE len) );
 }
 
