@@ -145,7 +145,8 @@ static __m128i reverse_bits_epi8(__m128i src) {
     __m128i xmm_t0 = _mm_and_si128(src, _mm_set1_epi8(0x0f));
     __m128i xmm_t1 = _mm_and_si128(_mm_srli_epi16(src, 4), _mm_set1_epi8(0x0f));
     xmm_t0 = _mm_shuffle_epi8(_mm_set_epi8(
-      0xf0, 0x70, 0xb0, 0x30, 0xd0, 0x50, 0x90, 0x10, 0xe0, 0x60, 0xa0, 0x20, 0xc0, 0x40, 0x80, 0
+      -16, 112, -80, 48, -48, 80, -112, 16, -32, 96, -96, 32, -64, 64, -128, 0
+      //0xf0, 0x70, 0xb0, 0x30, 0xd0, 0x50, 0x90, 0x10, 0xe0, 0x60, 0xa0, 0x20, 0xc0, 0x40, 0x80, 0
     ), xmm_t0);
     xmm_t1 = _mm_shuffle_epi8(_mm_set_epi8(
       15, 7, 11, 3, 13, 5, 9, 1, 14, 6, 10, 2, 12, 4, 8, 0
