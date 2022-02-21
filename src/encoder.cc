@@ -1,5 +1,6 @@
 #include "common.h"
 #include "encoder_common.h"
+#include "encoder.h"
 
 size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len, int doEnd) {
 	unsigned char* es = (unsigned char*)src + len;
@@ -119,7 +120,9 @@ size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HED
 }
 
 
-size_t (*_do_encode)(int, int*, const unsigned char* HEDLEY_RESTRICT, unsigned char* HEDLEY_RESTRICT, size_t, int) = &do_encode_generic;
+extern "C" {
+	size_t (*_do_encode)(int, int*, const unsigned char* HEDLEY_RESTRICT, unsigned char* HEDLEY_RESTRICT, size_t, int) = &do_encode_generic;
+}
 
 void encoder_sse2_init();
 void encoder_ssse3_init();

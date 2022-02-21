@@ -1,3 +1,11 @@
+#ifndef __YENC_DECODER_H
+#define __YENC_DECODER_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
 
 // the last state that the decoder was in (i.e. last few characters processed)
 // the state is needed for incremental decoders as its behavior is affected by what it processed last
@@ -36,3 +44,10 @@ static inline YencDecoderEnd do_decode_end(const unsigned char*HEDLEY_RESTRICT* 
 }
 
 void decoder_init();
+
+
+
+#ifdef __cplusplus
+}
+#endif
+#endif

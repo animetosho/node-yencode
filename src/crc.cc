@@ -1,6 +1,5 @@
 #include "crc_common.h"
 
-
 #include "interface.h"
 crcutil_interface::CRC* crc = NULL;
 
