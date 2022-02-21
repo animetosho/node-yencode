@@ -24,10 +24,10 @@ static const uint16_t escapedLUT[256] = { // escaped sequences for characters th
 #undef _BX
 
 
-size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len, bool doEnd);
+size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len, int doEnd);
 
 template<void(&kernel)(int, int*, const uint8_t* HEDLEY_RESTRICT, uint8_t* HEDLEY_RESTRICT&, size_t&)>
-static size_t do_encode_simd(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT src, uint8_t* HEDLEY_RESTRICT dest, size_t len, bool doEnd) {
+static size_t do_encode_simd(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT src, uint8_t* HEDLEY_RESTRICT dest, size_t len, int doEnd) {
 	if(len < 1) return 0;
 	if(line_size < 12) { // short lines probably not worth processing in a SIMD way
 		// we assume at least the first and last char exist in the line, and since the first char could be escaped, and SIMD encoder assumes at least one non-first/last char, assumption means that line size has to be >= 4
