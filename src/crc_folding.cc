@@ -404,6 +404,8 @@ void crc_clmul_set_funcs(crc_func* _do_crc32_incremental) {
 	*_do_crc32_incremental = &do_crc32_incremental_clmul;
 }
 #else
-void crc_clmul_set_funcs(crc_func* _do_crc32_incremental) {}
+void crc_clmul_set_funcs(crc_func* _do_crc32_incremental) {
+    (void)_do_crc32_incremental;
+}
 #endif
 

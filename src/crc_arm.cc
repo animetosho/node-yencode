@@ -169,5 +169,7 @@ void crc_arm_set_funcs(crc_func* _do_crc32_incremental) {
 	*_do_crc32_incremental = &do_crc32_incremental_arm;
 }
 #else
-void crc_arm_set_funcs(crc_func* _do_crc32_incremental) {}
+void crc_arm_set_funcs(crc_func* _do_crc32_incremental) {
+	(void)_do_crc32_incremental;
+}
 #endif

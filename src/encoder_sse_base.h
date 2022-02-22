@@ -717,7 +717,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		}
 	} while(i < 0);
 	
-	*colOffset = col + line_size -1;
+	*colOffset = (int)(col + line_size -1);
 	dest = p;
 	len = -(i - INPUT_OFFSET);
 }

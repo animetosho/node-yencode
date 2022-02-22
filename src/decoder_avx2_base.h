@@ -302,7 +302,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 						if(LIKELIHOOD(0.002, matchEnd)) {
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
-							len += i;
+							len += (long)i;
 							break;
 						}
 					}
@@ -394,7 +394,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 							));
 						}
 						if(endFound) {
-							len += i;
+							len += (long)i;
 							break;
 						}
 					}
@@ -523,7 +523,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 #endif
 			{
 				yencOffset = _mm256_xor_si256(_mm256_set1_epi8(-42), zext128_256(
-					_mm_slli_epi16(_mm_cvtsi32_si128(escFirst), 6)
+					_mm_slli_epi16(_mm_cvtsi32_si128((int)escFirst), 6)
 				));
 			}
 			
@@ -565,7 +565,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 				p -= popcnt32(mask & 0xffff0);
 				
 				_mm_storeu_si128((__m128i*)(p + XMM_SIZE*3), _mm256_extracti128_si256(dataB, 1));
-				p -= popcnt32(mask >> 20);
+				p -= popcnt32((unsigned int)(mask >> 20));
 #else
 				mask >>= 32;
 				shuf = _mm256_inserti128_si256(

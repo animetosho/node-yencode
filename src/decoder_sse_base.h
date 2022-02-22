@@ -368,7 +368,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						if(LIKELIHOOD(0.001, matchEnd)) {
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
-							len += i;
+							len += (long)i;
 							break;
 						}
 					}
@@ -477,7 +477,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						}
 						
 						if(endFound) {
-							len += i;
+							len += (long)i;
 							break;
 						}
 					}
@@ -558,7 +558,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 					);
 					
 					yencOffset = _mm_xor_si128(_mm_set1_epi8(-42), 
-						_mm_slli_epi16(_mm_cvtsi32_si128(escFirst), 6)
+						_mm_slli_epi16(_mm_cvtsi32_si128((int)escFirst), 6)
 					);
 				}
 			} else {
@@ -608,7 +608,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 						)
 					);
 					yencOffset = _mm_xor_si128(_mm_set1_epi8(-42), 
-						_mm_slli_epi16(_mm_cvtsi32_si128(escFirst), 6)
+						_mm_slli_epi16(_mm_cvtsi32_si128((int)escFirst), 6)
 					);
 				} else
 #endif

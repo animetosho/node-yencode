@@ -6,7 +6,7 @@ crcutil_interface::CRC* crc = NULL;
 static uint32_t do_crc32_incremental_generic(const void* data, size_t length, uint32_t init) {
 	crcutil_interface::UINT64 tmp = init;
 	crc->Compute(data, length, &tmp);
-	return tmp;
+	return (uint32_t)tmp;
 }
 crc_func _do_crc32_incremental = &do_crc32_incremental_generic;
 
@@ -15,13 +15,13 @@ crc_func _do_crc32_incremental = &do_crc32_incremental_generic;
 uint32_t do_crc32_combine(uint32_t crc1, uint32_t crc2, size_t len2) {
 	crcutil_interface::UINT64 crc1_ = crc1, crc2_ = crc2;
 	crc->Concatenate(crc2_, 0, len2, &crc1_);
-	return crc1_;
+	return (uint32_t)crc1_;
 }
 
 uint32_t do_crc32_zeros(uint32_t crc1, size_t len) {
 	crcutil_interface::UINT64 crc_ = crc1;
 	crc->CrcOfZeroes(len, &crc_);
-	return crc_;
+	return (uint32_t)crc_;
 }
 
 void crc_clmul_set_funcs(crc_func*);

@@ -254,7 +254,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				// we overflowed - find correct position to revert back to
 				// this is perhaps sub-optimal on 32-bit, but who still uses that with AVX2?
 				uint64_t eqMask;
-				int shiftAmt = maskBitsB + YMM_SIZE -1 - col;
+				int shiftAmt = (int)(maskBitsB + YMM_SIZE -1 - col);
 				if(HEDLEY_UNLIKELY(shiftAmt < 0)) {
 					uint32_t eqMask1, eqMask2;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
@@ -320,7 +320,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 #endif
 					{
 						i += bitCount;
-						unsigned int revert = col + (eqMask & 1);
+						unsigned int revert = (unsigned int)(col + (eqMask & 1));
 						p -= revert;
 						i -= revert;
 					}
@@ -556,7 +556,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 	
 	_mm256_zeroupper();
 	
-	*colOffset = col + line_size -1;
+	*colOffset = (int)(col + line_size -1);
 	dest = p;
 	len = -(i - INPUT_OFFSET);
 }

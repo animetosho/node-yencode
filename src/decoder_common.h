@@ -340,7 +340,7 @@ YencDecoderEnd do_decode_simd(const unsigned char* HEDLEY_RESTRICT* src, unsigne
 	if((uintptr_t)(*src) & ((width-1))) {
 		// find source memory alignment
 		unsigned char* aSrc = (unsigned char*)(((uintptr_t)(*src) + (width-1)) & ~(width-1));
-		int amount = aSrc - *src;
+		int amount = (int)(aSrc - *src);
 		len -= amount;
 		YencDecoderEnd ended = do_decode_scalar<isRaw, searchEnd>(src, dest, amount, pState);
 		if(ended) return ended;
@@ -427,7 +427,7 @@ YencDecoderEnd do_decode_simd(const unsigned char* HEDLEY_RESTRICT* src, unsigne
 		escFirst = (*pState == YDEC_STATE_EQ || *pState == YDEC_STATE_CRLFEQ);
 		
 		// our algorithm may perform an aligned load on the next part, of which we consider 2 bytes (for \r\n. sequence checking)
-		long dLen = len - lenBuffer;
+		long dLen = (long)(len - lenBuffer);
 		dLen = (dLen + (width-1)) & ~(width-1);
 		
 		kernel((const uint8_t*)(*src) + dLen, dLen, p, escFirst, nextMask);
