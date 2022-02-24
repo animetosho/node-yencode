@@ -16,7 +16,7 @@
 
 #include "generic_crc.h"
 
-#if CRCUTIL_USE_ASM && HAVE_I386 && HAVE_MMX
+#if CRCUTIL_USE_ASM && HAVE_I386 && HAVE_MMX && !defined(_MSC_VER) && !(defined(__GNUC__) && !defined(__clang__))
 
 namespace crcutil {
 
