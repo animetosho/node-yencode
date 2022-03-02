@@ -178,18 +178,24 @@ static HEDLEY_ALWAYS_INLINE int8x16_t vmakeq_s8(
 # endif
 }
 
+# ifdef _MSC_VER
+#  define _CREATE_TUPLE(type, ...) type{{ __VA_ARGS__ }}
+# else
+#  define _CREATE_TUPLE(type, ...) (type){{ __VA_ARGS__ }}
+# endif
 static HEDLEY_ALWAYS_INLINE uint8x16x2_t vcreate2_u8(uint8x16_t a, uint8x16_t b) {
-	return {a, b};
+	return _CREATE_TUPLE(uint8x16x2_t, a, b);
 }
 static HEDLEY_ALWAYS_INLINE int8x16x2_t vcreate2_s8(int8x16_t a, int8x16_t b) {
-	return {a, b};
+	return _CREATE_TUPLE(int8x16x2_t, a, b);
 }
 static HEDLEY_ALWAYS_INLINE uint8x16x3_t vcreate3_u8(uint8x16_t a, uint8x16_t b, uint8x16_t c) {
-	return {a, b, c};
+	return _CREATE_TUPLE(uint8x16x3_t, a, b, c);
 }
 static HEDLEY_ALWAYS_INLINE uint8x16x4_t vcreate4_u8(uint8x16_t a, uint8x16_t b, uint8x16_t c, uint8x16_t d) {
-	return {a, b, c, d};
+	return _CREATE_TUPLE(uint8x16x4_t, a, b, c, d);
 }
+# undef _CREATE_TUPLE
 #endif
 #ifdef PLATFORM_ARM
 bool cpu_supports_neon();
