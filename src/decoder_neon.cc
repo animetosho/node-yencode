@@ -29,7 +29,7 @@
 #if defined(__aarch64__) && (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 9))
 # define vst1q_u8_x2_unaligned vst1q_u8_x2
 #else
-HEDLEY_ALWAYS_INLINE void vst1q_u8_x2_unaligned(uint8_t* p, uint8x16x2_t data) {
+static HEDLEY_ALWAYS_INLINE void vst1q_u8_x2_unaligned(uint8_t* p, uint8x16x2_t data) {
 	vst1q_u8(p, data.val[0]);
 	vst1q_u8(p+16, data.val[1]);
 }
