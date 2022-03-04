@@ -241,7 +241,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 }
 
 
-static HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
+HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
 	// offset position to enable simpler loop condition checking
 	const int INPUT_OFFSET = sizeof(uint8x16_t)*4 -1; // extra chars for EOL handling, -1 to change <= to <
 	if(len <= INPUT_OFFSET || line_size < (int)sizeof(uint8x16_t)*4) return;
