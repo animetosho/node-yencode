@@ -35,18 +35,22 @@
 #endif
 
 
+#include <stdlib.h>
 #if defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
-	#include <stdlib.h> // MSVC ARM64 seems to need this
+	// MSVC doesn't support C11 aligned_alloc: https://stackoverflow.com/a/62963007
 	#define ALIGN_ALLOC(buf, len, align) *(void**)&(buf) = _aligned_malloc((len), align)
 	#define ALIGN_FREE _aligned_free
-#elif defined(__cplusplus) && __cplusplus >= 201100 && !(defined(_MSC_VER) && (defined(__clang__) || defined(_M_ARM64) || defined(_M_ARM))) && !defined(__APPLE__)
-	// C++11 method
+#elif defined(_ISOC11_SOURCE)
+	// C11 method
 	// len needs to be a multiple of alignment, although it sometimes works if it isn't...
-	#include <cstdlib>
 	#define ALIGN_ALLOC(buf, len, align) *(void**)&(buf) = aligned_alloc(align, ((len) + (align)-1) & ~((align)-1))
 	#define ALIGN_FREE free
+#elif defined(__cplusplus) && __cplusplus >= 201700
+	// C++17 method
+	#include <cstdlib>
+	#define ALIGN_ALLOC(buf, len, align) *(void**)&(buf) = std::aligned_alloc(align, ((len) + (align)-1) & ~((align)-1))
+	#define ALIGN_FREE free
 #else
-	#include <stdlib.h>
 	#define ALIGN_ALLOC(buf, len, align) if(posix_memalign((void**)&(buf), align, (len))) (buf) = NULL
 	#define ALIGN_FREE free
 #endif
