@@ -14,14 +14,30 @@ HEDLEY_WARNING("CRC32 acceleration is not been enabled under ARM clang-cl by def
 #include <arm_acle.h>
 #endif
 
+
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+# ifdef __GNUC__
+#  define _LE16 __builtin_bswap16
+#  define _LE32 __builtin_bswap32
+#  define _LE64 __builtin_bswap64
+# else
+// currently not supported
+#  error No endian swap intrinsic defined
+# endif
+#else
+# define _LE16(x) (x)
+# define _LE32(x) (x)
+# define _LE64(x) (x)
+#endif
+
 #ifdef __aarch64__
 # define WORD_T uint64_t
 # define WORDSIZE_LOG 3  // sizeof(WORD_T) == 1<<WORDSIZE_LOG
-# define CRC_WORD __crc32d
+# define CRC_WORD(crc, data) __crc32d(crc, _LE64(data))
 #else
 # define WORD_T uint32_t
 # define WORDSIZE_LOG 2  // sizeof(WORD_T) == 1<<WORDSIZE_LOG
-# define CRC_WORD __crc32w
+# define CRC_WORD(crc, data) __crc32w(crc, _LE32(data))
 #endif
 
 
@@ -64,6 +80,7 @@ static const uint32_t crc_power[] = { // pre-computed 2^n, with first 3 entries 
 #endif
 
 
+
 // inspired/stolen off https://github.com/jocover/crc32_armv8/blob/master/crc32_armv8.c
 static uint32_t arm_crc_calc(uint32_t crc, const unsigned char *src, long len) {
 	
@@ -75,13 +92,13 @@ static uint32_t arm_crc_calc(uint32_t crc, const unsigned char *src, long len) {
 			len--;
 		}
 		if ((uintptr_t)src & sizeof(uint16_t)) {
-			crc = __crc32h(crc, *((uint16_t *)src));
+			crc = __crc32h(crc, _LE16(*((uint16_t *)src)));
 			src += sizeof(uint16_t);
 			len -= sizeof(uint16_t);
 		}
 #ifdef __aarch64__
 		if ((uintptr_t)src & sizeof(uint32_t)) {
-			crc = __crc32w(crc, *((uint32_t *)src));
+			crc = __crc32w(crc, _LE32(*((uint32_t *)src)));
 			src += sizeof(uint32_t);
 			len -= sizeof(uint32_t);
 		}
@@ -147,12 +164,12 @@ static uint32_t arm_crc_calc(uint32_t crc, const unsigned char *src, long len) {
 	
 #ifdef __aarch64__
 	if (len & sizeof(uint32_t)) {
-		crc = __crc32w(crc, *((uint32_t *)src));
+		crc = __crc32w(crc, _LE32(*((uint32_t *)src)));
 		src += sizeof(uint32_t);
 	}
 #endif
 	if (len & sizeof(uint16_t)) {
-		crc = __crc32h(crc, *((uint16_t *)src));
+		crc = __crc32h(crc, _LE16(*((uint16_t *)src)));
 		src += sizeof(uint16_t);
 	}
 	if (len & sizeof(uint8_t))
