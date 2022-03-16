@@ -221,9 +221,9 @@ enum YEncDecIsaLevel {
 	ISA_LEVEL_SSE41 = 0x300,
 	ISA_LEVEL_SSE4_POPCNT = 0x301,
 	ISA_LEVEL_AVX = 0x381, // same as above, just used as a differentiator for `cpu_supports_isa`
-	ISA_LEVEL_AVX2 = 0x383, // also includes BMI1/2 and LZCNT
-	ISA_LEVEL_AVX3 = 0x403, // SKX variant; AVX512VL + AVX512BW
-	ISA_LEVEL_VBMI2 = 0x503 // ICL
+	ISA_LEVEL_AVX2 = 0x403, // also includes BMI1/2 and LZCNT
+	ISA_LEVEL_AVX3 = 0x503, // SKX variant; AVX512VL + AVX512BW
+	ISA_LEVEL_VBMI2 = 0x603 // ICL
 };
 #ifdef _MSC_VER
 // native tuning not supported in MSVC
