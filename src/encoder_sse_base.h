@@ -155,7 +155,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 	if(len <= INPUT_OFFSET || line_size < XMM_SIZE) return;
 	
 	// slower CPUs prefer to branch as mispredict penalty is probably small relative to general execution
-#if defined(__tune_atom__) || defined(__tune_slm__) || defined(__tune_btver1__)
+#if defined(__tune_atom__) || defined(__tune_slm__) || defined(__tune_btver1__) || defined(__tune_btver2__)
 	const bool _PREFER_BRANCHING = true;
 #else
 	const bool _PREFER_BRANCHING = (use_isa < ISA_LEVEL_SSSE3);
@@ -539,7 +539,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					dataA = _mm_shuffle_epi8(dataA, shufMaskA);
 					
 # if defined(__SSE4_1__) && !defined(__tune_slm__) && !defined(__tune_goldmont__) && !defined(__tune_goldmont_plus__) && !defined(__tune_tremont__)
-					// unsure if worth on: Jaguar/Puma (3|2), Core2 (2|2)
 					if(use_isa >= ISA_LEVEL_SSE41) {
 						dataB = _mm_blendv_epi8(dataBShifted, dataB, mergeMaskB);
 					} else

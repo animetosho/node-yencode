@@ -112,8 +112,6 @@ int cpu_supports_isa() {
 		// AMD Bobcat with slow SSSE3 instructions - pretend it doesn't exist
 		return ret | ISA_LEVEL_SSE2;
 	
-	// Jaguar/Puma performance unkown (slowish PSHUFB/PBLENDVB)
-	
 	if((flags[2] & 0x200) == 0x200) { // SSSE3
 		if(family == 6 && (model == 0x5c || model == 0x5f || model == 0x7a || model == 0x9c))
 			// Intel Goldmont/plus / Tremont with slow PBLENDVB

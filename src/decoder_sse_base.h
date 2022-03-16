@@ -112,7 +112,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 		-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42,-42-64
 	) : _mm_set1_epi8(-42);
 	
-#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_slm__) && !defined(__tune_btver1__)
+#if defined(__SSSE3__) && !defined(__tune_atom__) && !defined(__tune_slm__) && !defined(__tune_btver1__) && !defined(__tune_btver2__)
 	const bool _USING_FAST_MATCH = (use_isa >= ISA_LEVEL_SSSE3);
 #else
 	const bool _USING_FAST_MATCH = false;
