@@ -50,4 +50,14 @@ doTest('Random', 'crc32', 'fj[-oqijnw34-59n26 4345j8yn89032q78t9ab9gabh023quhoiB
 doTest('Random Continue', 'crc32', ['KZSHZ5EDOVAmDdakZZOrGSUGGKSpCJoWH7M0MHy6ohnSzvHY4DjpxXmyfWYJQoJ7tKdNhGcuRVUzrgXM', ycrc32('BdenbmoBgiB10ZkeUBjrsZV3dg2Da2fhHqU9TMdi69AHhLRck3Nk60YuFBXh6lvtefBpjdTxbeEmsaEm')], crc32('BdenbmoBgiB10ZkeUBjrsZV3dg2Da2fhHqU9TMdi69AHhLRck3Nk60YuFBXh6lvtefBpjdTxbeEmsaEmKZSHZ5EDOVAmDdakZZOrGSUGGKSpCJoWH7M0MHy6ohnSzvHY4DjpxXmyfWYJQoJ7tKdNhGcuRVUzrgXM'));
 
 
+// random tests
+for(var i=0; i<32; i++) {
+	var rand = require('crypto').pseudoRandomBytes(100000);
+	doTest('Random Buffer', 'crc32', rand);
+	
+	var split = Math.random()*rand.length;
+	doTest('Random Continue Buffer', 'crc32', [rand.slice(split), ycrc32(rand.slice(0, split))], crc32(rand));
+}
+
+
 console.log('All tests passed');
