@@ -163,7 +163,8 @@ static uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
     if (len < 16) {
         if (len == 0)
             return initial;
-        xmm_crc_part = _mm_loadu_si128((__m128i *)src);
+        xmm_crc_part = _mm_setzero_si128();
+        memcpy(&xmm_crc_part, src, len);
         goto partial;
     }
 
@@ -178,7 +179,7 @@ static uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
             &xmm_crc_part);
     }
 
-    while ((len -= 64) >= 0) {
+    while (len >= 64) {
         xmm_t0 = _mm_load_si128((__m128i *)src);
         xmm_t1 = _mm_load_si128((__m128i *)src + 1);
         xmm_t2 = _mm_load_si128((__m128i *)src + 2);
@@ -202,13 +203,11 @@ static uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
 #endif
 
         src += 64;
+        len -= 64;
     }
 
-    /*
-     * len = num bytes left - 64
-     */
-    if (len + 16 >= 0) {
-        len += 16;
+    if (len >= 48) {
+        len -= 48;
 
         xmm_t0 = _mm_load_si128((__m128i *)src);
         xmm_t1 = _mm_load_si128((__m128i *)src + 1);
@@ -233,8 +232,8 @@ static uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
             goto done;
 
         xmm_crc_part = _mm_load_si128((__m128i *)src + 3);
-    } else if (len + 32 >= 0) {
-        len += 32;
+    } else if (len >= 32) {
+        len -= 32;
 
         xmm_t0 = _mm_load_si128((__m128i *)src);
         xmm_t1 = _mm_load_si128((__m128i *)src + 1);
@@ -257,8 +256,8 @@ static uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
             goto done;
 
         xmm_crc_part = _mm_load_si128((__m128i *)src + 2);
-    } else if (len + 48 >= 0) {
-        len += 48;
+    } else if (len >= 16) {
+        len -= 16;
 
         xmm_t0 = _mm_load_si128((__m128i *)src);
 
@@ -277,7 +276,6 @@ static uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
 
         xmm_crc_part = _mm_load_si128((__m128i *)src + 1);
     } else {
-        len += 64;
         if (len == 0)
             goto done;
         xmm_crc_part = _mm_load_si128((__m128i *)src);
