@@ -51,6 +51,14 @@ ALIGN_TO(32, static const uint8_t  pshufb_rot_table[]) = {
 # endif
 #endif
 
+#ifdef ENABLE_AVX512
+# define MM256_BLENDV(a, b, m) _mm256_ternarylogic_epi32(a, b, m, 0xd8)
+# define MM_2XOR(a, b, c) _mm_ternarylogic_epi32(a, b, c, 0x96)
+#else
+# define MM256_BLENDV _mm256_blendv_epi8
+# define MM_2XOR(a, b, c) _mm_xor_si128(_mm_xor_si128(a, b), c)
+#endif
+
 static void partial_fold(const size_t len, __m256i *crc0, __m256i *crc1, __m256i crc_part) {
 	__m256i shuf = _mm256_broadcastsi128_si256(_mm_loadu_si128((__m128i*)(pshufb_rot_table + (len&15))));
 	__m256i mask = _mm256_cmpgt_epi8(shuf, _mm256_set1_epi8(15));
@@ -62,7 +70,7 @@ static void partial_fold(const size_t len, __m256i *crc0, __m256i *crc1, __m256i
 	__m256i crc_out = _mm256_permute2x128_si256(*crc0, *crc0, 0x08);  // move bottom->top
 	__m256i crc01, crc1p;
 	if(len >= 16) {
-		crc_out = _mm256_blendv_epi8(crc_out, *crc0, mask);
+		crc_out = MM256_BLENDV(crc_out, *crc0, mask);
 		crc01 = *crc1;
 		crc1p = crc_part;
 		*crc0 = _mm256_permute2x128_si256(*crc0, *crc1, 0x21);
@@ -74,8 +82,8 @@ static void partial_fold(const size_t len, __m256i *crc0, __m256i *crc1, __m256i
 		crc1p = _mm256_permute2x128_si256(*crc1, crc_part, 0x21);
 	}
 	
-	*crc0 = _mm256_blendv_epi8(*crc0, crc01, mask);
-	*crc1 = _mm256_blendv_epi8(*crc1, crc1p, mask);
+	*crc0 = MM256_BLENDV(*crc0, crc01, mask);
+	*crc1 = MM256_BLENDV(*crc1, crc1p, mask);
 	
 	*crc1 = do_one_fold(crc_out, *crc1);
 }
@@ -158,30 +166,15 @@ static uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
 
 	x_tmp0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x10);
 	xmm_crc0 = _mm_clmulepi64_si128(xmm_crc0, crc_fold, 0x01);
-#ifdef ENABLE_AVX512
-	xmm_crc1 = _mm_ternarylogic_epi32(xmm_crc1, x_tmp0, xmm_crc0, 0x96);
-#else
-	xmm_crc1 = _mm_xor_si128(xmm_crc1, x_tmp0);
-	xmm_crc1 = _mm_xor_si128(xmm_crc1, xmm_crc0);
-#endif
+	xmm_crc1 = MM_2XOR(xmm_crc1, x_tmp0, xmm_crc0);
 
 	x_tmp1 = _mm_clmulepi64_si128(xmm_crc1, crc_fold, 0x10);
 	xmm_crc1 = _mm_clmulepi64_si128(xmm_crc1, crc_fold, 0x01);
-#ifdef ENABLE_AVX512
-	xmm_crc2 = _mm_ternarylogic_epi32(xmm_crc2, x_tmp1, xmm_crc1, 0x96);
-#else
-	xmm_crc2 = _mm_xor_si128(xmm_crc2, x_tmp1);
-	xmm_crc2 = _mm_xor_si128(xmm_crc2, xmm_crc1);
-#endif
+	xmm_crc2 = MM_2XOR(xmm_crc2, x_tmp1, xmm_crc1);
 
 	x_tmp2 = _mm_clmulepi64_si128(xmm_crc2, crc_fold, 0x10);
 	xmm_crc2 = _mm_clmulepi64_si128(xmm_crc2, crc_fold, 0x01);
-#ifdef ENABLE_AVX512
-	xmm_crc3 = _mm_ternarylogic_epi32(xmm_crc3, x_tmp2, xmm_crc2, 0x96);
-#else
-	xmm_crc3 = _mm_xor_si128(xmm_crc3, x_tmp2);
-	xmm_crc3 = _mm_xor_si128(xmm_crc3, xmm_crc2);
-#endif
+	xmm_crc3 = MM_2XOR(xmm_crc3, x_tmp2, xmm_crc2);
 
 	/*
 	 * k5
