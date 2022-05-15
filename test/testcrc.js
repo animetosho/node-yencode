@@ -51,6 +51,10 @@ doTest('Random Continue', 'crc32', ['KZSHZ5EDOVAmDdakZZOrGSUGGKSpCJoWH7M0MHy6ohn
 
 
 // random tests
+for(var i=1; i<128; i++) {
+	var rand = require('crypto').pseudoRandomBytes(i);
+	doTest('Random Short Buffer', 'crc32', rand);
+}
 for(var i=0; i<32; i++) {
 	var rand = require('crypto').pseudoRandomBytes(100000);
 	doTest('Random Buffer', 'crc32', rand);

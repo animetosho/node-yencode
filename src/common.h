@@ -253,13 +253,6 @@ enum YEncDecIsaLevel {
 # endif
 #endif
 
-#ifdef _MSC_VER
-# define _cpuid1(ar) __cpuid(ar, 1)
-#else
-# include <cpuid.h>
-# define _cpuid1(ar) __cpuid(1, ar[0], ar[1], ar[2], ar[3])
-#endif
-
 int cpu_supports_isa();
 #endif // PLATFORM_X86
 

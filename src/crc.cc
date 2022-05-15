@@ -25,7 +25,12 @@ uint32_t do_crc32_zeros(uint32_t crc1, size_t len) {
 }
 
 void crc_clmul_set_funcs(crc_func*);
+void crc_clmul256_set_funcs(crc_func*);
 void crc_arm_set_funcs(crc_func*);
+
+#ifdef PLATFORM_X86
+int cpu_supports_crc_isa();
+#endif
 
 #if defined(PLATFORM_ARM) && defined(_WIN32)
 # define WIN32_LEAN_AND_MEAN
@@ -58,9 +63,10 @@ void crc_init() {
 	// instance never deleted... oh well...
 	
 #ifdef PLATFORM_X86
-	int flags[4];
-	_cpuid1(flags);
-	if((flags[2] & 0x80202) == 0x80202) // SSE4.1 + SSSE3 + CLMUL
+	int support = cpu_supports_crc_isa();
+	if(support == 2)
+		crc_clmul256_set_funcs(&_do_crc32_incremental);
+	else if(support == 1)
 		crc_clmul_set_funcs(&_do_crc32_incremental);
 #endif
 #ifdef PLATFORM_ARM

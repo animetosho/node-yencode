@@ -55,6 +55,7 @@ bool cpu_supports_neon() {
 
 #ifdef PLATFORM_X86
 #ifdef _MSC_VER
+# define _cpuid1(ar) __cpuid(ar, 1)
 # define _cpuid1x(ar) __cpuid(ar, 0x80000001)
 # if _MSC_VER >= 1600
 #  define _cpuidX __cpuidex
@@ -66,6 +67,8 @@ bool cpu_supports_neon() {
 #  define _GET_XCR() 0
 # endif
 #else
+# include <cpuid.h>
+# define _cpuid1(ar) __cpuid(1, ar[0], ar[1], ar[2], ar[3])
 # define _cpuid1x(ar) __cpuid(0x80000001, ar[0], ar[1], ar[2], ar[3])
 # define _cpuidX(ar, eax, ecx) __cpuid_count(eax, ecx, ar[0], ar[1], ar[2], ar[3])
 static inline int _GET_XCR() {
@@ -140,6 +143,26 @@ int cpu_supports_isa() {
 		return ret | ISA_LEVEL_SSSE3;
 	}
 	return ret | ISA_LEVEL_SSE2;
+}
+
+int cpu_supports_crc_isa() {
+	int flags[4];
+	_cpuid1(flags);
+	
+	if((flags[2] & 0x80202) == 0x80202) { // SSE4.1 + SSSE3 + CLMUL
+		if((flags[2] & 0x18000000) == 0x18000000) { // OSXSAVE + AVX
+			int xcr = _GET_XCR() & 0xff; // ignore unused bits
+			if((xcr & 6) == 6) { // AVX enabled
+				int cpuInfo[4];
+				_cpuidX(cpuInfo, 7, 0);
+				if((cpuInfo[1] & 0x20) == 0x20 && (cpuInfo[2] & 0x400) == 0x400) { // AVX2 + VPCLMULQDQ
+					return 2;
+				}
+			}
+		}
+		return 1;
+	}
+	return 0;
 }
 
 #endif // PLATFORM_X86

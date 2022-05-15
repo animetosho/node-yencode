@@ -64,7 +64,7 @@
   "targets": [
     {
       "target_name": "yencode",
-      "dependencies": ["crcutil", "yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_avx", "yencode_avx2", "yencode_neon", "yencode_armcrc"],
+      "dependencies": ["crcutil", "yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_clmul256", "yencode_avx", "yencode_avx2", "yencode_neon", "yencode_armcrc"],
       "sources": [
         "src/yencode.cc",
         "src/platform.cc",
@@ -197,6 +197,38 @@
               "xcode_settings": {
                 "OTHER_CFLAGS": ["-mavx2", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
                 "OTHER_CXXFLAGS": ["-mavx2", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
+              }
+            }]
+          ]
+        }],
+        ['target_arch in "ia32 x64" and OS=="win"', {
+          "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "3"}}
+        }]
+      ]
+    },
+    {
+      "target_name": "yencode_clmul256",
+      "type": "static_library",
+      "sources": [
+        "src/crc_folding_256.cc"
+      ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
+      "conditions": [
+        ['target_arch in "ia32 x64" and OS!="win"', {
+          "variables": {"supports_vpclmul%": "<!(<!(echo ${CC_target:-${CC:-cc}}) -MM -E src/crc_folding_256.cc -mavx2 -mvpclmulqdq 2>/dev/null || true)"},
+          "conditions": [
+            ['supports_vpclmul!=""', {
+              "cflags": ["-mavx2", "-mvpclmulqdq"],
+              "cxxflags": ["-mavx2", "-mvpclmulqdq"],
+              "xcode_settings": {
+                "OTHER_CFLAGS": ["-mavx2", "-mvpclmulqdq"],
+                "OTHER_CXXFLAGS": ["-mavx2", "-mvpclmulqdq"],
               }
             }]
           ]
