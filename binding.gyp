@@ -224,11 +224,11 @@
           "variables": {"supports_vpclmul%": "<!(<!(echo ${CC_target:-${CC:-cc}}) -MM -E src/crc_folding_256.cc -mavx2 -mvpclmulqdq 2>/dev/null || true)"},
           "conditions": [
             ['supports_vpclmul!=""', {
-              "cflags": ["-mavx2", "-mvpclmulqdq"],
-              "cxxflags": ["-mavx2", "-mvpclmulqdq"],
+              "cflags": ["-mavx2", "-mvpclmulqdq", "-mpclmul"],
+              "cxxflags": ["-mavx2", "-mvpclmulqdq", "-mpclmul"],
               "xcode_settings": {
-                "OTHER_CFLAGS": ["-mavx2", "-mvpclmulqdq"],
-                "OTHER_CXXFLAGS": ["-mavx2", "-mvpclmulqdq"],
+                "OTHER_CFLAGS": ["-mavx2", "-mvpclmulqdq", "-mpclmul"],
+                "OTHER_CXXFLAGS": ["-mavx2", "-mvpclmulqdq", "-mpclmul"],
               }
             }]
           ]

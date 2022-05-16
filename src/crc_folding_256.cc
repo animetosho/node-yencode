@@ -2,7 +2,7 @@
 
 #include "crc_common.h"
  
-#if !defined(YENC_DISABLE_AVX256) && ((defined(__VPCLMULQDQ__) && defined(__AVX2__)) || (defined(_MSC_VER) && _MSC_VER >= 1920 && defined(PLATFORM_X86)))
+#if !defined(YENC_DISABLE_AVX256) && ((defined(__VPCLMULQDQ__) && defined(__AVX2__) && defined(__PCLMUL__)) || (defined(_MSC_VER) && _MSC_VER >= 1920 && defined(PLATFORM_X86)))
 #include <inttypes.h>
 #include <immintrin.h>
 
