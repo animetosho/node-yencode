@@ -64,7 +64,7 @@
   "targets": [
     {
       "target_name": "yencode",
-      "dependencies": ["crcutil", "yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_clmul256", "yencode_avx", "yencode_avx2", "yencode_neon", "yencode_armcrc"],
+      "dependencies": ["crcutil", "yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_clmul256", "yencode_avx", "yencode_avx2", "yencode_vbmi2", "yencode_neon", "yencode_armcrc"],
       "sources": [
         "src/yencode.cc",
         "src/platform.cc",
@@ -235,6 +235,38 @@
         }],
         ['target_arch in "ia32 x64" and OS=="win"', {
           "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "3"}}
+        }]
+      ]
+    },
+    {
+      "target_name": "yencode_vbmi2",
+      "type": "static_library",
+      "sources": [
+        "src/decoder_vbmi2.cc", "src/encoder_vbmi2.cc"
+      ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
+      "conditions": [
+        ['target_arch in "ia32 x64" and OS!="win"', {
+          "variables": {"supports_vbmi2%": "<!(<!(echo ${CC_target:-${CC:-cc}}) -MM -E src/encoder_vbmi2.cc -mavx512vl -mavx512vbmi2 2>/dev/null || true)"},
+          "conditions": [
+            ['supports_vbmi2!=""', {
+              "cflags": ["-mavx512vbmi2", "-mavx512vl", "-mavx512bw", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
+              "cxxflags": ["-mavx512vbmi2", "-mavx512vl", "-mavx512bw", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
+              "xcode_settings": {
+                "OTHER_CFLAGS": ["-mavx512vbmi2", "-mavx512vl", "-mavx512bw", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
+                "OTHER_CXXFLAGS": ["-mavx512vbmi2", "-mavx512vl", "-mavx512bw", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
+              }
+            }]
+          ]
+        }],
+        ['target_arch in "ia32 x64" and OS=="win"', {
+          "msvs_settings": {"VCCLCompilerTool": {"AdditionalOptions": ["/arch:AVX512"], "EnableEnhancedInstructionSet": "0"}}
         }]
       ]
     },
