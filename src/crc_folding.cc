@@ -19,7 +19,7 @@
 
 #include "crc_common.h"
  
-#if (defined(__PCLMUL__) && defined(__SSSE3__) && defined(__SSE4_1__)) || (defined(_MSC_VER) && _MSC_VER >= 1600 && defined(PLATFORM_X86))
+#if (defined(__PCLMUL__) && defined(__SSSE3__) && defined(__SSE4_1__)) || (defined(_MSC_VER) && _MSC_VER >= 1600 && defined(PLATFORM_X86) && !defined(__clang__))
 #include <inttypes.h>
 #include <immintrin.h>
 #include <wmmintrin.h>
