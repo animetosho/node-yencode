@@ -6,7 +6,7 @@
 #include "encoder_common.h"
 #define YMM_SIZE 32
 
-#if defined(__GNUC__) && __GNUC__ >= 7
+#if (defined(__GNUC__) && __GNUC__ >= 7) || (defined(_MSC_VER) && _MSC_VER >= 1924)
 # define KLOAD32(a, offs) _load_mask32((__mmask32*)(a) + (offs))
 #else
 # define KLOAD32(a, offs) (((uint32_t*)(a))[(offs)])

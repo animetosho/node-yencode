@@ -2,7 +2,7 @@
 #ifdef __AVX2__
 
 // GCC (ver 6-10(dev)) fails to optimize pure C version of mask testing, but has this intrinsic; Clang >= 7 optimizes C version fine
-#if defined(__GNUC__) && __GNUC__ >= 7
+#if (defined(__GNUC__) && __GNUC__ >= 7) || (defined(_MSC_VER) && _MSC_VER >= 1924)
 # define KORTEST32(a, b) !_kortestz_mask32_u8((a), (b))
 # define KAND32(a, b) _kand_mask32((a), (b))
 # define KOR32(a, b) _kor_mask32((a), (b))

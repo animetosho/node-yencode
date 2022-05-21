@@ -8,7 +8,7 @@
 # define _mm_mask_expand_epi8 _mm128_mask_expand_epi8
 #endif
 
-#if defined(__GNUC__) && __GNUC__ >= 7
+#if (defined(__GNUC__) && __GNUC__ >= 7) || (defined(_MSC_VER) && _MSC_VER >= 1924)
 # define KLOAD16(a, offs) _load_mask16((__mmask16*)(a) + (offs))
 #else
 # define KLOAD16(a, offs) (((uint16_t*)(a))[(offs)])

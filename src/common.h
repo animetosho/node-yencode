@@ -267,7 +267,7 @@ int cpu_supports_isa();
 
 
 // GCC 8/9/10(dev) fails to optimize cases where KNOT should be used, so use intrinsic explicitly; Clang 6+ has no issue, but Clang 6/7 doesn't have the intrinsic; MSVC 2019 also fails and lacks the intrinsic
-#if defined(__GNUC__) && __GNUC__ >= 7
+#if (defined(__GNUC__) && __GNUC__ >= 7) || (defined(_MSC_VER) && _MSC_VER >= 1924)
 # define KNOT16 _knot_mask16
 # define KNOT32 _knot_mask32
 #else
