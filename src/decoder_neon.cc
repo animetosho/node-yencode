@@ -19,8 +19,8 @@
 #endif
 
 
-// for compilers that lack these functions
-#if defined(__clang__) || (defined(__GNUC__) && (defined(__aarch64__) && __GNUC__ >= 8))
+// for compilers that lack these functions (Clang armv7 9-12 seems to have issues with multi-vector loads)
+#if (defined(__clang__) && (defined(__aarch64__) || __clang_major__<9 || __clang_major__>12)) || (defined(__GNUC__) && (defined(__aarch64__) && __GNUC__ >= 8))
 # define vld1q_u8_x2_align(p, n) vld1q_u8_x2((uint8_t*)__builtin_assume_aligned(p, n))
 #else
 # define vld1q_u8_x2_align(p, n) vcreate2_u8(vld1q_u8_align(p, (n)/2), vld1q_u8_align((p)+16, (n)/2))
