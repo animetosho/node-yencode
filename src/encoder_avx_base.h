@@ -293,7 +293,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 					asm(
 						"shrq $1, %[eqMask] \n"
 						"shrq %%cl, %[eqMask] \n"
-						"adcq %[col], %[p] \n"
+						"adcq %q[col], %q[p] \n"
 						: [eqMask]"+r"(eqMask), [p]"+r"(p)
 						: "c"(shiftAmt), [col]"r"(~col)
 					);
