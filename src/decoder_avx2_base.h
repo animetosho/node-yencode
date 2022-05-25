@@ -64,10 +64,12 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 	// for some reason, MSVC Win32 seems to crash when trying to compile _mm256_mask_cmpeq_epi8_mask
 	// the crash can be fixed by switching the order of the last two arguments, but it seems to generate wrong code
 	// so just disable the optimisation as it seems to be problematic there
-#if defined(_MSC_VER) && !defined(PLATFORM_AMD64) && !defined(__clang__)
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+# if defined(_MSC_VER) && !defined(PLATFORM_AMD64) && !defined(__clang__)
 	const bool useAVX3MaskCmp = false;
-#else
+# else
 	const bool useAVX3MaskCmp = (use_isa >= ISA_LEVEL_AVX3);
+# endif
 #endif
 	intptr_t i;
 	for(i = -len; i; i += sizeof(__m256i)*2) {

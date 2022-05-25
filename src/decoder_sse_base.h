@@ -122,10 +122,12 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 #else
 	const bool _USING_BLEND_ADD = false;
 #endif
-#if defined(_MSC_VER) && !defined(PLATFORM_AMD64) && !defined(__clang__)
+#if defined(__AVX512VL__) && defined(__AVX512BW__)
+# if defined(_MSC_VER) && !defined(PLATFORM_AMD64) && !defined(__clang__)
 	const bool useAVX3MaskCmp = false;
-#else
+# else
 	const bool useAVX3MaskCmp = (use_isa >= ISA_LEVEL_AVX3);
+# endif
 #endif
 	
 	__m128i lfCompare = _mm_set1_epi8('\n');
