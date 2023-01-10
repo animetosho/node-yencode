@@ -30,7 +30,7 @@ static HEDLEY_ALWAYS_INLINE __m256i force_align_read_256(const void* p) {
 }
 
 // _mm256_castsi128_si256, but upper is defined to be 0
-#if (defined(__clang__) && __clang_major__ >= 5 && (!defined(__APPLE__) || __clang_major__ >= 7)) || (defined(__GNUC__) && __GNUC__ >= 10)
+#if (defined(__clang__) && __clang_major__ >= 5 && (!defined(__APPLE__) || __clang_major__ >= 7)) || (defined(__GNUC__) && __GNUC__ >= 10) || (defined(_MSC_VER) && _MSC_VER >= 1910)
 // intrinsic unsupported in GCC 9 and MSVC < 2017
 # define zext128_256 _mm256_zextsi128_si256
 #else
@@ -43,6 +43,12 @@ static HEDLEY_ALWAYS_INLINE __m256i force_align_read_256(const void* p) {
 # endif
 #endif
 
+#if defined(__tune_icelake_client__) || defined(__tune_icelake_server__) || defined(__tune_tigerlake__) || defined(__tune_rocketlake__) || defined(__tune_alderlake__) || defined(__tune_sapphirerapids__)
+# define COMPRESS_STORE _mm256_mask_compressstoreu_epi8
+#else
+// avoid uCode on Zen4
+# define COMPRESS_STORE(dst, mask, vec) _mm256_storeu_si256((__m256i*)(dst), _mm256_maskz_compress_epi8(mask, vec))
+#endif
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& _escFirst, uint16_t& _nextMask) {
@@ -541,9 +547,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* HEDLEY_RESTRICT src, lon
 			// all that's left is to 'compress' the data (skip over masked chars)
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
-				_mm256_mask_compressstoreu_epi8(p, KNOT32(mask), dataA);
+				COMPRESS_STORE(p, KNOT32(mask), dataA);
 				p -= popcnt32(mask & 0xffffffff);
-				_mm256_mask_compressstoreu_epi8((p + XMM_SIZE*2), KNOT32(mask>>32), dataB);
+				COMPRESS_STORE((p + XMM_SIZE*2), KNOT32(mask>>32), dataB);
 				p += XMM_SIZE*4 - popcnt32(mask >> 32);
 			} else
 #endif

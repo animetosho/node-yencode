@@ -7,6 +7,13 @@
 # define _mm_shrdi_epi16 _mm128_shrdi_epi16
 #endif
 
+#if defined(__tune_icelake_client__) || defined(__tune_icelake_server__) || defined(__tune_tigerlake__) || defined(__tune_rocketlake__) || defined(__tune_alderlake__) || defined(__tune_sapphirerapids__)
+# define COMPRESS_STORE _mm_mask_compressstoreu_epi8
+#else
+// avoid uCode on Zen4
+# define COMPRESS_STORE(dst, mask, vec) _mm_storeu_si128((__m128i*)(dst), _mm_maskz_compress_epi8(mask, vec))
+#endif
+
 // GCC (ver 6-10(dev)) fails to optimize pure C version of mask testing, but has this intrinsic; Clang >= 7 optimizes C version fine
 #if (defined(__GNUC__) && __GNUC__ >= 7) || (defined(_MSC_VER) && _MSC_VER >= 1924)
 # define KORTEST16(a, b) !_kortestz_mask16_u8((a), (b))
@@ -649,9 +656,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* HEDLEY_RESTRICT src, long
 			if(use_isa >= ISA_LEVEL_SSSE3) {
 # if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__POPCNT__)
 				if(use_isa >= ISA_LEVEL_VBMI2) {
-					_mm_mask_compressstoreu_epi8(p, KNOT16(mask), dataA);
+					COMPRESS_STORE(p, KNOT16(mask), dataA);
 					p -= popcnt32(mask & 0xffff);
-					_mm_mask_compressstoreu_epi8(p+XMM_SIZE, KNOT16(mask>>16), dataB);
+					COMPRESS_STORE(p+XMM_SIZE, KNOT16(mask>>16), dataB);
 					p -= popcnt32(mask>>16);
 					p += XMM_SIZE*2;
 				} else

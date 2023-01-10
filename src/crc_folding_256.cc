@@ -38,7 +38,7 @@ ALIGN_TO(32, static const uint8_t  pshufb_rot_table[]) = {
 	16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31
 };
 // _mm256_castsi128_si256, but upper is defined to be 0
-#if (defined(__clang__) && __clang_major__ >= 5 && (!defined(__APPLE__) || __clang_major__ >= 7)) || (defined(__GNUC__) && __GNUC__ >= 10)
+#if (defined(__clang__) && __clang_major__ >= 5 && (!defined(__APPLE__) || __clang_major__ >= 7)) || (defined(__GNUC__) && __GNUC__ >= 10) || (defined(_MSC_VER) && _MSC_VER >= 1910)
 // intrinsic unsupported in GCC 9 and MSVC < 2017
 # define zext128_256 _mm256_zextsi128_si256
 #else

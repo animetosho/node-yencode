@@ -73,7 +73,7 @@ static HEDLEY_ALWAYS_INLINE uint32_t crc_multiply(uint32_t a, uint32_t b) {
 	return res;
 }
 
-static const uint32_t crc_power[] = { // pre-computed 2^n, with first 3 entries removed (saves a shift)
+static const uint32_t crc_power[] = { // pre-computed 2^(2^n), with first 3 entries removed (saves a shift)
 	0x00800000, 0x00008000, 0xedb88320, 0xb1e6b092, 0xa06a2517, 0xed627dae, 0x88d14467, 0xd7bbfe6a,
 	0xec447f11, 0x8e7ea170, 0x6427800e, 0x4d47bae0, 0x09fe548f, 0x83852d0f, 0x30362f1a, 0x7b5a9cc3,
 	0x31fec169, 0x9fec022a, 0x6c8dedc4, 0x15d6874d, 0x5fde7a4e, 0xbad90e37, 0x2e4e5eef, 0x4eaba214,
