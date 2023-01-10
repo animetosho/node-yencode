@@ -129,7 +129,8 @@ int decodeTo(Buffer data, Buffer output, bool stripDots=false)
 Same as above, but instead of returning a Buffer, writes it to the supplied
 *output* Buffer. Returns the length of the decoded data.  
 Note that the *output* Buffer must be at least large enough to hold the largest
-possible output size (i.e. length of the input), otherwise an error is thrown.
+possible output size (i.e. length of the input), otherwise an error is thrown.  
+The *data* and *output* Buffers can be the same, for in-situ decoding.
 
 Object decodeChunk\(Buffer data \[, string state=null\]\[, Buffer output\]\)
 -----------------------------------------------------------------------------
@@ -142,7 +143,7 @@ designed to incrementally process a stream from the network, and will perform NN
 *state* is the current state of the incremental decode. Set to *null* if this is starting the decode of a new article, otherwise this should be set to the value of *state* given from the previous invocation of *decodeChunk*  
 If *output* is supplied, the output will be written here \(see *decodeTo* for notes
 on required size\), otherwise a new buffer will be created where the output will be
-written to.
+written to. The *data* and *output* Buffers can be the same, for in-situ decoding.
 
 Returns an object with the following keys:
 
