@@ -61,13 +61,20 @@ var refYDecRaw = function(src, findEnd) {
 var testFuncs = [
 	{l: 'nntp', r: refYDecRaw, a: function(s) {
 		return y.decode(s, true);
+	}, i: function(b) {
+		return y.decodeTo(b, b, true);
 	}},
-	{l: 'plain', r: refYDec, a: y.decode},
+	{l: 'plain', r: refYDec, a: y.decode, i: function(b) {
+		return y.decodeTo(b, b, false);
+	}},
 	{l: 'nntp-end', r: function(s) {
 		return refYDecRaw(s, true);
 	}, a: function(s) {
 		if(!s.length) return Buffer(0);
 		return y.decodeIncr(s).output;
+	}, i: function(b) {
+		if(!b.length) return 0;
+		return y.decodeIncr(b, 0, b).written;
 	}}
 ];
 var doTest = function(msg, data, expected) {
@@ -97,6 +104,14 @@ var doTest = function(msg, data, expected) {
 					console.log('Expect:', x);
 					console.log('Source:', data.toString('hex'));
 					assert.equal(actual, x, msg + ' [' + i + '/' + j + ' ' + f.l + ']');
+				}
+				// also test in-situ decoding
+				var ilen = f.i(testData);
+				actual = testData.slice(0, ilen).toString('hex');
+				if(actual != x) {
+					console.log('Actual:', actual);
+					console.log('Expect:', x);
+					assert.equal(actual, x, msg + ' (in-situ) [' + i + '/' + j + ' ' + f.l + ']');
 				}
 			});
 			if(expected !== undefined) return; // if given expected string, only do one test
@@ -156,8 +171,6 @@ doTest('Long all tabs', b);
 
 // test for past bug in ARMv8 NEON decoder where nextMask wasn't properly compensated for
 doTest('Extra null issue', new Buffer('2e900a4fb6054c9126171cdc196dc41237bb1b76da9191aa5e85c1d2a2a5c638fe39054a210e8c799473cd510541fd118f3904b242a9938558c879238aae1d3bdab32e287cedb820b494f54ffae6dd0b13f73a4a9499df486a7845c612182bcef72a6e50a8e98351c35765d26c605115dc8c5c56a5e3f20ae6da8dcd78536e6d1601eb1fc3ddc774', 'hex'));
-// end detection bug
-doTest('End detect', new Buffer('612e6161610d610d612e793d3d0d0d2e612e2e0a0d0d61792e3d3d61612e0d0a2e0d2e0a0d79612e0a3d2e2e793d2e610a0d0a0a2e793d790d612e61612e0a3d792e2e3d2e7961793d792e0a61790a0d0a2e0d0a3d0a0d0d0d0a610a0a6161792e3d2e0a2e0d0d0d613d610a0a0a793d613d3d0a3d790d3d0a0a2e2e7979796179613d0d2e792e793d3d61792e612e2e2e793d616161790d0d2e0d0d793d0d790a0a3d0d617979790d2e0d792e612e610a0a0a0a0a79790d0a610d612e0d0a0d3d0a61792e2e0a790d0d792e790d0a2e79612e3d0a79790a0d0d3d0a0a0d3d0a7961610a2e613d792e0a612e613d610a2e0a0a79613d2e2e0d3d3d2e793d792e792e0d0d610d2e2e0d2e79610d2e790d790d3d2e3d790a0a0d0a0a0a612e2e79612e0d2e3d793d2e0a2e3d790a2e3d792e2e610d3d2e0d3d3d0a3d2e0d613d2e0d61610a3d0a2e0a0a3d3d612e3d790d6161613d3d612e3d0d0a2e0d0d0d616179790a2e3d610d612e0d2e3d0d0a3d610d0d61610a7961613d2e790d613d610a3d612e0a2e0d79790d0a610a2e2e0a2e612e2e0d792e61610a2e0d610d3d0a793d613d0d3d0a3d0d0a613d2e0a3d610a3d0d793d0d7979792e3d613d0a2e61610d793d2e0a0a2e612e0d2e2e792e0d2e613d0d790a0d2e610d2e0a2e61793d0d0d0a0a0d0d2e2e0d2e793d3d79612e0a610a610a0d610d0d2e2e790', 'hex'));
 
 // random tests
 for(var i=0; i<32; i++) {
