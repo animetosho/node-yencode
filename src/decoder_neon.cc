@@ -59,7 +59,7 @@ static bool neon_vect_is_nonzero(uint8x16_t v) {
 
 
 template<bool isRaw, bool searchEnd>
-HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& escFirst, uint16_t& nextMask) {
+HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
 	HEDLEY_ASSUME(escFirst == 0 || escFirst == 1);
 	HEDLEY_ASSUME(nextMask == 0 || nextMask == 1 || nextMask == 2);
 	uint8x16_t yencOffset = escFirst ? vmakeq_u8(42+64,42,42,42,42,42,42,42,42,42,42,42,42,42,42,42) : vdupq_n_u8(42);

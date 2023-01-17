@@ -29,17 +29,17 @@ typedef enum {
 
 #include "hedley.h"
 
-extern YencDecoderEnd (*_do_decode)(const unsigned char*HEDLEY_RESTRICT*, unsigned char*HEDLEY_RESTRICT*, size_t, YencDecoderState*);
-extern YencDecoderEnd (*_do_decode_raw)(const unsigned char*HEDLEY_RESTRICT*, unsigned char*HEDLEY_RESTRICT*, size_t, YencDecoderState*);
-extern YencDecoderEnd (*_do_decode_end_raw)(const unsigned char*HEDLEY_RESTRICT*, unsigned char*HEDLEY_RESTRICT*, size_t, YencDecoderState*);
+extern YencDecoderEnd (*_do_decode)(const unsigned char**, unsigned char**, size_t, YencDecoderState*);
+extern YencDecoderEnd (*_do_decode_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*);
+extern YencDecoderEnd (*_do_decode_end_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*);
 
-static inline size_t do_decode(int isRaw, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len, YencDecoderState* state) {
+static inline size_t do_decode(int isRaw, const unsigned char* src, unsigned char* dest, size_t len, YencDecoderState* state) {
 	unsigned char* ds = dest;
 	(*(isRaw ? _do_decode_raw : _do_decode))(&src, &ds, len, state);
 	return ds - dest;
 }
 
-static inline YencDecoderEnd do_decode_end(const unsigned char*HEDLEY_RESTRICT* src, unsigned char*HEDLEY_RESTRICT* dest, size_t len, YencDecoderState* state) {
+static inline YencDecoderEnd do_decode_end(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
 	return _do_decode_end_raw(src, dest, len, state);
 }
 

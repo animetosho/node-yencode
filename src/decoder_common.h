@@ -6,7 +6,7 @@
 
 // state var: refers to the previous state - only used for incremental processing
 template<bool isRaw>
-size_t do_decode_noend_scalar(const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len, YencDecoderState* state) {
+size_t do_decode_noend_scalar(const unsigned char* src, unsigned char* dest, size_t len, YencDecoderState* state) {
 	const unsigned char *es = src + len; // end source pointer
 	unsigned char *p = dest; // destination pointer
 	long i = -(long)len; // input position
@@ -140,7 +140,7 @@ size_t do_decode_noend_scalar(const unsigned char* HEDLEY_RESTRICT src, unsigned
 }
 
 template<bool isRaw>
-YencDecoderEnd do_decode_end_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HEDLEY_RESTRICT* dest, size_t len, YencDecoderState* state) {
+YencDecoderEnd do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
 	const unsigned char *es = (*src) + len; // end source pointer
 	unsigned char *p = *dest; // destination pointer
 	long i = -(long)len; // input position
@@ -321,7 +321,7 @@ YencDecoderEnd do_decode_end_scalar(const unsigned char* HEDLEY_RESTRICT* src, u
 }
 
 template<bool isRaw, bool searchEnd>
-YencDecoderEnd do_decode_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HEDLEY_RESTRICT* dest, size_t len, YencDecoderState* state) {
+YencDecoderEnd do_decode_scalar(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
 	if(searchEnd)
 		return do_decode_end_scalar<isRaw>(src, dest, len, state);
 	*dest += do_decode_noend_scalar<isRaw>(*src, *dest, len, state);
@@ -331,8 +331,8 @@ YencDecoderEnd do_decode_scalar(const unsigned char* HEDLEY_RESTRICT* src, unsig
 
 
 
-template<bool isRaw, bool searchEnd, int width, void(&kernel)(const uint8_t* HEDLEY_RESTRICT, long&, unsigned char* HEDLEY_RESTRICT &, unsigned char&, uint16_t&)>
-YencDecoderEnd do_decode_simd(const unsigned char* HEDLEY_RESTRICT* src, unsigned char* HEDLEY_RESTRICT* dest, size_t len, YencDecoderState* state) {
+template<bool isRaw, bool searchEnd, int width, void(&kernel)(const uint8_t*, long&, unsigned char*&, unsigned char&, uint16_t&)>
+YencDecoderEnd do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
 	if(len <= width*2) return do_decode_scalar<isRaw, searchEnd>(src, dest, len, state);
 	
 	YencDecoderState tState = YDEC_STATE_CRLF;

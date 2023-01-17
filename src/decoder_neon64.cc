@@ -47,7 +47,7 @@ static HEDLEY_ALWAYS_INLINE uint8x16_t mergeCompares(uint8x16_t a, uint8x16_t b,
 
 
 template<bool isRaw, bool searchEnd>
-HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* HEDLEY_RESTRICT src, long& len, unsigned char* HEDLEY_RESTRICT & p, unsigned char& escFirst, uint16_t& nextMask) {
+HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
 	HEDLEY_ASSUME(escFirst == 0 || escFirst == 1);
 	HEDLEY_ASSUME(nextMask == 0 || nextMask == 1 || nextMask == 2);
 	uint8x16_t nextMaskMix = vdupq_n_u8(0);
