@@ -26,10 +26,9 @@ static __m256i do_one_fold(__m256i src, __m256i data) {
 	  0x96
 	);
 #else
-	return _mm256_xor_si256(data, _mm256_xor_si256(
-	  _mm256_clmulepi64_epi128(src, fold4, 0x01),
-	  _mm256_clmulepi64_epi128(src, fold4, 0x10)
-	));
+	return _mm256_xor_si256(_mm256_xor_si256(
+	  data, _mm256_clmulepi64_epi128(src, fold4, 0x01)
+	), _mm256_clmulepi64_epi128(src, fold4, 0x10));
 #endif
 }
 
