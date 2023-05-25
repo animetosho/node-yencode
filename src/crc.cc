@@ -39,22 +39,23 @@ int cpu_supports_crc_isa();
 #ifdef PLATFORM_ARM
 # ifdef __ANDROID__
 #  include <cpu-features.h>
-# elif defined(__linux__) || (defined(__FreeBSD__) && __FreeBSD__ >= 12)
-#  include <sys/auxv.h>
-#  include <asm/hwcap.h>
-# elif (defined(__FreeBSD__) && __FreeBSD__ < 12)
-#  include <sys/sysctl.h>
-#  include <asm/hwcap.h>
 # elif defined(__APPLE__)
 #  include <sys/types.h>
 #  include <sys/sysctl.h>
-# endif
-# ifdef __FreeBSD__
+# elif defined(__has_include)
+#  if __has_include(<sys/auxv.h>)
+#   include <sys/auxv.h>
+#   ifdef __FreeBSD__
 static unsigned long getauxval(unsigned long cap) {
 	unsigned long ret;
 	elf_aux_info(cap, &ret, sizeof(ret));
 	return ret;
 }
+#   endif
+#   if __has_include(<asm/hwcap.h>)
+#    include <asm/hwcap.h>
+#   endif
+#  endif
 # endif
 #endif
 void crc_init() {

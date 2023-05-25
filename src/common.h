@@ -145,6 +145,13 @@
 
 #endif
 
+#if defined(__ARM_NEON) && defined(__has_include)
+# if !__has_include(<arm_neon.h>)
+#  undef __ARM_NEON
+HEDLEY_WARNING("NEON has been disabled due to missing arm_neon.h");
+# endif
+#endif
+
 #ifdef __ARM_NEON
 # include <arm_neon.h>
 

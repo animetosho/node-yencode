@@ -16,6 +16,12 @@ HEDLEY_WARNING("CRC32 acceleration has been disabled due to broken arm_acle.h sh
 HEDLEY_WARNING("CRC32 acceleration has been disabled due to broken arm_acle.h shipped in GCC 9.4 [https://gcc.gnu.org/bugzilla/show_bug.cgi?id=100985]. If you need this feature, please use a different compiler or version of GCC");
 # endif
 #endif
+#if defined(__ARM_FEATURE_CRC32) && defined(__has_include)
+# if !__has_include(<arm_acle.h>)
+#  undef __ARM_FEATURE_CRC32
+HEDLEY_WARNING("CRC32 acceleration has been disabled due to missing arm_acle.h");
+# endif
+#endif
 
 #if defined(__ARM_FEATURE_CRC32) || (defined(_M_ARM64) && !defined(__clang__)) // MSVC doesn't support CRC for ARM32
 

@@ -2,12 +2,6 @@
 #ifdef PLATFORM_ARM
 # ifdef __ANDROID__
 #  include <cpu-features.h>
-# elif defined(__linux__) || (defined(__FreeBSD__) && __FreeBSD__ >= 12)
-#  include <sys/auxv.h>
-#  include <asm/hwcap.h>
-# elif (defined(__FreeBSD__) && __FreeBSD__ < 12)
-#  include <sys/sysctl.h>
-#  include <asm/hwcap.h>
 # elif defined(_WIN32)
 #  define WIN32_LEAN_AND_MEAN
 #  define NOMINMAX
@@ -15,6 +9,13 @@
 # elif defined(__APPLE__)
 #  include <sys/types.h>
 #  include <sys/sysctl.h>
+# elif defined(__has_include)
+#  if __has_include(<sys/auxv.h>)
+#   include <sys/auxv.h>
+#   if __has_include(<asm/hwcap.h>)
+#    include <asm/hwcap.h>
+#   endif
+#  endif
 # endif
 bool cpu_supports_neon() {
 # if defined(AT_HWCAP)
@@ -48,7 +49,11 @@ bool cpu_supports_neon() {
 		return false;
 	return (bool)supported;
 # endif
-	return true; // assume NEON support, if compiled as such, otherwise (I think Windows and iOS require it)
+# ifdef __aarch64__
+	return true; // assume NEON support on AArch64
+# else
+	return false;
+# endif
 }
 #endif
 
@@ -121,7 +126,7 @@ int cpu_supports_isa() {
 			return ret | ISA_LEVEL_SSSE3;
 		
 		if(flags[2] & 0x80000) { // SSE4.1
-			if((flags[2] & 0x18800000) == 0x18800000) { // POPCNT + OSXSAVE + AVX
+			if((flags[2] & 0x1C800000) == 0x1C800000) { // POPCNT + OSXSAVE + XSAVE + AVX
 				int xcr = _GET_XCR() & 0xff; // ignore unused bits
 				if((xcr & 6) == 6) { // AVX enabled
 					int cpuInfo[4];
@@ -150,7 +155,7 @@ int cpu_supports_crc_isa() {
 	_cpuid1(flags);
 	
 	if((flags[2] & 0x80202) == 0x80202) { // SSE4.1 + SSSE3 + CLMUL
-		if((flags[2] & 0x18000000) == 0x18000000) { // OSXSAVE + AVX
+		if((flags[2] & 0x1C000000) == 0x1C000000) { // AVX + OSXSAVE + XSAVE
 			int xcr = _GET_XCR() & 0xff; // ignore unused bits
 			if((xcr & 6) == 6) { // AVX enabled
 				int cpuInfo[4];
