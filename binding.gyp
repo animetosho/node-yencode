@@ -46,7 +46,7 @@
       }]
     ],
     "cflags": ["-Wno-unused-function"],
-    "cxxflags": ["-Wno-unused-function"],
+    "cxxflags": ["-Wno-unused-function", "-std=c++03", "-D_POSIX_C_SOURCE=200112L"],
     "xcode_settings": {
       "OTHER_CFLAGS": ["-Wno-unused-function"],
       "OTHER_CXXFLAGS": ["-Wno-unused-function"]

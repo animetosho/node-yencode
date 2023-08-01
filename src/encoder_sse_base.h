@@ -409,7 +409,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 					if(use_isa >= ISA_LEVEL_VBMI2)
 # endif
 					{
-						asm(
+						__asm__(
 							"shrl $1, %[eqMask] \n"
 							"shrl %%cl, %[eqMask] \n" // TODO: can use shrq to avoid above shift?
 # if defined(PLATFORM_AMD64) && !defined(__ILP32__)
