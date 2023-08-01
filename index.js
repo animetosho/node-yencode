@@ -3,6 +3,7 @@
 var y = require('./build/Release/yencode.node');
 
 var toBuffer = Buffer.alloc ? Buffer.from : Buffer;
+var bufferSlice = Buffer.prototype.subarray || Buffer.prototype.slice;
 
 var nl = toBuffer([13, 10]);
 var RE_BADCHAR = /\r\n\0/g;
@@ -76,28 +77,28 @@ var decoderParseLines = function(lines, ydata) {
 	for(var i=0; i<lines.length; i++) {
 		var yprops = {};
 		
-		var line = lines[i].substr(2); // cut off '=y'
+		var line = lines[i].substring(2); // cut off '=y'
 		// parse tag
 		var p = line.indexOf(' ');
-		var tag = (p<0 ? line : line.substr(0, p));
-		line = line.substr(tag.length+1).trim();
+		var tag = (p<0 ? line : line.substring(0, p));
+		line = line.substring(tag.length+1).trim();
 		
 		// parse props
 		var m = line.match(RE_YPROP);
 		while(m) {
 			if(m.index != 0) {
-				warnings.push(DecoderWarning('ignored_line_data', 'Unknown additional data ignored: "' + line.substr(0, m.index) + '"'));
+				warnings.push(DecoderWarning('ignored_line_data', 'Unknown additional data ignored: "' + line.substring(0, m.index) + '"'));
 			}
 			var prop = m[1], val;
 			var valPos = m.index + m[0].length;
 			if(tag == 'begin' && prop == 'name') {
 				// special treatment of filename - the value is the rest of the line (can include spaces)
-				val = line.substr(valPos);
+				val = line.substring(valPos);
 				line = '';
 			} else {
 				p = line.indexOf(' ', valPos);
-				val = (p<0 ? line.substr(valPos) : line.substr(valPos, p-valPos));
-				line = line.substr(valPos + val.length +1);
+				val = (p<0 ? line.substring(valPos) : line.substring(valPos, p));
+				line = line.substring(valPos + val.length +1);
 			}
 			if(prop in yprops) {
 				warnings.push(DecoderWarning('duplicate_property', 'Duplicate property encountered: `' + prop + '`'));
@@ -139,7 +140,7 @@ module.exports = {
 			prev = '\r\n';
 		
 		if(Buffer.isBuffer(prev)) prev = prev.toString();
-		prev = prev.substr(-4); // only care about the last 4 chars of previous state
+		prev = prev.slice(-4); // only care about the last 4 chars of previous state
 		if(prev == '\r\n.=') prev = '\r\n='; // aliased after dot stripped
 		if(data.length == 0) return {
 			read: 0,
@@ -151,7 +152,7 @@ module.exports = {
 		var state = decodePrev.indexOf(prev);
 		if(state < 0) {
 			for(var l=-3; l<0; i++) {
-				state = decodePrev.indexOf(prev.substr(l));
+				state = decodePrev.indexOf(prev.slice(l));
 				if(state >= 0) break;
 			}
 			if(state < 0) state = decodePrev.indexOf('');
@@ -195,12 +196,13 @@ module.exports = {
 		
 		if(!Buffer.isBuffer(data)) data = toBuffer(data);
 		
-		filename = toBuffer(filename.replace(RE_BADCHAR, '').substr(0, 256), exports.encoding);
+		filename = toBuffer(filename.replace(RE_BADCHAR, '').substring(0, 256), exports.encoding);
+		var e = encodeCrc(data, line_size);
 		return Buffer.concat([
 			toBuffer('=ybegin line='+line_size+' size='+data.length+' name='),
 			filename, nl,
-			y.encode(data, line_size),
-			toBuffer('\r\n=yend size='+data.length+' crc32=' + y.crc32(data).toString('hex'))
+			e.output,
+			toBuffer('\r\n=yend size='+data.length+' crc32=' + e.crc32.toString('hex'))
 		]);
 	},
 	multi_post: function(filename, size, parts, line_size) {
@@ -214,7 +216,7 @@ module.exports = {
 		
 		// find '=ybegin' to know where the yEnc data starts
 		var yencStart;
-		if(data.slice(0, 8).toString('hex') == '3d79626567696e20' /*=ybegin */) {
+		if(bufferSlice.call(data, 0, 8).toString('hex') == '3d79626567696e20' /*=ybegin */) {
 			// common case: starts right at the beginning
 			yencStart = 0;
 		} else {
@@ -231,10 +233,10 @@ module.exports = {
 		var sp = yencStart;
 		var p = bufferFind(data, '\r\n', yencStart+8);
 		while(p > 0) {
-			var line = data.slice(sp, p).toString(this.encoding).trim();
+			var line = bufferSlice.call(data, sp, p).toString(this.encoding).trim();
 			lines.push(line);
 			sp = p+2;
-			if(line.substr(0, 6) == '=yend ') { // no data in post
+			if(line.substring(0, 6) == '=yend ') { // no data in post
 				ret.yencEnd = sp;
 				break;
 			}
@@ -252,7 +254,7 @@ module.exports = {
 		var warnings = decoderParseLines(lines, ydata);
 		
 		if(!ret.yencEnd) {
-			var yencEnd = bufferFindRev(data.slice(ret.dataStart), '\r\n=yend ');
+			var yencEnd = bufferFindRev(bufferSlice.call(data, ret.dataStart), '\r\n=yend ');
 			if(yencEnd < 0)
 				return DecoderError('no_end_found', 'yEnd end marker not found');
 			
@@ -265,7 +267,7 @@ module.exports = {
 				ret.yencEnd = p;
 			} else
 				ret.yencEnd = p+2;
-			var endLine = data.slice(yencEnd+2, p).toString(this.encoding).trim();
+			var endLine = bufferSlice.call(data, yencEnd+2, p).toString(this.encoding).trim();
 			
 			warnings = warnings.concat(decoderParseLines([endLine], ydata));
 		}
@@ -321,7 +323,7 @@ module.exports = {
 			warnings.push(DecoderWarning('size_mismatch', 'Size specified for part exceeds size specified for whole file'));
 		
 		if(ret.dataStart) {
-			ret.data = y.decode(data.slice(ret.dataStart, ret.dataEnd), isRaw);
+			ret.data = y.decode(bufferSlice.call(data, ret.dataStart, ret.dataEnd), !!isRaw);
 			ret.crc32 = y.crc32(ret.data);
 			var hexCrc = ret.crc32.toString('hex');
 			
@@ -360,7 +362,7 @@ function YEncoder(filename, size, parts, line_size) {
 	this.pos = 0;
 	this.crc = toBuffer([0,0,0,0]);
 	
-	filename = toBuffer(filename.replace(RE_BADCHAR, '').substr(0, 256), exports.encoding);
+	filename = toBuffer(filename.replace(RE_BADCHAR, '').substring(0, 256), exports.encoding);
 	if(parts > 1) {
 		this.yInfo = Buffer.concat([
 			toBuffer(' total='+parts+' line='+line_size+' size='+size+' name='),

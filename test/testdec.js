@@ -1,5 +1,8 @@
 // a basic script to test that raw yEnc works as expected
 
+var allocBuffer = (Buffer.allocUnsafe || Buffer);
+var toBuffer = (Buffer.alloc ? Buffer.from : Buffer);
+
 var assert = require('assert');
 var y = (function() {
 	try {
@@ -14,12 +17,12 @@ var ord = function(c) {
 // slow reference yEnc implementation
 var refYDec = function(src, findEnd) {
 	var ret = [];
-	if(findEnd && chr(src[0]) == '=' && chr(src[1]) == 'y') return new Buffer(0);
+	if(findEnd && chr(src[0]) == '=' && chr(src[1]) == 'y') return allocBuffer(0);
 	for (var i = 0; i < src.length; i++) {
 		switch(chr(src[i])) {
 			case '\r':
 				if(findEnd && chr(src[i+1]) == '\n' && chr(src[i+2]) == '=' && chr(src[i+3]) == 'y')
-					return new Buffer(ret);
+					return toBuffer(ret);
 			case '\n': continue;
 			case '=':
 				i++;
@@ -30,7 +33,7 @@ var refYDec = function(src, findEnd) {
 		}
 		ret.push((src[i] - 42) & 0xFF);
 	}
-	return new Buffer(ret);
+	return toBuffer(ret);
 };
 var refYDecRaw = function(src, findEnd) {
 	// undo NNTP layer
@@ -39,7 +42,7 @@ var refYDecRaw = function(src, findEnd) {
 	if(src[0] == ord('.')) {
 		i++;
 		if(findEnd && src[1] == ord('\r') && src[2] == ord('\n'))
-			return new Buffer(0);
+			return allocBuffer(0);
 	}
 	// TODO: do leading/trailing spaces/tabs need to be trimmed?
 	for(; i<src.length; i++) {
@@ -78,7 +81,7 @@ var testFuncs = [
 	}}
 ];
 var doTest = function(msg, data, expected) {
-	data = new Buffer(data);
+	data = toBuffer(data);
 	
 	var prepad = 48, postpad = 48;
 	if(data.length > 1024) {
@@ -87,17 +90,17 @@ var doTest = function(msg, data, expected) {
 	}
 	
 	for(var i=0; i<prepad; i++) {
-		var pre = new Buffer(i);
+		var pre = allocBuffer(i);
 		pre.fill(1);
 		for(var j=0; j<postpad; j++) {
 			testFuncs.forEach(function(f) {
-				var post = new Buffer(j);
+				var post = allocBuffer(j);
 				post.fill(1);
 				
 				var testData = Buffer.concat([pre, data, post]);
 				var x;
 				if(expected === undefined) x = f.r(testData).toString('hex');
-				else x = new Buffer(expected).toString('hex').replace(/ /g, '');
+				else x = toBuffer(expected).toString('hex').replace(/ /g, '');
 				var actual = f.a(testData).toString('hex');
 				if(actual != x) {
 					console.log('Actual:', actual);
@@ -152,7 +155,7 @@ doTest('Bad escape, Yenc end sequence', '=\r\n=y');
 
 
 // longer tests
-var b = new Buffer(256);
+var b = allocBuffer(256);
 b.fill(0);
 doTest('Long no escaping', b);
 b.fill('='.charCodeAt(0));
@@ -170,7 +173,7 @@ b.fill(223);
 doTest('Long all tabs', b);
 
 // test for past bug in ARMv8 NEON decoder where nextMask wasn't properly compensated for
-doTest('Extra null issue', new Buffer('2e900a4fb6054c9126171cdc196dc41237bb1b76da9191aa5e85c1d2a2a5c638fe39054a210e8c799473cd510541fd118f3904b242a9938558c879238aae1d3bdab32e287cedb820b494f54ffae6dd0b13f73a4a9499df486a7845c612182bcef72a6e50a8e98351c35765d26c605115dc8c5c56a5e3f20ae6da8dcd78536e6d1601eb1fc3ddc774', 'hex'));
+doTest('Extra null issue', toBuffer('2e900a4fb6054c9126171cdc196dc41237bb1b76da9191aa5e85c1d2a2a5c638fe39054a210e8c799473cd510541fd118f3904b242a9938558c879238aae1d3bdab32e287cedb820b494f54ffae6dd0b13f73a4a9499df486a7845c612182bcef72a6e50a8e98351c35765d26c605115dc8c5c56a5e3f20ae6da8dcd78536e6d1601eb1fc3ddc774', 'hex'));
 
 // random tests
 for(var i=0; i<32; i++) {
@@ -181,7 +184,7 @@ for(var i=0; i<32; i++) {
 // targeted random tests
 var charset = '=\r\n.ay';
 var randStr = function(n) {
-	var ret = new Buffer(n);
+	var ret = allocBuffer(n);
 	for(var i=0; i<n; i++)
 		ret[i] = ord(charset[(Math.random() * charset.length) | 0]);
 	return ret;

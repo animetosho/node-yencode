@@ -1,6 +1,7 @@
 
 var assert = require('assert');
 var y = require('../index.js');
+var toBuffer = (Buffer.alloc ? Buffer.from : Buffer);
 
 var assertObjectHas = function(obj, required) {
 	for(var k in required) {
@@ -23,7 +24,7 @@ postData = [
 	'=yend size=10 part=5 pcrc32=97f4bd52',
 	''
 ].join('\r\n');
-post = y.from_post(new Buffer(postData));
+post = y.from_post(toBuffer(postData));
 assertObjectHas(post, {
 	yencStart: 0,
 	dataStart: postData.indexOf('...'),
@@ -59,7 +60,7 @@ postData = [
 	'.... data',
 	'=yend size=2 pcrc32=invalid pcrc32=invalid invalid_prop',
 ].join('\r\n');
-post = y.from_post(new Buffer(postData));
+post = y.from_post(toBuffer(postData));
 assertObjectHas(post, {
 	yencStart: postData.indexOf('=ybegin'),
 	dataStart: postData.indexOf('...'),
@@ -97,7 +98,7 @@ postData = [
 	'=yend size=0',
 	''
 ].join('\r\n');
-post = y.from_post(new Buffer(postData));
+post = y.from_post(toBuffer(postData));
 assertObjectHas(post, {
 	yencStart: 0,
 	dataStart: undefined,
@@ -117,9 +118,9 @@ assertObjectHas(post, {
 
 
 // test parse errors
-post = y.from_post(new Buffer('invalid post'));
+post = y.from_post(toBuffer('invalid post'));
 assert.equal(post.code, 'no_start_found');
-post = y.from_post(new Buffer('=ybegin abc=def'));
+post = y.from_post(toBuffer('=ybegin abc=def'));
 assert.equal(post.code, 'no_end_found');
 
 

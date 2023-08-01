@@ -1,17 +1,18 @@
 var y = require('../build/Release/yencode');
 var _ = require('./_speedbase');
+var allocBuffer = (Buffer.allocUnsafe || Buffer);
 
 var bufSize = _.bufTarget.length;
 
-var mWorst = new Buffer(bufSize);
+var mWorst = allocBuffer(bufSize);
 var mAvg = _.bufAvg.map(function() {
-	return new Buffer(bufSize);
+	return allocBuffer(bufSize);
 });
 var mAvg2x = _.bufAvg2x.map(function() {
-	return new Buffer(bufSize);
+	return allocBuffer(bufSize);
 });
-var mBest = new Buffer(bufSize);
-var mBest2 = new Buffer(_.size);
+var mBest = allocBuffer(bufSize);
+var mBest2 = allocBuffer(_.size);
 mBest2.fill(32);
 
 var lenWorst = y.encodeTo(_.bufWorst, mWorst);

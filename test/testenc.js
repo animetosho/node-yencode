@@ -1,6 +1,9 @@
 // a basic script to test that raw yEnc works as expected
 
 var assert = require('assert');
+var allocBuffer = (Buffer.allocUnsafe || Buffer);
+var toBuffer = (Buffer.alloc ? Buffer.from : Buffer);
+
 var y = (function() {
 	try {
 		return require('../build/Debug/yencode.node');
@@ -47,10 +50,10 @@ var refYEnc = function(src, line_size, col) {
 		ret.push((c+64) & 0xFF);
 	}
 	
-	return new Buffer(ret);
+	return toBuffer(ret);
 };
 var doTest = function(msg, test, expected) {
-	test[0] = new Buffer(test[0]);
+	test[0] = toBuffer(test[0]);
 	if(!test[1]) test[1] = 128; // line size
 	if(!test[2]) test[2] = 0; // column offset
 	
@@ -64,7 +67,7 @@ var doTest = function(msg, test, expected) {
 		assert.equal(actual, expected, msg);
 	}
 	
-	var buf = new Buffer(maxSize(test[0].length, test[1]));
+	var buf = allocBuffer(maxSize(test[0].length, test[1]));
 	var len = y.encodeTo.apply(null, [test[0], buf].concat(test.slice(1)));
 	assert.equal(buf.slice(0, len).toString('hex'), expected, msg);
 };
@@ -97,7 +100,7 @@ var runLineSizes = function(fn) {
 // simple tests
 runLineSizes(function(ls, offs) {
 	var infoStr = ' [ls='+ls+', offs='+offs+']';
-	var b = new Buffer(256);
+	var b = allocBuffer(256);
 	b.fill(0);
 	doTest('Long no escaping' + infoStr, [b, ls]);
 	b.fill(227);
@@ -110,7 +113,7 @@ runLineSizes(function(ls, offs) {
 
 // case tests
 var padLens = range(0, 35).concat(range(46, 51)).concat(range(62, 67));
-var padding = new Buffer(128);
+var padding = allocBuffer(128);
 padding.fill(97); // 'a'
 [ ['Empty test', [[]], ''],
   ['Simple test', [[0,1,2,3,224,4]]],
@@ -127,7 +130,7 @@ padding.fill(97); // 'a'
 		// if no defined result, try padding the data to make it long enough to invoke SIMD behaviour
 		padLens.forEach(function(prepad) {
 			padLens.forEach(function(postpad) {
-				var newBuf = Buffer.concat([padding.slice(0, prepad), new Buffer(test[1][0]), padding.slice(0, postpad)]);
+				var newBuf = Buffer.concat([padding.slice(0, prepad), toBuffer(test[1][0]), padding.slice(0, postpad)]);
 				var newTest = test.slice();
 				newTest[1] = [newBuf].concat(newTest[1].slice(1));
 				doTest.apply(null, newTest);
@@ -147,7 +150,7 @@ for(var i=0; i<32; i++) {
 // targeted random tests
 var charset = 'a\xd6\xdf\xe0\xe3\xf6\x04\x13';
 var randStr = function(n) {
-	var ret = new Buffer(n);
+	var ret = allocBuffer(n);
 	for(var i=0; i<n; i++)
 		ret[i] = charset[(Math.random() * charset.length) | 0].charCodeAt(0);
 	return ret;
