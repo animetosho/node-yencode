@@ -3,7 +3,7 @@
 var y = require('./build/Release/yencode.node');
 
 var toBuffer = Buffer.alloc ? Buffer.from : Buffer;
-var bufferSlice = Buffer.prototype.subarray || Buffer.prototype.slice;
+var bufferSlice = Buffer.prototype.readBigInt64BE ? Buffer.prototype.subarray : Buffer.prototype.slice;
 
 var nl = toBuffer([13, 10]);
 var RE_BADCHAR = /\r\n\0/g;
