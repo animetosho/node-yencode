@@ -64,7 +64,7 @@
   "targets": [
     {
       "target_name": "yencode",
-      "dependencies": ["crcutil", "yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_clmul256", "yencode_avx", "yencode_avx2", "yencode_vbmi2", "yencode_neon", "yencode_armcrc"],
+      "dependencies": ["crcutil", "yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_clmul256", "yencode_avx", "yencode_avx2", "yencode_vbmi2", "yencode_neon", "yencode_armcrc", "yencode_rvv"],
       "sources": [
         "src/yencode.cc",
         "src/platform.cc",
@@ -221,7 +221,7 @@
       "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
       "conditions": [
         ['target_arch in "ia32 x64" and OS!="win"', {
-          "variables": {"supports_vpclmul%": "<!(<!(echo ${CC_target:-${CC:-cc}}) -MM -E src/crc_folding_256.cc -mavx2 -mvpclmulqdq 2>/dev/null || true)"},
+          "variables": {"supports_vpclmul%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/crc_folding_256.cc -mavx2 -mvpclmulqdq 2>/dev/null || true)"},
           "conditions": [
             ['supports_vpclmul!=""', {
               "cflags": ["-mavx2", "-mvpclmulqdq", "-mpclmul"],
@@ -253,7 +253,7 @@
       "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
       "conditions": [
         ['target_arch in "ia32 x64" and OS!="win"', {
-          "variables": {"supports_vbmi2%": "<!(<!(echo ${CC_target:-${CC:-cc}}) -MM -E src/encoder_vbmi2.cc -mavx512vl -mavx512vbmi2 2>/dev/null || true)"},
+          "variables": {"supports_vbmi2%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/encoder_vbmi2.cc -mavx512vl -mavx512vbmi2 2>/dev/null || true)"},
           "conditions": [
             ['supports_vbmi2!=""', {
               "cflags": ["-mavx512vbmi2", "-mavx512vl", "-mavx512bw", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
@@ -296,6 +296,48 @@
           "sources": ["src/decoder_neon64.cc"]
         }, {
           "sources": ["src/decoder_neon.cc"]
+        }]
+      ]
+    },
+    {
+      "target_name": "yencode_rvv",
+      "type": "static_library",
+      "sources": [
+        "src/encoder_rvv.cc"
+      ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
+      "conditions": [
+        ['target_arch=="riscv64" and OS!="win"', {
+          "variables": {"supports_rvv%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/encoder_rvv.cc -march=rv64gcv 2>/dev/null || true)"},
+          "conditions": [
+            ['supports_rvv!=""', {
+              "cflags": ["-march=rv64gcv"],
+              "cxxflags": ["-march=rv64gcv"],
+              "xcode_settings": {
+                "OTHER_CFLAGS": ["-march=rv64gcv"],
+                "OTHER_CXXFLAGS": ["-march=rv64gcv"],
+              }
+            }]
+          ]
+        }],
+        ['target_arch=="riscv32" and OS!="win"', {
+          "variables": {"supports_rvv%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/encoder_rvv.cc -march=rv32gcv 2>/dev/null || true)"},
+          "conditions": [
+            ['supports_rvv!=""', {
+              "cflags": ["-march=rv32gcv"],
+              "cxxflags": ["-march=rv32gcv"],
+              "xcode_settings": {
+                "OTHER_CFLAGS": ["-march=rv32gcv"],
+                "OTHER_CXXFLAGS": ["-march=rv32gcv"],
+              }
+            }]
+          ]
         }]
       ]
     },

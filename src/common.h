@@ -263,6 +263,16 @@ enum YEncDecIsaLevel {
 int cpu_supports_isa();
 #endif // PLATFORM_X86
 
+
+#ifdef __riscv
+bool cpu_supports_rvv();
+#endif
+#if defined(__riscv_vector) && defined(HEDLEY_GCC_VERSION) && !HEDLEY_GCC_VERSION_CHECK(13,0,0)
+// GCC added RVV intrinsics in GCC13
+# undef __riscv_vector
+#endif
+
+
 #include <string.h>
 #if !defined(_MSC_VER) || defined(_STDINT) || _MSC_VER >= 1900
 # include <stdint.h>

@@ -130,6 +130,7 @@ void encoder_avx_init();
 void encoder_avx2_init();
 void encoder_vbmi2_init();
 void encoder_neon_init();
+void encoder_rvv_init();
 
 #if defined(PLATFORM_X86) && defined(YENC_BUILD_NATIVE) && YENC_BUILD_NATIVE!=0
 # if defined(__AVX2__) && !defined(YENC_DISABLE_AVX256)
@@ -169,5 +170,9 @@ void encoder_init() {
 #ifdef PLATFORM_ARM
 	if(cpu_supports_neon())
 		encoder_neon_init();
+#endif
+#ifdef __riscv
+	if(cpu_supports_rvv())
+		encoder_rvv_init();
 #endif
 }

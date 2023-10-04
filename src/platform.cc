@@ -171,3 +171,27 @@ int cpu_supports_crc_isa() {
 }
 
 #endif // PLATFORM_X86
+
+#ifdef __riscv
+# if defined(__has_include)
+#  if __has_include(<sys/auxv.h>)
+#   include <sys/auxv.h>
+#   if __has_include(<asm/hwcap.h>)
+#    include <asm/hwcap.h>
+#   endif
+#  endif
+# endif
+bool cpu_supports_rvv() {
+# if defined(AT_HWCAP)
+	unsigned long ret;
+#  ifdef __FreeBSD__
+	elf_aux_info(AT_HWCAP, &ret, sizeof(ret));
+#  else
+	ret = getauxval(AT_HWCAP);
+#  endif
+	return (ret & 0x20112D) == 0x20112D; // IMAFDCV; TODO: how to detect Z* features of 'G'?
+# endif
+	return false;
+}
+#endif
+
