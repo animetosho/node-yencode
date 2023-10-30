@@ -15,6 +15,43 @@ static HEDLEY_ALWAYS_INLINE void vst1q_u8_x2_unaligned(uint8_t* p, uint8x16x2_t 
 #endif
 
 
+// ARM's CLZ instruction at native bit-width
+#ifdef __aarch64__
+static HEDLEY_ALWAYS_INLINE int clz_n(uint64_t v) {
+# ifdef _MSC_VER
+	long r;
+	// does this work?
+	if(_BitScanReverse64((unsigned long*)&r, v))
+		r ^= 63;
+	else
+		r = 64;
+	return r;
+# else
+#  if defined(__clang__) || HEDLEY_GCC_VERSION_CHECK(11,0,0)
+	// this pattern is only detected on GCC >= 11 (Clang 9 seems to as well, unsure about earlier versions)
+	// - note: return type must be 'int'; GCC fails to optimise this if type is 'long'
+	// GCC <= 10 doesn't optimize around the '0 = undefined behaviour', so not needed there
+	if(v == 0) return 64;
+#  endif
+	return __builtin_clzll(v);
+# endif
+}
+#else
+static HEDLEY_ALWAYS_INLINE int clz_n(uint32_t v) {
+# ifdef __GNUC__
+#  if defined(__clang__) || HEDLEY_GCC_VERSION_CHECK(7,0,0)
+	// as with AArch64 version above, only insert this check if compiler can optimise it away
+	if(v == 0) return 32;
+#  endif
+	return __builtin_clz(v);
+# elif defined(_MSC_VER)
+	return _arm_clz(v);
+# else
+	return __clz(v); // ARM compiler?
+# endif
+}
+#endif
+
 static uint8x16_t ALIGN_TO(16, shufLUT[256]);
 static uint16_t expandLUT[256];
 
@@ -195,26 +232,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		col = shufTotalLen+1 + lineSizeOffset-32;
 	} else {
 		// shuffle stuff up
-#ifdef __aarch64__
-# ifdef _MSC_VER
-		long bitIndex;
-		if(_BitScanReverse64((unsigned long*)&bitIndex, mask))
-			bitIndex ^= 63;
-		else
-			bitIndex = 64;
-# else
-		long bitIndex = __builtin_clzll(mask);
-# endif
-#else
-# ifdef __GNUC__
-		long bitIndex = __builtin_clz(mask); // TODO: is the 'undefined if 0' case problematic here?
-# elif defined(_MSC_VER)
-		long bitIndex = _arm_clz(mask);
-# else
-		long bitIndex = __clz(mask); // ARM compiler?
-# endif
-#endif
-		
+		long bitIndex = clz_n(mask);
 		uint8x16_t vClz = vdupq_n_u8(bitIndex & ~(sizeof(mask)*8));
 #ifdef __aarch64__
 		uint8x16_t blendA = vcgtq_u8(vmakeq_u8(63,62,61,60,51,50,49,48,47,46,45,44,35,34,33,32), vClz);
@@ -450,26 +468,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 			}
 		} else {
 			{
-#ifdef __aarch64__
-# ifdef _MSC_VER
-				// does this work?
-				if(_BitScanReverse64((unsigned long*)&bitIndex, mask))
-					bitIndex ^= 63;
-				else
-					bitIndex = 64;
-# else
-				bitIndex = __builtin_clzll(mask); // TODO: is the 'undefined if 0' case problematic here?
-# endif
-#else
-# ifdef __GNUC__
-				bitIndex = __builtin_clz(mask);
-# elif defined(_MSC_VER)
-				bitIndex = _arm_clz(mask);
-# else
-				bitIndex = __clz(mask); // ARM compiler?
-# endif
-#endif
-				
+				bitIndex = clz_n(mask);
 				uint8x16_t vClz = vdupq_n_u8(bitIndex & ~(sizeof(mask)*8));
 #ifdef __aarch64__
 				uint8x16_t blendA = vcgeq_u8(vmakeq_u8(63,62,61,60,51,50,49,48,47,46,45,44,35,34,33,32), vClz);
