@@ -57,18 +57,18 @@
 
 
 // MSVC compatibility
-#if ((defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(_M_X64)) && !defined(__clang__)
+#if ((defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(_M_X64)) && defined(_MSC_VER) && !defined(__clang__)
 	#define __SSE2__ 1
 	#define __SSSE3__ 1
 	#define __SSE4_1__ 1
-	#if defined(_MSC_VER) && _MSC_VER >= 1600
+	#if _MSC_VER >= 1600 && defined(__SSE2__)
 		#define __POPCNT__ 1
 		#define __LZCNT__ 1
 	#endif
 	#if !defined(__AVX__) && (_MSC_VER >= 1700 && defined(__SSE2__))
 		#define __AVX__ 1
 	#endif
-	#if !defined(__AVX2__) && (_MSC_VER >= 1800 && defined(__SSE2__))
+	#if !defined(__AVX2__) && (_MSC_VER >= 1800 && defined(__AVX__))
 		#define __AVX2__ 1
 		#define __BMI2__ 1
 	#endif
