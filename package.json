@@ -21,6 +21,7 @@
     "install": "node-gyp rebuild"
   },
   "gypfile": true,
+  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/animetosho/node-yencode/issues"
   },
