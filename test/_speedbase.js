@@ -25,7 +25,7 @@ var initBuffers = function() {
 	// use cipher as a fast, consistent RNG
 	var cipher = require('crypto').createCipheriv;
 	[['aes-128-cbc', 'my_incredible_pw', '                '],
-	 ['rc4', 'my_incredible_pw', ''],
+	 ['aes-128-cbc', 'nfa807g2lablzxk1', '                '],
 	 ['aes-128-cbc', '3h89sdg923jnkbas', '                ']
 	].forEach(function(cargs) {
 		var rand = cipher.apply(null, cargs);
