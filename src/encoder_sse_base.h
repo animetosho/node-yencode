@@ -484,7 +484,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				dataB = _mm_ternarylogic_epi32(dataB, cmpB, _mm_set1_epi8(64), 0xf8);
 				
 				// store last char
-				_mm_mask_storeu_epi8(p+XMM_SIZE+1, 1<<15, dataB);
+				p[XMM_SIZE*2] = _mm_extract_epi8(dataB, 15);
 				
 				uint32_t blendMask = (uint32_t)(-(int32_t)mask);
 				dataB = _mm_mask_alignr_epi8(dataB, blendMask>>16, dataB, dataA, 15);
