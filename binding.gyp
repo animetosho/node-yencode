@@ -43,6 +43,16 @@
       }],
       ['OS!="win" and enable_native_tuning!=0', {
         "defines": ["YENC_BUILD_NATIVE=1"]
+      }],
+      ['OS!="win"', {
+        "variables": {
+          "missing_memalign%": "<!(<!(echo ${CC_target:-${CC:-cc}}) -c src/test_alignalloc.c -o /dev/null -Werror 2>/dev/null || echo failed)",
+        },
+        "conditions": [
+          ['missing_memalign!=""', {
+            "defines": ["_POSIX_C_SOURCE=200112L"],
+          }]
+        ]
       }]
     ],
     "cflags": ["-Wno-unused-function"],
