@@ -223,14 +223,15 @@ bool cpu_supports_neon();
 enum YEncDecIsaLevel {
 	ISA_FEATURE_POPCNT = 0x1,
 	ISA_FEATURE_LZCNT = 0x2,
+	ISA_FEATURE_EVEX512 = 0x4, // AVX512 support
 	ISA_LEVEL_SSE2 = 0x100,
 	ISA_LEVEL_SSSE3 = 0x200,
 	ISA_LEVEL_SSE41 = 0x300,
 	ISA_LEVEL_SSE4_POPCNT = 0x301,
 	ISA_LEVEL_AVX = 0x381, // same as above, just used as a differentiator for `cpu_supports_isa`
 	ISA_LEVEL_AVX2 = 0x403, // also includes BMI1/2 and LZCNT
-	ISA_LEVEL_AVX3 = 0x503, // SKX variant; AVX512VL + AVX512BW
-	ISA_LEVEL_VBMI2 = 0x603 // ICL
+	ISA_LEVEL_AVX3 = 0x507, // SKX variant; AVX512VL + AVX512BW
+	ISA_LEVEL_VBMI2 = 0x603 // ICL, AVX10
 };
 #ifdef _MSC_VER
 // native tuning not supported in MSVC

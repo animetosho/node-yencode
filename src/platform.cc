@@ -132,7 +132,26 @@ int cpu_supports_isa() {
 					int cpuInfo[4];
 					_cpuidX(cpuInfo, 7, 0);
 					if((cpuInfo[1] & 0x128) == 0x128 && (ret & ISA_FEATURE_LZCNT)) { // BMI2 + AVX2 + BMI1
+						
+						// check AVX10
+						int cpuInfo2[4];
+						_cpuidX(cpuInfo2, 7, 1);
+						if(cpuInfo2[3] & 0x80000) {
+							_cpuidX(cpuInfo2, 0x24, 0);
+							if((cpuInfo2[2] & 0xff) >= 1 && ( // minimum AVX10.1
+#ifdef YENC_DISABLE_AVX256
+								cpuInfo2[2] & 0x10000 // AVX10/128
+#else
+								cpuInfo2[2] & 0x20000 // AVX10/256
+#endif
+							)) {
+								if(((xcr & 0xE0) == 0xE0) && (cpuInfo2[2] & 0x40000)) ret |= ISA_FEATURE_EVEX512;
+								return ret | ISA_LEVEL_VBMI2;
+							}
+						}
+						
 						if(((xcr & 0xE0) == 0xE0) && (cpuInfo[1] & 0xC0010000) == 0xC0010000) { // AVX512BW + AVX512VL + AVX512F
+							ret |= ISA_FEATURE_EVEX512;
 							if(cpuInfo[2] & 0x40)
 								return ret | ISA_LEVEL_VBMI2;
 							return ret | ISA_LEVEL_AVX3;

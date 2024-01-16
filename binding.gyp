@@ -263,7 +263,10 @@
       "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
       "conditions": [
         ['target_arch in "ia32 x64" and OS!="win"', {
-          "variables": {"supports_vbmi2%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/encoder_vbmi2.cc -mavx512vl -mavx512vbmi2 2>/dev/null || true)"},
+          "variables": {
+            "supports_vbmi2%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/encoder_vbmi2.cc -mavx512vl -mavx512vbmi2 2>/dev/null || true)",
+            "supports_avx10%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/encoder_vbmi2.cc -mavx512vl -mno-evex512 2>/dev/null || true)"
+          },
           "conditions": [
             ['supports_vbmi2!=""', {
               "cflags": ["-mavx512vbmi2", "-mavx512vl", "-mavx512bw", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
@@ -271,6 +274,14 @@
               "xcode_settings": {
                 "OTHER_CFLAGS": ["-mavx512vbmi2", "-mavx512vl", "-mavx512bw", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
                 "OTHER_CXXFLAGS": ["-mavx512vbmi2", "-mavx512vl", "-mavx512bw", "-mpopcnt", "-mbmi", "-mbmi2", "-mlzcnt"],
+              }
+            }],
+            ['supports_avx10!=""', {
+              "cflags": ["-mno-evex512"],
+              "cxxflags": ["-mno-evex512"],
+              "xcode_settings": {
+                "OTHER_CFLAGS": ["-mno-evex512"],
+                "OTHER_CXXFLAGS": ["-mno-evex512"],
               }
             }]
           ]

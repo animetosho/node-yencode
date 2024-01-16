@@ -1,5 +1,12 @@
 #include "common.h"
 
+extern const bool decoder_has_avx10;
+#if !defined(__EVEX512__) && (defined(__AVX10_1__) || defined(__EVEX256__)) && defined(__AVX512VL__) && defined(__AVX512VBMI2__) && defined(__AVX512BW__)
+const bool decoder_has_avx10 = true;
+#else
+const bool decoder_has_avx10 = false;
+#endif
+
 #if defined(__AVX512VL__) && defined(__AVX512VBMI2__) && defined(__AVX512BW__)
 # include "decoder_common.h"
 # ifndef YENC_DISABLE_AVX256
