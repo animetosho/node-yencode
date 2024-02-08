@@ -509,4 +509,17 @@ static inline void decoder_init_lut(uint8_t* eqFixLUT, void* compactLUT) {
 	}
 	#endif
 }
-
+template<bool isRaw>
+static void decoder_set_nextMask(const uint8_t* src, size_t len, uint16_t& nextMask) {
+	if(isRaw) {
+		if(len != 0) { // have to gone through at least one loop cycle
+			if(src[-2] == '\r' && src[-1] == '\n' && src[0] == '.')
+				nextMask = 1;
+			else if(src[-1] == '\r' && src[0] == '\n' && src[1] == '.')
+				nextMask = 2;
+			else
+				nextMask = 0;
+		}
+	} else
+		nextMask = 0;
+}

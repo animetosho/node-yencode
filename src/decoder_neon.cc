@@ -78,6 +78,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned
 			lfCompare = vsetq_lane_u8('.', lfCompare, 1);
 	}
 #endif
+	
+	decoder_set_nextMask<isRaw>(src, len, nextMask);
+	
 	long i;
 	for(i = -len; i; i += sizeof(uint8x16_t)*2) {
 		uint8x16x2_t data = vld1q_u8_x2_align(src+i, 32);
@@ -251,6 +254,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
 							len += i;
+							decoder_set_nextMask<isRaw>(src+i, len, nextMask);
 							break;
 						}
 					}
@@ -301,6 +305,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned
 						);
 						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(matchEnd))) {
 							len += i;
+							decoder_set_nextMask<isRaw>(src+i, len, nextMask);
 							break;
 						}
 					}
@@ -449,18 +454,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned
 #endif
 		}
 	}
-	
-	if(isRaw) {
-		if(len != 0) { // have to gone through at least one loop cycle
-			if(src[i-2] == '\r' && src[i-1] == '\n' && src[i] == '.')
-				nextMask = 1;
-			else if(src[i-1] == '\r' && src[i] == '\n' && src[i+1] == '.')
-				nextMask = 2;
-			else
-				nextMask = 0;
-		}
-	} else
-		nextMask = 0;
 }
 
 void decoder_set_neon_funcs() {

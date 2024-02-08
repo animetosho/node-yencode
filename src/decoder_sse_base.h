@@ -145,6 +145,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* src, long& len, unsigned 
 		else
 			lfCompare = _mm_insert_epi16(lfCompare, _nextMask == 1 ? 0x0a2e /*".\n"*/ : 0x2e0a /*"\n."*/, 0);
 	}
+	
+	decoder_set_nextMask<isRaw>(src, len, _nextMask); // set this before the loop because we can't check src after it's been overwritten
+	
 	intptr_t i;
 	for(i = -len; i; i += sizeof(__m128i)*2) {
 		__m128i oDataA = _mm_load_si128((__m128i *)(src+i));
@@ -383,6 +386,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* src, long& len, unsigned 
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
 							len += (long)i;
+							decoder_set_nextMask<isRaw>(src+i, len, _nextMask);
 							break;
 						}
 					}
@@ -492,6 +496,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* src, long& len, unsigned 
 						
 						if(endFound) {
 							len += (long)i;
+							decoder_set_nextMask<isRaw>(src+i, len, _nextMask);
 							break;
 						}
 					}
@@ -710,16 +715,5 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* src, long& len, unsigned 
 		}
 	}
 	_escFirst = (unsigned char)escFirst;
-	if(isRaw) {
-		if(len != 0) { // have to gone through at least one loop cycle
-			if(src[i-2] == '\r' && src[i-1] == '\n' && src[i] == '.')
-				_nextMask = 1;
-			else if(src[i-1] == '\r' && src[i] == '\n' && src[i+1] == '.')
-				_nextMask = 2;
-			else
-				_nextMask = 0;
-		}
-	} else
-		_nextMask = 0;
 }
 #endif

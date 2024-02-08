@@ -67,6 +67,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* src, long& len, unsigned
 		);
 	}
 	
+	decoder_set_nextMask<isRaw>(src, len, _nextMask); // set this before the loop because we can't check src after it's been overwritten
+	
 	// for some reason, MSVC Win32 seems to crash when trying to compile _mm256_mask_cmpeq_epi8_mask
 	// the crash can be fixed by switching the order of the last two arguments, but it seems to generate wrong code
 	// so just disable the optimisation as it seems to be problematic there
@@ -320,6 +322,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* src, long& len, unsigned
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
 							len += (long)i;
+							decoder_set_nextMask<isRaw>(src+i, len, _nextMask);
 							break;
 						}
 					}
@@ -412,6 +415,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* src, long& len, unsigned
 						}
 						if(endFound) {
 							len += (long)i;
+							decoder_set_nextMask<isRaw>(src+i, len, _nextMask);
 							break;
 						}
 					}
@@ -613,20 +617,6 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* src, long& len, unsigned
 		}
 	}
 	_escFirst = (unsigned char)escFirst;
-	if(isRaw) {
-		// this would be the trivial solution, but requires the compiler holding onto minMask throughout the loop:
-		//_nextMask = ~(uint16_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8(minMask, _mm256_set1_epi8('.')));
-		// instead, just scan the memory to determine what to set nextMask to
-		if(len != 0) { // have to gone through at least one loop cycle
-			if(src[i-2] == '\r' && src[i-1] == '\n' && src[i] == '.')
-				_nextMask = 1;
-			else if(src[i-1] == '\r' && src[i] == '\n' && src[i+1] == '.')
-				_nextMask = 2;
-			else
-				_nextMask = 0;
-		}
-	} else
-		_nextMask = 0;
 	_mm256_zeroupper();
 }
 #endif
