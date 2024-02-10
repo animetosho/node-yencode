@@ -322,7 +322,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* src, long& len, unsigned
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
 							len += (long)i;
-							decoder_set_nextMask<isRaw>(src+i, len, _nextMask);
+							_nextMask = decoder_set_nextMask<isRaw>(src+i, mask);
 							break;
 						}
 					}
@@ -415,7 +415,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* src, long& len, unsigned
 						}
 						if(endFound) {
 							len += (long)i;
-							decoder_set_nextMask<isRaw>(src+i, len, _nextMask);
+							_nextMask = decoder_set_nextMask<isRaw>(src+i, mask);
 							break;
 						}
 					}

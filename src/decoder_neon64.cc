@@ -230,7 +230,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned
 							// terminator found
 							// there's probably faster ways to do this, but reverting to scalar code should be good enough
 							len += i;
-							decoder_set_nextMask<isRaw>(src+i, len, nextMask);
+							nextMask = decoder_set_nextMask<isRaw>(src+i, mask);
 							break;
 						}
 					}
@@ -279,7 +279,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned
 						);
 						if(LIKELIHOOD(0.001, neon_vect_is_nonzero(matchEnd))) {
 							len += i;
-							decoder_set_nextMask<isRaw>(src+i, len, nextMask);
+							nextMask = decoder_set_nextMask<isRaw>(src+i, mask);
 							break;
 						}
 					}

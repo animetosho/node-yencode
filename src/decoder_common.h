@@ -510,7 +510,7 @@ static inline void decoder_init_lut(uint8_t* eqFixLUT, void* compactLUT) {
 	#endif
 }
 template<bool isRaw>
-static void decoder_set_nextMask(const uint8_t* src, size_t len, uint16_t& nextMask) {
+static inline void decoder_set_nextMask(const uint8_t* src, size_t len, uint16_t& nextMask) {
 	if(isRaw) {
 		if(len != 0) { // have to gone through at least one loop cycle
 			if(src[-2] == '\r' && src[-1] == '\n' && src[0] == '.')
@@ -522,4 +522,16 @@ static void decoder_set_nextMask(const uint8_t* src, size_t len, uint16_t& nextM
 		}
 	} else
 		nextMask = 0;
+}
+
+// without backtracking
+template<bool isRaw>
+static inline uint16_t decoder_set_nextMask(const uint8_t* src, unsigned mask) {
+	if(isRaw) {
+		if(src[0] == '.')
+			return mask & 1;
+		if(src[1] == '.')
+			return mask & 2;
+	}
+	return 0;
 }
