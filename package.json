@@ -1,6 +1,6 @@
 {
   "name": "yencode",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "SIMD accelerated yEnc encoder/decoder and CRC32 calculator",
   "keywords": [
     "yenc",
