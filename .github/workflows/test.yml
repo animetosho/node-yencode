@@ -69,7 +69,8 @@ jobs:
         cc_ver: ['9','12']
         t:
           # qemu x86 doesn't support AVX, so we use Intel SDE instead
-          - {arch: 'i386',  nodearch: 'x86',     target: 'i686-linux-gnu',       libc: 'i386',    emu: '$SDE_PATH/sde -icx --'}
+          # NodeJS doesn't provide x86 Linux binaries
+          #- {arch: 'i386',  nodearch: 'x86',     target: 'i686-linux-gnu',       libc: 'i386',    emu: '$SDE_PATH/sde -icx --'}
           - {arch: 'amd64', nodearch: 'x64',    target: 'x86-64-linux-gnu',     libc: 'amd64',   emu: '$SDE_PATH/sde64 -icx --'}
           - {arch: 'aarch64', nodearch: 'arm64',  target: 'aarch64-linux-gnu',    libc: 'arm64',   emu: 'qemu-aarch64-static -L /usr/aarch64-linux-gnu -cpu max,sve-max-vq=4'}
           - {arch: 'arm', nodearch: 'armv7l',      target: 'arm-linux-gnueabihf',  libc: 'armhf',   emu: 'qemu-arm-static -L /usr/arm-linux-gnueabihf -cpu max'}
@@ -128,7 +129,7 @@ jobs:
         node_ver: ['4.9.1']
         cc_ver: ['11','15']
         t:
-          - {arch: 'i386',  nodearch: 'x86', target: 'i686-linux-gnu', cl_target: 'i386-linux-gnu', libc: 'i386', emu: '$SDE_PATH/sde -icx --'}
+          #- {arch: 'i386',  nodearch: 'x86', target: 'i686-linux-gnu', cl_target: 'i386-linux-gnu', libc: 'i386', emu: '$SDE_PATH/sde -icx --'}
           - {arch: 'amd64', nodearch: 'x64', target: 'x86-64-linux-gnu', cl_target: 'x86_64-linux-gnu', libc: 'amd64', emu: '$SDE_PATH/sde64 -icx --'}
           - {arch: 'aarch64', nodearch: 'arm64', target: 'aarch64-linux-gnu', cl_target: 'aarch64-linux-gnu', libc: 'arm64', emu: 'qemu-aarch64-static -L /usr/aarch64-linux-gnu -cpu max,sve-max-vq=4'}
           - {arch: 'arm', nodearch: 'armv7l', target: 'arm-linux-gnueabihf', cl_target: 'armv7a-linux-gnueabihf', libc: 'armhf', emu: 'qemu-arm-static -L /usr/arm-linux-gnueabihf -cpu max'}

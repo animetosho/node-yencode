@@ -11,7 +11,12 @@ runs:
   using: "composite"
   steps:
   - run: npm install buffer-crc32
+    shell: bash
   - run: node-gyp rebuild ${{ inputs.build_args }}
+    shell: bash
   - run: ${{ inputs.node }} test/testenc
+    shell: bash
   - run: ${{ inputs.node }} test/testdec
+    shell: bash
   - run: ${{ inputs.node }} test/testcrc
+    shell: bash
