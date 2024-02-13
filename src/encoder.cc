@@ -122,6 +122,7 @@ size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HED
 
 extern "C" {
 	size_t (*_do_encode)(int, int*, const unsigned char* HEDLEY_RESTRICT, unsigned char* HEDLEY_RESTRICT, size_t, int) = &do_encode_generic;
+	int _encode_isa = ISA_GENERIC;
 }
 
 void encoder_sse2_init();
@@ -139,12 +140,14 @@ void encoder_rvv_init();
 static inline void encoder_native_init() {
 	_do_encode = &do_encode_simd< do_encode_avx2<ISA_NATIVE> >;
 	encoder_avx2_lut<ISA_NATIVE>();
+	_encode_isa = ISA_NATIVE;
 }
 # else
 #  include "encoder_sse_base.h"
 static inline void encoder_native_init() {
 	_do_encode = &do_encode_simd< do_encode_sse<ISA_NATIVE> >;
 	encoder_sse_lut<ISA_NATIVE>();
+	_encode_isa = ISA_NATIVE;
 }
 # endif
 #endif

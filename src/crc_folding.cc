@@ -365,12 +365,11 @@ static uint32_t do_crc32_incremental_clmul(const void* data, size_t length, uint
 	return crc_fold((const unsigned char*)data, (long)length, init);
 }
 
-void crc_clmul_set_funcs(crc_func* _do_crc32_incremental) {
-	*_do_crc32_incremental = &do_crc32_incremental_clmul;
+void crc_clmul_set_funcs() {
+	_do_crc32_incremental = &do_crc32_incremental_clmul;
+	_crc32_isa = ISA_LEVEL_PCLMUL;
 }
 #else
-void crc_clmul_set_funcs(crc_func* _do_crc32_incremental) {
-    (void)_do_crc32_incremental;
-}
+void crc_clmul_set_funcs() {}
 #endif
 

@@ -7,6 +7,8 @@ extern "C" {
 	YencDecoderEnd (*_do_decode)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_scalar<false, false>;
 	YencDecoderEnd (*_do_decode_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_scalar<true, false>;
 	YencDecoderEnd (*_do_decode_end_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_end_scalar<true>;
+	
+	int _decode_isa = ISA_GENERIC;
 }
 
 void decoder_set_sse2_funcs();
@@ -27,6 +29,7 @@ static inline void decoder_set_native_funcs() {
 	_do_decode = &do_decode_simd<false, false, sizeof(__m256i)*2, do_decode_avx2<false, false, ISA_NATIVE> >;
 	_do_decode_raw = &do_decode_simd<true, false, sizeof(__m256i)*2, do_decode_avx2<true, false, ISA_NATIVE> >;
 	_do_decode_end_raw = &do_decode_simd<true, true, sizeof(__m256i)*2, do_decode_avx2<true, true, ISA_NATIVE> >;
+	_decode_isa = ISA_NATIVE;
 }
 # else
 #  include "decoder_sse_base.h"
@@ -36,6 +39,7 @@ static inline void decoder_set_native_funcs() {
 	_do_decode = &do_decode_simd<false, false, sizeof(__m128i)*2, do_decode_sse<false, false, ISA_NATIVE> >;
 	_do_decode_raw = &do_decode_simd<true, false, sizeof(__m128i)*2, do_decode_sse<true, false, ISA_NATIVE> >;
 	_do_decode_end_raw = &do_decode_simd<true, true, sizeof(__m128i)*2, do_decode_sse<true, true, ISA_NATIVE> >;
+	_decode_isa = ISA_NATIVE;
 }
 # endif
 #endif

@@ -32,6 +32,7 @@ typedef enum {
 extern YencDecoderEnd (*_do_decode)(const unsigned char**, unsigned char**, size_t, YencDecoderState*);
 extern YencDecoderEnd (*_do_decode_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*);
 extern YencDecoderEnd (*_do_decode_end_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*);
+extern int _decode_isa;
 
 static inline size_t do_decode(int isRaw, const unsigned char* src, unsigned char* dest, size_t len, YencDecoderState* state) {
 	unsigned char* ds = dest;
@@ -45,6 +46,9 @@ static inline YencDecoderEnd do_decode_end(const unsigned char** src, unsigned c
 
 void decoder_init();
 
+static inline int decode_isa_level() {
+	return _decode_isa;
+}
 
 
 #ifdef __cplusplus

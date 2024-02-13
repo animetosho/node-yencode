@@ -200,11 +200,10 @@ static uint32_t do_crc32_incremental_arm(const void* data, size_t length, uint32
 	return ~arm_crc_calc(~init, (const unsigned char*)data, (long)length);
 }
 
-void crc_arm_set_funcs(crc_func* _do_crc32_incremental) {
-	*_do_crc32_incremental = &do_crc32_incremental_arm;
+void crc_arm_set_funcs() {
+	_do_crc32_incremental = &do_crc32_incremental_arm;
+	_crc32_isa = ISA_FEATURE_CRC;
 }
 #else
-void crc_arm_set_funcs(crc_func* _do_crc32_incremental) {
-	(void)_do_crc32_incremental;
-}
+void crc_arm_set_funcs() {}
 #endif

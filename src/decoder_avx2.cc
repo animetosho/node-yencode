@@ -9,6 +9,7 @@ void decoder_set_avx2_funcs() {
 	_do_decode = &do_decode_simd<false, false, sizeof(__m256i)*2, do_decode_avx2<false, false, ISA_LEVEL_AVX2> >;
 	_do_decode_raw = &do_decode_simd<true, false, sizeof(__m256i)*2, do_decode_avx2<true, false, ISA_LEVEL_AVX2> >;
 	_do_decode_end_raw = &do_decode_simd<true, true, sizeof(__m256i)*2, do_decode_avx2<true, true, ISA_LEVEL_AVX2> >;
+	_decode_isa = ISA_LEVEL_AVX2;
 }
 #else
 void decoder_set_avx_funcs();
