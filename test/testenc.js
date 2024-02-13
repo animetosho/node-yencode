@@ -141,7 +141,7 @@ padding.fill(97); // 'a'
 
 // random tests
 for(var i=0; i<32; i++) {
-	var rand = require('crypto').pseudoRandomBytes(4*1024);
+	var rand = require('crypto').randomBytes(4*1024);
 	runLineSizes(function(ls, offs) {
 		doTest('Random [ls='+ls+', offs='+offs+']', [rand, ls, offs]);
 	});

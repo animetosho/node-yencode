@@ -177,7 +177,7 @@ doTest('Extra null issue', toBuffer('2e900a4fb6054c9126171cdc196dc41237bb1b76da9
 
 // random tests
 for(var i=0; i<32; i++) {
-	var rand = require('crypto').pseudoRandomBytes(128*1024);
+	var rand = require('crypto').randomBytes(128*1024);
 	doTest('Random', rand);
 }
 
