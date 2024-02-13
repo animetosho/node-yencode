@@ -1,0 +1,17 @@
+inputs:
+  build_args:
+    default: ''
+    type: string
+    required: false
+  node:
+    default: node
+    type: string
+    required: false
+runs:
+  using: "composite"
+  steps:
+  - run: npm install buffer-crc32
+  - run: node-gyp rebuild ${{ inputs.build_args }}
+  - run: ${{ inputs.node }} test/testenc
+  - run: ${{ inputs.node }} test/testdec
+  - run: ${{ inputs.node }} test/testcrc
