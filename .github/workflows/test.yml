@@ -97,9 +97,9 @@ jobs:
           echo "CXX=g++-${{ matrix.cc_ver }}" >> $GITHUB_ENV
         if: ${{ matrix.t.arch == 'amd64' }}
       - run: |
-          wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.nodearch }}.tar.xz
-          tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.nodearch }}.tar.xz
-          mv node-v${{ matrix.node_ver }}-linux-${{ matrix.nodearch }} n
+          wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
+          tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
+          mv node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }} n
       - uses: ./.github/actions/run_tests
         with:
           build_args: --arch=${{ matrix.arch }} --target=v${{ matrix.node_ver }}
@@ -153,9 +153,9 @@ jobs:
           echo "CFLAGS=${{ matrix.t.cl_target }}" >> $GITHUB_ENV
           echo "CXXFLAGS=${{ matrix.t.cl_target }}" >> $GITHUB_ENV
       - run: |
-          wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.nodearch }}.tar.xz
-          tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.nodearch }}.tar.xz
-          mv node-v${{ matrix.node_ver }}-linux-${{ matrix.nodearch }} n
+          wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
+          tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
+          mv node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }} n
       - uses: ./.github/actions/run_tests
         with:
           build_args: --arch=${{ matrix.arch }} --target=v${{ matrix.node_ver }}
