@@ -157,7 +157,8 @@ jobs:
       - run: |
           echo "CC=clang-${{ matrix.cc_ver }}" >> $GITHUB_ENV
           echo "CXX=clang++-${{ matrix.cc_ver }}" >> $GITHUB_ENV
-          echo "CFLAGS=--target=${{ matrix.t.cl_target }} -I/usr/${{ matrix.t.target }}/include -I`ls -d /usr/${{ matrix.t.target }}/include/c++/*|head -n1`/${{ matrix.t.target }}" >> $GITHUB_ENV
+          CFLAGS="--target=${{ matrix.t.cl_target }} -I/usr/${{ matrix.t.target }}/include -I`ls -d /usr/${{ matrix.t.target }}/include/c++/*|head -n1`/${{ matrix.t.target }}"
+          echo "CFLAGS=$CFLAGS" >> $GITHUB_ENV
           echo "CXXFLAGS=$CFLAGS" >> $GITHUB_ENV
           if [ '${{ matrix.t.arch }}' != 'amd64' ]; then
             echo "LDFLAGS=-fuse-ld=/usr/bin/${{ matrix.t.target }}-ld -L/usr/lib/llvm-${{ matrix.cc_ver }}/lib/clang/" >> $GITHUB_ENV
