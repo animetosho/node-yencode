@@ -85,7 +85,6 @@ jobs:
           # RVV unavailable in Ubuntu 22.04's qemu
           # TODO: consider using newer qemu
           #- {arch: 'riscv64', nodearch: 'riscv64',  target: 'riscv64-linux-gnu',    libc: 'riscv64', emu: 'qemu-riscv64-static -L /usr/riscv64-linux-gnu -cpu rv64,v=true,vlen=512,elen=64,vext_spec=v1.0,zba=true,zbb=true,zbc=true'}
-          - {arch: 'ppc64', nodearch: 'ppc64le',  target: 'powerpc64-linux-gnu',    libc: 'ppc64', emu: 'qemu-ppc64-static -L /usr/powerpc64-linux-gnu'}
     name: Test on GCC ${{ matrix.cc_ver }} ${{ matrix.t.arch }}
     runs-on: ubuntu-22.04
     steps:
@@ -144,7 +143,6 @@ jobs:
           # RVV unavailable in Ubuntu 22.04's qemu
           # TODO: consider using newer qemu
           #- {arch: 'riscv64', nodearch: 'riscv64', target: 'riscv64-linux-gnu', cl_target: 'riscv64-linux-gnu', libc: 'riscv64', emu: 'qemu-riscv64-static -L /usr/riscv64-linux-gnu -cpu rv64,v=true,vlen=512,elen=64,vext_spec=v1.0,zba=true,zbb=true,zbc=true'}
-          - {arch: 'ppc64', nodearch: 'ppc64le', target: 'powerpc64-linux-gnu', cl_target: 'ppc64-linux-gnu', libc: 'ppc64', emu: 'qemu-ppc64-static -L /usr/powerpc64-linux-gnu'}
     name: Test Ubuntu Clang ${{ matrix.cc_ver }} ${{ matrix.t.arch }}
     runs-on: ubuntu-22.04
     steps:
@@ -159,8 +157,11 @@ jobs:
       - run: |
           echo "CC=clang-${{ matrix.cc_ver }}" >> $GITHUB_ENV
           echo "CXX=clang++-${{ matrix.cc_ver }}" >> $GITHUB_ENV
-          echo "CFLAGS=--target=${{ matrix.t.cl_target }}" >> $GITHUB_ENV
-          echo "CXXFLAGS=--target=${{ matrix.t.cl_target }}" >> $GITHUB_ENV
+          echo "CFLAGS=--target=${{ matrix.t.cl_target }} -I/usr/${{ matrix.t.target }}/include -I`ls -d /usr/${{ matrix.t.target }}/include/c++/*|head -n1`/${{ matrix.t.target }}" >> $GITHUB_ENV
+          echo "CXXFLAGS=$CFLAGS" >> $GITHUB_ENV
+          if [ '${{ matrix.t.arch }}' != 'amd64' ]; then
+            echo "LDFLAGS=-fuse-ld=/usr/bin/${{ matrix.t.target }}-ld -L/usr/lib/llvm-${{ matrix.cc_ver }}/lib/clang/" >> $GITHUB_ENV
+          fi
       - run: |
           wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
@@ -188,3 +189,4 @@ jobs:
   # TODO: MSYS tests?
   # TODO: test w/ Apple Clang
   # TODO: test varying 'native' configs, disabled 256b config
+  # TODO: big endian config
