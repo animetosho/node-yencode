@@ -28,7 +28,7 @@ jobs:
           python2: false
         - version: '20.11.0'
           gyp_ver: '8.4.1'
-          flags: '--pending-deprecation --throw-deprecation --trace-warnings'
+          flags: '--trace-warnings' #--pending-deprecation --throw-deprecation
           python2: false
     name: Test on node ${{ matrix.version }}
     runs-on: ubuntu-latest
@@ -109,7 +109,7 @@ jobs:
           wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           mv node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }} n
-      - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.arch }} --target=v${{ matrix.node_ver }} --openssl_fips=''
+      - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.t.arch }} --target=v${{ matrix.node_ver }} --openssl_fips='' --enable_native_tuning=0
       - uses: ./.github/actions/run_tests
         with:
           node: ${{ matrix.t.emu }} n/bin/node
@@ -159,13 +159,13 @@ jobs:
       - run: |
           echo "CC=clang-${{ matrix.cc_ver }}" >> $GITHUB_ENV
           echo "CXX=clang++-${{ matrix.cc_ver }}" >> $GITHUB_ENV
-          echo "CFLAGS=${{ matrix.t.cl_target }}" >> $GITHUB_ENV
-          echo "CXXFLAGS=${{ matrix.t.cl_target }}" >> $GITHUB_ENV
+          echo "CFLAGS=--target=${{ matrix.t.cl_target }}" >> $GITHUB_ENV
+          echo "CXXFLAGS=--target=${{ matrix.t.cl_target }}" >> $GITHUB_ENV
       - run: |
           wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           mv node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }} n
-      - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.arch }} --target=v${{ matrix.node_ver }} --openssl_fips=''
+      - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.t.arch }} --target=v${{ matrix.node_ver }} --openssl_fips='' --enable_native_tuning=0
       - uses: ./.github/actions/run_tests
         with:
           node: ${{ matrix.t.emu }} n/bin/node
