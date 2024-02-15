@@ -161,7 +161,8 @@ jobs:
           echo "CFLAGS=$CFLAGS" >> $GITHUB_ENV
           echo "CXXFLAGS=$CFLAGS" >> $GITHUB_ENV
           if [ '${{ matrix.t.arch }}' != 'amd64' ]; then
-            echo "LDFLAGS=-fuse-ld=/usr/bin/${{ matrix.t.target }}-ld -L/usr/lib/llvm-${{ matrix.cc_ver }}/lib/clang/" >> $GITHUB_ENV
+            echo "LDFLAGS=-fuse-ld=/usr/bin/${{ matrix.t.target }}-ld -L/usr/lib/llvm-${{ matrix.cc_ver }}/lib/clang/ --target=${{ matrix.t.cl_target }}" >> $GITHUB_ENV
+            sed -i 's/"target_defaults": [{]/"target_defaults": { "libraries!":["-lnode"],/' binding.gyp
           fi
       - run: |
           wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
