@@ -511,18 +511,18 @@ static inline uint16_t decoder_set_nextMask(const uint8_t* src, unsigned mask) {
 
 // resolve invalid sequences of = to deal with cases like '===='
 // bit hack inspired from simdjson: https://youtu.be/wlvKAT7SZIQ?t=33m38s
-static inline uint64_t fix_eqMask64(uint64_t mask) {
-	uint64_t start = mask & ~(mask << 1);
-	const uint64_t even = 0xaaaaaaaaaaaaaaaa;
-	uint64_t oddGroups = (mask + (start & even)) & mask & ~even;
-	uint64_t evenGroups = (mask + (start & ~even)) & mask & even;
-	return oddGroups | evenGroups;
-}
-
-static inline uint32_t fix_eqMask32(uint32_t mask) {
-	uint32_t start = mask & ~(mask << 1);
-	const uint32_t even = 0xaaaaaaaa;
-	uint32_t oddGroups = (mask + (start & even)) & mask & ~even;
-	uint32_t evenGroups = (mask + (start & ~even)) & mask & even;
-	return oddGroups | evenGroups;
+template<typename T>
+static inline T fix_eqMask(T mask) {
+	// isolate the start of each consecutive bit group (e.g. 01011101 -> 01000101)
+	T start = mask & ~(mask << 1);
+	
+	const T odd = (T)0xaaaaaaaaaaaaaaaa; // every odd bit (10101010...)
+	
+	// split mask into two halves: groups which start at an odd bit position, and those that start at an even position
+	// `start & [~]odd` isolates the relevent start bit, then `(mask + start) & mask` clears that group
+	T evenGroups = (mask + (start & odd)) & mask;
+	T oddGroups = (mask + (start & ~odd)) & mask;
+	
+	// for groups that start on an odd bit, only preserve odd bits; do the opposite for even bit groups
+	return (oddGroups & odd) | (evenGroups & ~odd);
 }
