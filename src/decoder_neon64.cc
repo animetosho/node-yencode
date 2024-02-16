@@ -7,8 +7,6 @@
 static struct { char bytes[16]; } ALIGN_TO(16, compactLUT[32768]);
 #pragma pack()
 
-static uint8_t eqFixLUT[256];
-
 
 // AArch64 GCC lacks these functions until 8.5, 9.4 and 10.1 (10.0 unknown)
 #if !defined(__clang__) && !defined(_MSC_VER) && (!defined(__aarch64__) || !(HEDLEY_GCC_VERSION_CHECK(9,4,0) || (!HEDLEY_GCC_VERSION_CHECK(9,0,0) && HEDLEY_GCC_VERSION_CHECK(8,5,0))))
@@ -293,18 +291,13 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) | escFirst)) != 0)) {
-				uint8_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
-				uint64_t maskEq2 = tmp;
-				for(int j=8; j<64; j+=8) {
-					tmp = eqFixLUT[((maskEq>>j)&0xff) & ~(tmp>>7)];
-					maskEq2 |= ((uint64_t)tmp)<<j;
-				}
-				maskEq = maskEq2;
+				maskEq = fix_eqMask64(maskEq & ~(uint64_t)escFirst);
 				
+				unsigned char nextEscFirst = maskEq>>63;
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq = (maskEq<<1) | escFirst;
 				mask &= ~maskEq;
-				escFirst = tmp>>7;
+				escFirst = nextEscFirst;
 				
 				// unescape chars following `=`
 #if defined(__GNUC__) && !defined(__clang__)
@@ -438,7 +431,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned
 }
 
 void decoder_set_neon_funcs() {
-	decoder_init_lut(eqFixLUT, compactLUT);
+	decoder_init_lut(compactLUT);
 	_do_decode = &do_decode_simd<false, false, sizeof(uint8x16_t)*4, do_decode_neon<false, false> >;
 	_do_decode_raw = &do_decode_simd<true, false, sizeof(uint8x16_t)*4, do_decode_neon<true, false> >;
 	_do_decode_end_raw = &do_decode_simd<true, true, sizeof(uint8x16_t)*4, do_decode_neon<true, true> >;

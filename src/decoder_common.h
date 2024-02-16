@@ -461,54 +461,27 @@ YencDecoderEnd do_decode_simd(const unsigned char** src, unsigned char** dest, s
 	return YDEC_END_NONE;
 }
 
-static inline void decoder_init_lut(uint8_t* eqFixLUT, void* compactLUT) {
-	for(int i=0; i<256; i++) {
-		int k = i;
-		int p = 0;
-		
-		// fix LUT
-		k = i;
-		p = 0;
-		for(int j=0; j<8; j++) {
-			k = i >> j;
-			if(k & 1) {
-				p |= 1 << j;
-				j++;
-			}
-		}
-		eqFixLUT[i] = p;
-		
-		#ifdef YENC_DEC_USE_THINTABLE
-		uint8_t* res = (uint8_t*)compactLUT + i*8;
-		k = i;
-		p = 0;
-		for(int j=0; j<8; j++) {
-			if(!(k & 1)) {
-				res[p++] = j;
-			}
-			k >>= 1;
-		}
-		for(; p<8; p++)
-			res[p] = 0x80;
-		#endif
-	}
-	#ifndef YENC_DEC_USE_THINTABLE
-	for(int i=0; i<32768; i++) {
-		int k = i;
-		uint8_t* res = (uint8_t*)compactLUT + i*16;
-		int p = 0;
-		
-		for(int j=0; j<16; j++) {
-			if(!(k & 1)) {
-				res[p++] = j;
-			}
-			k >>= 1;
-		}
-		for(; p<16; p++)
-			res[p] = 0x80;
-	}
+static inline void decoder_init_lut(void* compactLUT) {
+	#ifdef YENC_DEC_USE_THINTABLE
+	const int tableSize = 8;
+	#else
+	const int tableSize = 16;
 	#endif
+	for(int i=0; i<(tableSize==8?256:32768); i++) {
+		int k = i;
+		uint8_t* res = (uint8_t*)compactLUT + i*tableSize;
+		int p = 0;
+		for(int j=0; j<tableSize; j++) {
+			if(!(k & 1)) {
+				res[p++] = j;
+			}
+			k >>= 1;
+		}
+		for(; p<tableSize; p++)
+			res[p] = 0x80;
+	}
 }
+
 template<bool isRaw>
 static inline void decoder_set_nextMask(const uint8_t* src, size_t len, uint16_t& nextMask) {
 	if(isRaw) {
@@ -534,4 +507,22 @@ static inline uint16_t decoder_set_nextMask(const uint8_t* src, unsigned mask) {
 			return mask & 2;
 	}
 	return 0;
+}
+
+// resolve invalid sequences of = to deal with cases like '===='
+// bit hack inspired from simdjson: https://youtu.be/wlvKAT7SZIQ?t=33m38s
+static inline uint64_t fix_eqMask64(uint64_t mask) {
+	uint64_t start = mask & ~(mask << 1);
+	const uint64_t even = 0xaaaaaaaaaaaaaaaa;
+	uint64_t oddGroups = (mask + (start & even)) & mask & ~even;
+	uint64_t evenGroups = (mask + (start & ~even)) & mask & even;
+	return oddGroups | evenGroups;
+}
+
+static inline uint32_t fix_eqMask32(uint32_t mask) {
+	uint32_t start = mask & ~(mask << 1);
+	const uint32_t even = 0xaaaaaaaa;
+	uint32_t oddGroups = (mask + (start & even)) & mask & ~even;
+	uint32_t evenGroups = (mask + (start & ~even)) & mask & even;
+	return oddGroups | evenGroups;
 }

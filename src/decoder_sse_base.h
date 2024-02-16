@@ -29,7 +29,6 @@
 static struct {
 	unsigned char BitsSetTable256inv[256];
 	/*align16*/ struct { char bytes[16]; } compact[32768];
-	uint8_t eqFix[256];
 	/*align8*/ uint64_t eqAdd[256];
 	/*align16*/ int8_t unshufMask[32*16];
 } * HEDLEY_RESTRICT lookups;
@@ -521,17 +520,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* src, long& len, unsigned 
 				dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
-				// resolve invalid sequences of = to deal with cases like '===='
-				unsigned tmp = lookups->eqFix[(maskEq&0xff) & ~escFirst];
-				uint32_t maskEq2 = tmp;
-				for(int j=8; j<32; j+=8) {
-					tmp = lookups->eqFix[((maskEq>>j)&0xff) & ~(tmp>>7)];
-					maskEq2 |= tmp<<j;
-				}
-				maskEq = maskEq2;
-				
+				maskEq = fix_eqMask32(maskEq & ~escFirst);
 				mask &= ~escFirst;
-				escFirst = (maskEq >> 31);
+				escFirst = maskEq >> 31;
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq <<= 1;
 				mask &= ~maskEq;

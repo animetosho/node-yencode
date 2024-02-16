@@ -43,8 +43,6 @@ static struct { char bytes[16]; } ALIGN_TO(16, compactLUT[32768]);
 # pragma pack()
 #endif
 
-static uint8_t eqFixLUT[256];
-
 
 
 static bool neon_vect_is_nonzero(uint8x16_t v) {
@@ -328,18 +326,13 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) | escFirst)) != 0)) {
-				uint8_t tmp = eqFixLUT[(maskEq&0xff) & ~escFirst];
-				uint32_t maskEq2 = tmp;
-				for(int j=8; j<32; j+=8) {
-					tmp = eqFixLUT[((maskEq>>j)&0xff) & ~(tmp>>7)];
-					maskEq2 |= tmp<<j;
-				}
-				maskEq = maskEq2;
+				maskEq = fix_eqMask32(maskEq & ~escFirst);
 				
+				unsigned char nextEscFirst = maskEq>>31;
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq = (maskEq<<1) | escFirst;
 				mask &= ~maskEq;
-				escFirst = tmp>>7;
+				escFirst = nextEscFirst;
 				
 				// unescape chars following `=`
 				uint8x8_t maskEqTemp = vreinterpret_u8_u32(vmov_n_u32(maskEq));
@@ -457,7 +450,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned
 }
 
 void decoder_set_neon_funcs() {
-	decoder_init_lut(eqFixLUT, compactLUT);
+	decoder_init_lut(compactLUT);
 	_do_decode = &do_decode_simd<false, false, sizeof(uint8x16_t)*2, do_decode_neon<false, false> >;
 	_do_decode_raw = &do_decode_simd<true, false, sizeof(uint8x16_t)*2, do_decode_neon<true, false> >;
 	_do_decode_end_raw = &do_decode_simd<true, true, sizeof(uint8x16_t)*2, do_decode_neon<true, true> >;

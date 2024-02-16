@@ -15,7 +15,6 @@
 #pragma pack(16)
 static struct {
 	/*align16*/ struct { char bytes[16]; } compact[32768];
-	uint8_t eqFix[256];
 } * HEDLEY_RESTRICT lookups;
 #pragma pack()
 
@@ -431,16 +430,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* src, long& len, unsigned
 				dataB = _mm256_add_epi8(oDataB, _mm256_set1_epi8(-42));
 			
 			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
-				unsigned tmp = lookups->eqFix[(maskEq&0xff) & ~(uint64_t)escFirst];
-				uint64_t maskEq2 = tmp;
-				for(int j=8; j<64; j+=8) {
-					tmp = lookups->eqFix[(unsigned)((maskEq>>j)&0xff) & ~(tmp>>7)];
-					maskEq2 |= (uint64_t)tmp<<j;
-				}
-				maskEq = maskEq2;
-				
+				maskEq = fix_eqMask64(maskEq & ~(uint64_t)escFirst);
 				mask &= ~(uint64_t)escFirst;
-				escFirst = tmp>>7;
+				escFirst = maskEq>>63;
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
 				maskEq <<= 1;
 				mask &= ~maskEq;
