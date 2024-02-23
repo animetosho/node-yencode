@@ -3,42 +3,50 @@
 #include "decoder_common.h"
 
 
-#if defined(__riscv_v_intrinsic) && __riscv_v_intrinsic >= 13000
-#define RV_vmerge_vxm_u8m2 RV(vmerge_vxm_u8m2)
-#define RV_vmerge_vxm_u16m2 RV(vmerge_vxm_u16m2)
+#ifdef __riscv_v_intrinsic
+# define RV_vmerge_vxm_u8m2 RV(vmerge_vxm_u8m2)
+# define RV_vmerge_vxm_u16m2 RV(vmerge_vxm_u16m2)
 #else
-#define RV_vmerge_vxm_u8m2(v, x, m, vl) RV(vmerge_vxm_u8m2)(m, v, x, vl)
-#define RV_vmerge_vxm_u16m2(v, x, m, vl) RV(vmerge_vxm_u16m2)(m, v, x, vl)
+# define RV_vmerge_vxm_u8m2(v, x, m, vl) RV(vmerge_vxm_u8m2)(m, v, x, vl)
+# define RV_vmerge_vxm_u16m2(v, x, m, vl) RV(vmerge_vxm_u16m2)(m, v, x, vl)
 #endif
+
+#if defined(__riscv_v_intrinsic) && __riscv_v_intrinsic >= 12000
+# define RV_VEC_CAST(masksz, vecsz, vec) RV(vreinterpret_v_b##masksz##_u##vecsz##m1)(vec)
+#else
+# define RV_VEC_CAST(masksz, vecsz, vec) *(vuint##vecsz##m1_t*)(&(vec))
+#endif
+
 
 template<int shift>
 static inline vbool4_t mask_lshift(vbool4_t m, unsigned shiftIn, size_t vl) {
-	vuint8m1_t mv = RV_VEC_CAST(4, 8m1, m);
+	vuint8m1_t mv = RV_VEC_CAST(4, 8, m);
 	vuint8m1_t mvl = RV(vsll_vx_u8m1)(mv, shift, vl/8);
 	vuint8m1_t mvr = RV(vsrl_vx_u8m1)(mv, 8-shift, vl/8);
 	mvr = RV(vslide1up_vx_u8m1)(mvr, shiftIn, vl/8);
 	
 	return RV(vmor_mm_b4)(
-		RV_MASK_CAST(4, mvl), RV_MASK_CAST(4, mvr), vl
+		RV_MASK_CAST(4, 8, mvl), RV_MASK_CAST(4, 8, mvr), vl
 	);
 }
 
 static inline vuint8m2_t set_first_vu8(vuint8m2_t src, uint8_t item, size_t vl) {
-#if defined(__riscv_v_intrinsic) && __riscv_v_intrinsic >= 13000
+#ifdef __riscv_v_intrinsic
 	return RV(vmv_s_x_u8m2_tu)(src, item, vl);
 #else
 	vuint8m1_t m = RV(vslide1up_vx_u8m1)(RV(vmv_v_x_u8m1)(0, ~0), 1, ~0);
-	return RV_vmerge_vxm_u8m2(src, item, RV_MASK_CAST(4, m), vl);
+	return RV_vmerge_vxm_u8m2(src, item, RV_MASK_CAST(4, 8, m), vl);
 #endif
 }
 static inline vuint16m2_t set_first_vu16(vuint16m2_t src, uint16_t item, size_t vl) {
-#if defined(__riscv_v_intrinsic) && __riscv_v_intrinsic >= 13000
+#ifdef __riscv_v_intrinsic
 	return RV(vmv_s_x_u16m2_tu)(src, item, vl);
 #else
 	vuint16m1_t m = RV(vslide1up_vx_u16m1)(RV(vmv_v_x_u16m1)(0, ~0), 1, ~0);
-	return RV_vmerge_vxm_u16m2(src, item, RV_MASK_CAST(8, m), vl);
+	return RV_vmerge_vxm_u16m2(src, item, RV_MASK_CAST(8, 16, m), vl);
 #endif
 }
+
 
 
 template<bool isRaw, bool searchEnd>
@@ -142,7 +150,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 						if(LIKELIHOOD(0.001, RV(vcpop_m_b4)(matchEnd, vl2) > 0)) {
 							// terminator found
 							len += inpos;
-							nextMask = decoder_set_nextMask<isRaw>(src+inpos, RV(vmv_x_s_u8m1_u8)(RV_VEC_CAST(4, 8m1, cmp)));
+							nextMask = decoder_set_nextMask<isRaw>(src+inpos, RV(vmv_x_s_u8m1_u8)(RV_VEC_CAST(4, 8, cmp)));
 							break;
 						}
 					}
@@ -151,13 +159,14 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 					cmp = RV(vmor_mm_b4)(cmp, mask_lshift<2>(match2NlDot, 0, vl2), vl2);
 					
 					vuint8mf4_t nextNlDot = RV(vslidedown_vx_u8mf4)(
-#if !defined(__riscv_v_intrinsic) || __riscv_v_intrinsic < 13000
+#ifndef __riscv_v_intrinsic
 						RV(vmv_v_x_u8mf4)(0, vl2/8),
 #endif
-						RV_VEC_CAST(4, 8mf4, match2NlDot), vl2/8-1, vl2/8
+						RV_VEC_U8MF4_CAST(match2NlDot), vl2/8-1, vl2/8
 					);
 					nextNlDot = RV(vsrl_vx_u8mf4)(nextNlDot, 6, vl2/8);
-					lfCompare = RV_vmerge_vxm_u8m2(RV(vmv_v_x_u8m2)('\n', vl2), '.', RV_MASK_CAST(4, nextNlDot), vl2);
+					vuint8m1_t nextNlDotVec = RV(vlmul_ext_v_u8mf4_u8m1)(nextNlDot);
+					lfCompare = RV_vmerge_vxm_u8m2(RV(vmv_v_x_u8m2)('\n', vl2), '.', RV_MASK_CAST(4, 8, nextNlDotVec), vl2);
 				} else if(searchEnd) {
 					if(LIKELIHOOD(0.001, RV(vcpop_m_b4)(match3EqY, vl2) != 0)) {
 						vuint8m2_t nextData1 = RV(vslide1down_vx_u8m2)(data, nextWord, vl2);
@@ -165,7 +174,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 						vbool4_t matchEnd = RV(vmand_mm_b4)(RV(vmand_mm_b4)(match3EqY, cmpCr, vl2), match1Lf, vl2);
 						if(LIKELIHOOD(0.001, RV(vcpop_m_b4)(matchEnd, vl2) > 0)) {
 							len += inpos;
-							nextMask = decoder_set_nextMask<isRaw>(src+inpos, RV(vmv_x_s_u8m1_u8)(RV_VEC_CAST(4, 8m1, cmp)));
+							nextMask = decoder_set_nextMask<isRaw>(src+inpos, RV(vmv_x_s_u8m1_u8)(RV_VEC_CAST(4, 8, cmp)));
 							break;
 						}
 					}
@@ -184,9 +193,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 			if(LIKELIHOOD(0.0001, RV(vcpop_m_b4)(RV(vmand_mm_b4)(cmp, cmpEqShift1, vl2), vl2) != 0)) {
 				// note: we assume that uintptr_t corresponds with __riscv_xlen
 				#if __riscv_xlen == 64
-				vuint64m1_t cmpEqW = RV_VEC_CAST(4, 64m1, cmpEq);
+				vuint64m1_t cmpEqW = RV_VEC_CAST(4, 64, cmpEq);
 				#else
-				vuint32m1_t cmpEqW = RV_VEC_CAST(4, 32m1, cmpEq);
+				vuint32m1_t cmpEqW = RV_VEC_CAST(4, 32, cmpEq);
 				#endif
 				size_t nextShiftDown = (vl2 > sizeof(uintptr_t)*8 ? sizeof(uintptr_t)*8 : vl2) - 1;
 				size_t wvl = (vl2 + sizeof(uintptr_t)*8 -1) / (sizeof(uintptr_t)*8);
@@ -213,7 +222,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 					cmpEqW = RV(vslide1down_vx_u32m1)(cmpEqW, maskW, wvl);
 					#endif
 				}
-				cmpEqShift1 = RV_MASK_CAST(4, cmpEqW);
+				#if __riscv_xlen == 64
+				cmpEqShift1 = RV_MASK_CAST(4, 64, cmpEqW);
+				#else
+				cmpEqShift1 = RV_MASK_CAST(4, 32, cmpEqW);
+				#endif
 				cmp = RV(vmorn_mm_b4)(cmpEqShift1, cmp, vl2); // ~(cmp & ~cmpEqShift1)
 			} else {
 				// no invalid = sequences found - don't need to fix up cmpEq
@@ -224,7 +237,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 			yencOffset = set_first_vu8(yencOffset, 42 | (escFirst<<6), vl2);
 			
 			// all that's left is to remove unwanted chars
-#if defined(__riscv_v_intrinsic) && __riscv_v_intrinsic >= 13000
+#ifdef __riscv_v_intrinsic
 			data = RV(vcompress_vm_u8m2)(data, cmp, vl2);
 #else
 			data = RV(vcompress_vm_u8m2)(cmp, data, data, vl2);
@@ -248,7 +261,6 @@ size_t decoder_rvv_width() {
 }
 
 void decoder_set_rvv_funcs() {
-	// TODO: VL sizing??
 	_do_decode = &do_decode_simd<false, false, decoder_rvv_width, do_decode_rvv<false, false> >;
 	_do_decode_raw = &do_decode_simd<true, false, decoder_rvv_width, do_decode_rvv<true, false> >;
 	_do_decode_end_raw = &do_decode_simd<true, true, decoder_rvv_width, do_decode_rvv<true, true> >;

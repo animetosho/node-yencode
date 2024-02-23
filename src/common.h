@@ -291,22 +291,23 @@ bool cpu_supports_rvv();
 #if defined(__riscv_vector) && defined(HEDLEY_GCC_VERSION) && !HEDLEY_GCC_VERSION_CHECK(13,0,0)
 // GCC added RVV intrinsics in GCC13
 # undef __riscv_vector
+#elif defined(__riscv_vector) && defined(HEDLEY_GCC_VERSION) && !HEDLEY_GCC_VERSION_CHECK(14,0,0)
+// ...however, GCC13 lacks necessary mask<>vector vreinterpret casts, and it crashes on type punning, so I can't be bothered trying to make it work
+# undef __riscv_vector
 #endif
 #ifdef __riscv_vector
 # include <riscv_vector.h>
-# if defined(__clang__) && __clang_major__ < 16
-#  define RV(f) f
-# else
+# ifdef __riscv_v_intrinsic
 #  define RV(f) __riscv_##f
-# endif
-# if defined(__riscv_v_intrinsic) && __riscv_v_intrinsic >= 13000
-#  define RV_MASK_CAST(size, vec) RV(vreinterpret_b##size)(vec)
-#  define RV_VEC_CAST(masksz, vectype, vec) RV(vreinterpret_v_b##masksz##_u##vectype)(vec)
-#  define RVMU(f) RV(f##_mu)
 # else
-#  define RV_MASK_CAST(size, vec) *(vbool##size##_t*)(&(vec))
-#  define RV_VEC_CAST(masksz, vectype, vec) *(vuint##vectype##_t*)(&(vec))
-#  define RVMU(f) RV(f##_m)
+#  define RV(f) f
+# endif
+# if defined(__riscv_v_intrinsic) && __riscv_v_intrinsic >= 12000
+#  define RV_MASK_CAST(masksz, vecsz, vec) RV(vreinterpret_v_u##vecsz##m1_b##masksz)(vec)
+#  define RV_VEC_U8MF4_CAST(vec) RV(vlmul_trunc_v_u8m1_u8mf4)(RV(vreinterpret_v_b4_u8m1)(vec))
+# else
+#  define RV_MASK_CAST(masksz, vecsz, vec) *(vbool##masksz##_t*)(&(vec))
+#  define RV_VEC_U8MF4_CAST(vec) *(vuint8mf4_t*)(&(vec))
 # endif
 #endif
 
