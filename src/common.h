@@ -292,7 +292,23 @@ bool cpu_supports_rvv();
 // GCC added RVV intrinsics in GCC13
 # undef __riscv_vector
 #endif
-
+#ifdef __riscv_vector
+# include <riscv_vector.h>
+# if defined(__clang__) && __clang_major__ < 16
+#  define RV(f) f
+# else
+#  define RV(f) __riscv_##f
+# endif
+# if defined(__riscv_v_intrinsic) && __riscv_v_intrinsic >= 13000
+#  define RV_MASK_CAST(size, vec) RV(vreinterpret_b##size)(vec)
+#  define RV_VEC_CAST(masksz, vectype, vec) RV(vreinterpret_v_b##masksz##_u##vectype)(vec)
+#  define RVMU(f) RV(f##_mu)
+# else
+#  define RV_MASK_CAST(size, vec) *(vbool##size##_t*)(&(vec))
+#  define RV_VEC_CAST(masksz, vectype, vec) *(vuint##vectype##_t*)(&(vec))
+#  define RVMU(f) RV(f##_m)
+# endif
+#endif
 
 #include <string.h>
 #if !defined(_MSC_VER) || defined(_STDINT) || _MSC_VER >= 1900

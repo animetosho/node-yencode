@@ -331,8 +331,8 @@ YencDecoderEnd do_decode_scalar(const unsigned char** src, unsigned char** dest,
 
 
 
-template<bool isRaw, bool searchEnd, int width, void(&kernel)(const uint8_t*, long&, unsigned char*&, unsigned char&, uint16_t&)>
-YencDecoderEnd do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
+template<bool isRaw, bool searchEnd, void(&kernel)(const uint8_t*, long&, unsigned char*&, unsigned char&, uint16_t&)>
+inline YencDecoderEnd _do_decode_simd(size_t width, const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
 	if(len <= width*2) return do_decode_scalar<isRaw, searchEnd>(src, dest, len, state);
 	
 	YencDecoderState tState = YDEC_STATE_CRLF;
@@ -460,6 +460,16 @@ YencDecoderEnd do_decode_simd(const unsigned char** src, unsigned char** dest, s
 	*/
 	return YDEC_END_NONE;
 }
+
+template<bool isRaw, bool searchEnd, size_t width, void(&kernel)(const uint8_t*, long&, unsigned char*&, unsigned char&, uint16_t&)>
+YencDecoderEnd do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
+	return _do_decode_simd<isRaw, searchEnd, kernel>(width, src, dest, len, state);
+}
+template<bool isRaw, bool searchEnd, size_t(&getWidth)(), void(&kernel)(const uint8_t*, long&, unsigned char*&, unsigned char&, uint16_t&)>
+YencDecoderEnd do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
+	return _do_decode_simd<isRaw, searchEnd, kernel>(getWidth(), src, dest, len, state);
+}
+
 
 static inline void decoder_init_lut(void* compactLUT) {
 	#ifdef YENC_DEC_USE_THINTABLE

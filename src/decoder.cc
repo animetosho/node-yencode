@@ -18,6 +18,7 @@ void decoder_set_avx2_funcs();
 void decoder_set_vbmi2_funcs();
 extern const bool decoder_has_avx10;
 void decoder_set_neon_funcs();
+void decoder_set_rvv_funcs();
 
 
 #if defined(PLATFORM_X86) && defined(YENC_BUILD_NATIVE) && YENC_BUILD_NATIVE!=0
@@ -65,5 +66,9 @@ void decoder_init() {
 #ifdef PLATFORM_ARM
 	if(cpu_supports_neon())
 		decoder_set_neon_funcs();
+#endif
+#ifdef __riscv
+	if(cpu_supports_rvv())
+		decoder_set_rvv_funcs();
 #endif
 }

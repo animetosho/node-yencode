@@ -324,7 +324,8 @@
       "target_name": "yencode_rvv",
       "type": "static_library",
       "sources": [
-        "src/encoder_rvv.cc"
+        "src/encoder_rvv.cc",
+        "src/decoder_rvv.cc"
       ],
       "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
       "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
