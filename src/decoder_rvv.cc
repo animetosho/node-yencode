@@ -81,15 +81,18 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 		// search for special chars
 		vbool4_t cmpEq = RV(vmseq_vx_u8m2_b4)(data, '=', vl2);
 		vbool4_t cmpCr = RV(vmseq_vx_u8m2_b4)(data, '\r', vl2);
-		vbool4_t cmp = RV(vmor_mm_b4)(
+		// note: cmp is always negated (unlike cmpEq/Cr)
+		vbool4_t cmp = RV(vmnor_mm_b4)(
 			RV(vmor_mm_b4)(cmpEq, cmpCr, vl2),
-			RV(vmseq_vv_u8m2_b4)(data, lfCompare, vl2),
+			isRaw ? RV(vmseq_vv_u8m2_b4)(data, lfCompare, vl2) : RV(vmseq_vx_u8m2_b4)(data, '\n', vl2),
 			vl2
 		);
 		
-		if(RV(vcpop_m_b4)(cmp, vl2) > 0) {
+		size_t numOutputChars = RV(vcpop_m_b4)(cmp, vl2);
+		
+		if(numOutputChars != vl2) {
 			// dot-unstuffing + end detection
-			if((isRaw || searchEnd) && RV(vcpop_m_b4)(RV(vmxor)(cmp, cmpEq, vl2), vl2)) {
+			if((isRaw || searchEnd) && RV(vcpop_m_b4)(RV(vmxnor_mm_b4)(cmp, cmpEq, vl2), vl2)) {
 				uint32_t nextWord;
 				if(!searchEnd) {
 					memcpy(&nextWord, src + inpos + vl2, 2);
@@ -150,13 +153,14 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 						if(LIKELIHOOD(0.001, RV(vcpop_m_b4)(matchEnd, vl2) > 0)) {
 							// terminator found
 							len += inpos;
-							nextMask = decoder_set_nextMask<isRaw>(src+inpos, RV(vmv_x_s_u8m1_u8)(RV_VEC_CAST(4, 8, cmp)));
+							nextMask = decoder_set_nextMask<isRaw>(src+inpos, ~RV(vmv_x_s_u8m1_u8)(RV_VEC_CAST(4, 8, cmp)));
 							break;
 						}
 					}
 					
 					// shift match2NlDot by 2
-					cmp = RV(vmor_mm_b4)(cmp, mask_lshift<2>(match2NlDot, 0, vl2), vl2);
+					cmp = RV(vmandn_mm_b4)(cmp, mask_lshift<2>(match2NlDot, 0, vl2), vl2);
+					numOutputChars = RV(vcpop_m_b4)(cmp, vl2);
 					
 					vuint8mf4_t nextNlDot = RV(vslidedown_vx_u8mf4)(
 #ifndef __riscv_v_intrinsic
@@ -174,7 +178,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 						vbool4_t matchEnd = RV(vmand_mm_b4)(RV(vmand_mm_b4)(match3EqY, cmpCr, vl2), match1Lf, vl2);
 						if(LIKELIHOOD(0.001, RV(vcpop_m_b4)(matchEnd, vl2) > 0)) {
 							len += inpos;
-							nextMask = decoder_set_nextMask<isRaw>(src+inpos, RV(vmv_x_s_u8m1_u8)(RV_VEC_CAST(4, 8, cmp)));
+							nextMask = decoder_set_nextMask<isRaw>(src+inpos, ~RV(vmv_x_s_u8m1_u8)(RV_VEC_CAST(4, 8, cmp)));
 							break;
 						}
 					}
@@ -190,7 +194,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
-			if(LIKELIHOOD(0.0001, RV(vcpop_m_b4)(RV(vmand_mm_b4)(cmp, cmpEqShift1, vl2), vl2) != 0)) {
+			if(LIKELIHOOD(0.0001, RV(vcpop_m_b4)(RV(vmandn_mm_b4)(cmpEqShift1, cmp, vl2), vl2) != 0)) {
 				// note: we assume that uintptr_t corresponds with __riscv_xlen
 				#if __riscv_xlen == 64
 				vuint64m1_t cmpEqW = RV_VEC_CAST(4, 64, cmpEq);
@@ -227,11 +231,11 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 				#else
 				cmpEqShift1 = RV_MASK_CAST(4, 32, cmpEqW);
 				#endif
-				cmp = RV(vmorn_mm_b4)(cmpEqShift1, cmp, vl2); // ~(cmp & ~cmpEqShift1)
+				cmp = RV(vmor_mm_b4)(cmpEqShift1, cmp, vl2); // ~(~cmp & ~cmpEqShift1)
+				numOutputChars = RV(vcpop_m_b4)(cmp, vl2);
 			} else {
 				// no invalid = sequences found - don't need to fix up cmpEq
 				escFirst = RV(vcpop_m_b4)(RV(vmand_mm_b4)(cmpEq, lastBit, vl2), vl2);
-				cmp = RV(vmnot_m_b4)(cmp, vl2);
 			}
 			data = RV(vsub_vv_u8m2)(data, RV_vmerge_vxm_u8m2(yencOffset, 64+42, cmpEqShift1, vl2), vl2);
 			yencOffset = set_first_vu8(yencOffset, 42 | (escFirst<<6), vl2);
@@ -243,16 +247,15 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 			data = RV(vcompress_vm_u8m2)(cmp, data, data, vl2);
 #endif
 			RV(vse8_v_u8m2)(outp, data, vl2);
-			outp += RV(vcpop_m_b4)(cmp, vl2);
 		} else {
 			data = RV(vsub_vv_u8m2)(data, yencOffset, vl2);
 			RV(vse8_v_u8m2)(outp, data, vl2);
-			outp += vl2;
 			// TODO: should these be done at LMUL=1? or, it might not be worth this strategy (e.g. do an additional OR instead), considering the cost of LMUL=2
 			yencOffset = RV(vmv_v_x_u8m2)(42, vl2);
 			if(isRaw) lfCompare = RV(vmv_v_x_u8m2)('\n', vl2);
 			escFirst = 0;
 		}
+		outp += numOutputChars;
 	}
 }
 
