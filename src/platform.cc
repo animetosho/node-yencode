@@ -138,14 +138,14 @@ int cpu_supports_isa() {
 						_cpuidX(cpuInfo2, 7, 1);
 						if(cpuInfo2[3] & 0x80000) {
 							_cpuidX(cpuInfo2, 0x24, 0);
-							if((cpuInfo2[2] & 0xff) >= 1 && ( // minimum AVX10.1
+							if((cpuInfo2[1] & 0xff) >= 1 && ( // minimum AVX10.1
 #ifdef YENC_DISABLE_AVX256
-								cpuInfo2[2] & 0x10000 // AVX10/128
+								cpuInfo2[1] & 0x10000 // AVX10/128
 #else
-								cpuInfo2[2] & 0x20000 // AVX10/256
+								cpuInfo2[1] & 0x20000 // AVX10/256
 #endif
 							)) {
-								if(((xcr & 0xE0) == 0xE0) && (cpuInfo2[2] & 0x40000)) ret |= ISA_FEATURE_EVEX512;
+								if(((xcr & 0xE0) == 0xE0) && (cpuInfo2[1] & 0x40000)) ret |= ISA_FEATURE_EVEX512;
 								return ret | ISA_LEVEL_VBMI2;
 							}
 						}
