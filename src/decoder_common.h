@@ -178,24 +178,24 @@ YencDecoderEnd do_decode_end_scalar(const unsigned char** src, unsigned char** d
 			if(es[i] == '.' && isRaw) {
 				i++;
 				YDEC_CHECK_END(YDEC_STATE_CRLFDT)
-				// fall-through
 			} else if(es[i] == '=') {
 				i++;
 				YDEC_CHECK_END(YDEC_STATE_CRLFEQ)
 				goto do_decode_endable_scalar_ceq;
 			} else
 				break;
+			// fall-through
 		case YDEC_STATE_CRLFDT:
 			if(isRaw && es[i] == '\r') {
 				i++;
 				YDEC_CHECK_END(YDEC_STATE_CRLFDTCR)
-				// fall-through
 			} else if(isRaw && es[i] == '=') { // check for dot-stuffed ending: \r\n.=y
 				i++;
 				YDEC_CHECK_END(YDEC_STATE_CRLFEQ)
 				goto do_decode_endable_scalar_ceq;
 			} else
 				break;
+			// fall-through
 		case YDEC_STATE_CRLFDTCR:
 			if(es[i] == '\n') {
 				if(isRaw) {
@@ -528,11 +528,10 @@ static inline T fix_eqMask(T mask) {
 	
 	const T odd = (T)0xaaaaaaaaaaaaaaaa; // every odd bit (10101010...)
 	
-	// split mask into two halves: groups which start at an odd bit position, and those that start at an even position
-	// `start & [~]odd` isolates the relevent start bit, then `(mask + start) & mask` clears that group
-	T evenGroups = (mask + (start & odd)) & mask;
-	T oddGroups = (mask + (start & ~odd)) & mask;
+	// obtain groups which start on an even bit (clear groups that start on an odd bit, but this leaves an unwanted trailing bit)
+	T evenGroups = mask + (start & odd);
 	
-	// for groups that start on an odd bit, only preserve odd bits; do the opposite for even bit groups
-	return (oddGroups & odd) | (evenGroups & ~odd);
+	// clear odd bits in even groups, whilst conversely preserving odd bits in odd groups
+	// the `& mask` also conveniently gets rid of unwanted trailing bits
+	return (evenGroups ^ odd) & mask;
 }
