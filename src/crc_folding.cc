@@ -140,20 +140,10 @@ static uint32_t crc_fold(const unsigned char *src, long len, uint32_t initial) {
     unsigned long algn_diff;
     __m128i xmm_t0, xmm_t1, xmm_t2, xmm_t3;
 
-    // TODO: consider calculating this via a LUT instead (probably faster)
-    // info from https://www.reddit.com/r/ReverseEngineering/comments/2zwhl3/mystery_constant_0x9db42487_in_intels_crc32ieee/
-    // firstly, calculate: xmm_crc0 = (intial * 0x487b9c8a) mod 0x104c11db7, where 0x487b9c8a = inverse(1<<512) mod 0x104c11db7
-    xmm_t0 = _mm_cvtsi32_si128(~initial);
-    
-    xmm_t0 = _mm_clmulepi64_si128(xmm_t0, _mm_set_epi32(0, 0, 0xa273bc24, 0), 0);  // reverse(0x487b9c8a)<<1 == 0xa273bc24
-    xmm_t2 = _mm_set_epi32( // polynomial reduction factors
-      1, 0xdb710640, // G* = 0x04c11db7
-      0, 0xf7011641  // Q+ = 0x04d101df  (+1 to save an additional xor operation)
-    );
-    xmm_t1 = _mm_clmulepi64_si128(xmm_t0, xmm_t2, 0);
-    xmm_t1 = _mm_clmulepi64_si128(xmm_t1, xmm_t2, 0x10);
-    
-    __m128i xmm_crc0 = _mm_srli_si128(_mm_xor_si128(xmm_t0, xmm_t1), 8);
+    // since the initial value will immediately be multiplied by around 2^512, we need to roll it backwards
+    // this is done by dividing the initial value by 2^480
+    // the constant used here is reverse(2^-480)<<1 == 0xdfded7ec
+    __m128i xmm_crc0 = _mm_clmulepi64_si128(_mm_cvtsi32_si128(~initial), _mm_cvtsi32_si128(0xdfded7ec), 0);
     
     __m128i xmm_crc1 = _mm_setzero_si128();
     __m128i xmm_crc2 = _mm_setzero_si128();
