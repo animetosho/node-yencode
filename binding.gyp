@@ -74,7 +74,7 @@
   "targets": [
     {
       "target_name": "yencode",
-      "dependencies": ["crcutil", "yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_clmul256", "yencode_avx", "yencode_avx2", "yencode_vbmi2", "yencode_neon", "yencode_armcrc", "yencode_rvv"],
+      "dependencies": ["crcutil", "yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_clmul256", "yencode_avx", "yencode_avx2", "yencode_vbmi2", "yencode_neon", "yencode_armcrc", "yencode_rvv", "yencode_zbkc"],
       "sources": [
         "src/yencode.cc",
         "src/platform.cc",
@@ -396,6 +396,48 @@
             "OTHER_CFLAGS": ["-mfpu=fp-armv8","-fno-lto"],
             "OTHER_CXXFLAGS": ["-mfpu=fp-armv8","-fno-lto"]
           }
+        }]
+      ]
+    },
+    {
+      "target_name": "yencode_zbkc",
+      "type": "static_library",
+      "sources": [
+        "src/crc_riscv.cc"
+      ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
+      "conditions": [
+        ['target_arch=="riscv64" and OS!="win"', {
+          "variables": {"supports_zbkc%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/crc_riscv.cc -march=rv64gc_zbkc 2>/dev/null || true)"},
+          "conditions": [
+            ['supports_zbkc!=""', {
+              "cflags": ["-march=rv64gc_zbkc"],
+              "cxxflags": ["-march=rv64gc_zbkc"],
+              "xcode_settings": {
+                "OTHER_CFLAGS": ["-march=rv64gc_zbkc"],
+                "OTHER_CXXFLAGS": ["-march=rv64gc_zbkc"],
+              }
+            }]
+          ]
+        }],
+        ['target_arch=="riscv32" and OS!="win"', {
+          "variables": {"supports_zbkc%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/crc_riscv.cc -march=rv32gc_zbkc 2>/dev/null || true)"},
+          "conditions": [
+            ['supports_zbkc!=""', {
+              "cflags": ["-march=rv32gc_zbkc"],
+              "cxxflags": ["-march=rv32gc_zbkc"],
+              "xcode_settings": {
+                "OTHER_CFLAGS": ["-march=rv32gc_zbkc"],
+                "OTHER_CXXFLAGS": ["-march=rv32gc_zbkc"],
+              }
+            }]
+          ]
         }]
       ]
     },

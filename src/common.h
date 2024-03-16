@@ -245,6 +245,7 @@ enum YEncDecIsaLevel {
 #elif defined(__riscv)
 enum YEncDecIsaLevel {
 	ISA_GENERIC = 0,
+	ISA_FEATURE_ZBC = 16,
 	ISA_LEVEL_RVV = 0x10000
 };
 #else

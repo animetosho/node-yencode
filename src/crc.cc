@@ -144,6 +144,7 @@ uint32_t do_crc32_zeros(uint32_t crc1, size_t len) {
 void crc_clmul_set_funcs();
 void crc_clmul256_set_funcs();
 void crc_arm_set_funcs();
+void crc_riscv_set_funcs();
 
 #ifdef PLATFORM_X86
 int cpu_supports_crc_isa();
@@ -175,6 +176,14 @@ static unsigned long getauxval(unsigned long cap) {
 #  endif
 # endif
 #endif
+#if defined(__riscv) && defined(__has_include)
+# if __has_include(<asm/hwprobe.h>)
+#  include <asm/hwprobe.h>
+#  include <asm/unistd.h>
+#  include <unistd.h>
+# endif
+#endif
+
 void crc_init() {
 	crc = crcutil_interface::CRC::Create(
 		0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
@@ -219,5 +228,17 @@ void crc_init() {
 	) {
 		crc_arm_set_funcs();
 	}
+#endif
+#ifdef __riscv
+# if defined(RISCV_HWPROBE_KEY_IMA_EXT_0) && defined(__NR_riscv_hwprobe)
+	const int rv_hwprobe_ext_zbc = 1 << 7, rv_hwprobe_ext_zbkc = 1 << 9;
+	struct riscv_hwprobe p;
+	p.key = RISCV_HWPROBE_KEY_IMA_EXT_0;
+	if(!syscall(__NR_riscv_hwprobe, &p, 1, 0, NULL, 0)) {
+		if(p.value & (rv_hwprobe_ext_zbc | rv_hwprobe_ext_zbkc)) {
+			crc_riscv_set_funcs();
+		}
+	}
+# endif
 #endif
 }
