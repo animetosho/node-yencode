@@ -339,9 +339,13 @@
           "variables": {"supports_rvv%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/encoder_rvv.cc -march=rv64gcv 2>/dev/null || true)"},
           "conditions": [
             ['supports_rvv!=""', {
+              "cflags!": ["-march=native"],
+              "cxxflags!": ["-march=native"],
               "cflags": ["-march=rv64gcv"],
               "cxxflags": ["-march=rv64gcv"],
               "xcode_settings": {
+                "OTHER_CFLAGS!": ["-march=native"],
+                "OTHER_CXXFLAGS!": ["-march=native"],
                 "OTHER_CFLAGS": ["-march=rv64gcv"],
                 "OTHER_CXXFLAGS": ["-march=rv64gcv"],
               }
@@ -352,9 +356,13 @@
           "variables": {"supports_rvv%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/encoder_rvv.cc -march=rv32gcv 2>/dev/null || true)"},
           "conditions": [
             ['supports_rvv!=""', {
+              "cflags!": ["-march=native"],
+              "cxxflags!": ["-march=native"],
               "cflags": ["-march=rv32gcv"],
               "cxxflags": ["-march=rv32gcv"],
               "xcode_settings": {
+                "OTHER_CFLAGS!": ["-march=native"],
+                "OTHER_CXXFLAGS!": ["-march=native"],
                 "OTHER_CFLAGS": ["-march=rv32gcv"],
                 "OTHER_CXXFLAGS": ["-march=rv32gcv"],
               }
@@ -417,9 +425,13 @@
           "variables": {"supports_zbkc%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/crc_riscv.cc -march=rv64gc_zbkc 2>/dev/null || true)"},
           "conditions": [
             ['supports_zbkc!=""', {
+              "cflags!": ["-march=native"],
+              "cxxflags!": ["-march=native"],
               "cflags": ["-march=rv64gc_zbkc"],
               "cxxflags": ["-march=rv64gc_zbkc"],
               "xcode_settings": {
+                "OTHER_CFLAGS!": ["-march=native"],
+                "OTHER_CXXFLAGS!": ["-march=native"],
                 "OTHER_CFLAGS": ["-march=rv64gc_zbkc"],
                 "OTHER_CXXFLAGS": ["-march=rv64gc_zbkc"],
               }
@@ -430,9 +442,13 @@
           "variables": {"supports_zbkc%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/crc_riscv.cc -march=rv32gc_zbkc 2>/dev/null || true)"},
           "conditions": [
             ['supports_zbkc!=""', {
+              "cflags!": ["-march=native"],
+              "cxxflags!": ["-march=native"],
               "cflags": ["-march=rv32gc_zbkc"],
               "cxxflags": ["-march=rv32gc_zbkc"],
               "xcode_settings": {
+                "OTHER_CFLAGS!": ["-march=native"],
+                "OTHER_CXXFLAGS!": ["-march=native"],
                 "OTHER_CFLAGS": ["-march=rv32gc_zbkc"],
                 "OTHER_CXXFLAGS": ["-march=rv32gc_zbkc"],
               }
