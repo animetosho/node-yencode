@@ -10,16 +10,16 @@ Features:
     series CPU.
 -   fast yEnc decoding, with and without NNTP layer dot unstuffing.
     A single thread can achieve \>300MB/s on a Raspberry Pi 3, or \>4.5GB/s on a Core-i series CPU.
--   SIMD optimised encoding and decoding routines, which can use ARMv7 NEON, ARMv8 ASIMD or the
+-   SIMD optimised encoding and decoding routines, which can use ARMv7 NEON, ARMv8 ASIMD, RISC-V Vector or the
     following x86 CPU features when available (with dynamic dispatch): SSE2,
-    SSSE3, AVX, AVX2, AVX512-BW (128/256-bit), AVX512-VBMI2
+    SSSE3, AVX, AVX2, AVX512-BW (128/256-bit), AVX512-VBMI2 (or AVX10.1/256)
 -   full yEnc encoding for single and multi-part posts, according to the
     [version 1.3 specifications](http://www.yenc.org/yenc-draft.1.3.txt)
 -   full yEnc decoding of posts
 -   fast compiled CRC32 implementation via
     [crcutil](https://code.google.com/p/crcutil/) or [PCLMULQDQ
     instruction](http://www.intel.com/content/dam/www/public/us/en/documents/white-papers/fast-crc-computation-generic-polynomials-pclmulqdq-paper.pdf)
-    (if available) or ARMv8’s CRC instructions, with incremental support
+    (if available), ARMv8’s CRC instructions, or RISC-V’s Zb(k)c extension, with incremental support
     (\>1GB/s on a low power Atom/ARM CPU, \>15GB/s on a modern Intel CPU)
 -   ability to combine two CRC32 hashes into one (useful for amalgamating
     *pcrc32s* into a *crc32* for yEnc), as well as quickly compute the CRC32 of a sequence of null bytes
