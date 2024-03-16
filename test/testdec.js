@@ -114,6 +114,7 @@ var doTest = function(msg, data, expected) {
 				if(actual != x) {
 					console.log('Actual:', actual);
 					console.log('Expect:', x);
+					console.log('Source:', data.toString('hex'));
 					assert.equal(actual, x, msg + ' (in-situ) [' + i + '/' + j + ' ' + f.l + ']');
 				}
 			});

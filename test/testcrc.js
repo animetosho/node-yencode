@@ -14,7 +14,7 @@ var ycrc32 = function(s) {
 };
 var doTest = function(msg, f, test, expected) {
 	if(!Array.isArray(test)) test = [test];
-	test[0] = Buffer(test[0]);
+	if(!Buffer.isBuffer(test[0])) test[0] = Buffer(test[0]);
 	if(!expected && test.length == 1 && f == 'crc32') expected = crc32(test[0]).toString('hex');
 	else if(Buffer.isBuffer(expected)) expected = expected.toString('hex');
 	assert.equal(y[f].apply(null, test).toString('hex'), expected, msg);
