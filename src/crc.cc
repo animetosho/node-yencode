@@ -1,16 +1,23 @@
 #include "crc_common.h"
 
+#if defined(PLATFORM_X86) && !defined(__ILP32__) && !defined(YENC_DISABLE_CRCUTIL)
+// Use crcutil for computing CRC32 (generic implementation)
+
 #include "interface.h"
 crcutil_interface::CRC* crc = NULL;
+#define GENERIC_CRC_INIT crc = crcutil_interface::CRC::Create(0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL)
+// instance never deleted... oh well...
 
-#if defined(PLATFORM_X86) && !defined(__ILP32__)
 static uint32_t do_crc32_incremental_generic(const void* data, size_t length, uint32_t init) {
 	// use optimised ASM on x86 platforms
 	crcutil_interface::UINT64 tmp = init;
 	crc->Compute(data, length, &tmp);
 	return (uint32_t)tmp;
 }
+
 #else
+// don't use crcutil
+
 static uint32_t* HEDLEY_RESTRICT crc_slice_table;
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 # if defined(__GNUC__) || defined(__clang__)
@@ -121,6 +128,8 @@ static void generate_crc32_slice_table() {
 		#endif
 	}
 }
+
+#define GENERIC_CRC_INIT generate_crc32_slice_table()
 #endif
 
 extern "C" {
@@ -129,17 +138,55 @@ extern "C" {
 }
 
 
-uint32_t do_crc32_combine(uint32_t crc1, uint32_t crc2, size_t len2) {
-	crcutil_interface::UINT64 crc1_ = crc1, crc2_ = crc2;
-	crc->Concatenate(crc2_, 0, len2, &crc1_);
-	return (uint32_t)crc1_;
+
+// workaround MSVC complaining "unary minus operator applied to unsigned type, result still unsigned"
+#define NEGATE(n) (uint32_t)(-((int32_t)(n)))
+uint32_t crc32_multiply(uint32_t a, uint32_t b) {
+	uint32_t res = 0;
+	for(int i=0; i<31; i++) {
+		res ^= NEGATE(b>>31) & a;
+		a = ((a >> 1) ^ (0xEDB88320 & NEGATE(a&1)));
+		b <<= 1;
+	}
+	res ^= NEGATE(b>>31) & a;
+	return res;
+}
+#undef NEGATE
+
+static const uint32_t crc_power[] = { // pre-computed 2^(2^n)
+	0x40000000, 0x20000000, 0x08000000, 0x00800000, 0x00008000, 0xedb88320, 0xb1e6b092, 0xa06a2517,
+	0xed627dae, 0x88d14467, 0xd7bbfe6a, 0xec447f11, 0x8e7ea170, 0x6427800e, 0x4d47bae0, 0x09fe548f,
+	0x83852d0f, 0x30362f1a, 0x7b5a9cc3, 0x31fec169, 0x9fec022a, 0x6c8dedc4, 0x15d6874d, 0x5fde7a4e,
+	0xbad90e37, 0x2e4e5eef, 0x4eaba214, 0xa8a472c0, 0x429a969e, 0x148d302a, 0xc40ba6d0, 0xc4e22c3c
+};
+
+uint32_t crc32_mul2pow(uint32_t n, uint32_t base /*default 0x80000000*/) {
+	uint32_t result = base;
+#ifdef __GNUC__
+	while(n) {
+		result = crc32_multiply(result, crc_power[__builtin_ctz(n)]);
+		n &= n-1;
+	}
+#elif defined(_MSC_VER)
+	unsigned long power;
+	while(_BitScanForward(&power, n)) {
+		result = crc32_multiply(result, crc_power[power]);
+		n &= n-1;
+	}
+#else
+	unsigned power = 0;
+	while(n) {
+		if(n & 1) {
+			result = crc32_multiply(result, crc_power[power]);
+		}
+		n >>= 1;
+		power++;
+	}
+#endif
+	return result;
 }
 
-uint32_t do_crc32_zeros(uint32_t crc1, size_t len) {
-	crcutil_interface::UINT64 crc_ = crc1;
-	crc->CrcOfZeroes(len, &crc_);
-	return (uint32_t)crc_;
-}
+
 
 void crc_clmul_set_funcs();
 void crc_clmul256_set_funcs();
@@ -185,13 +232,7 @@ static unsigned long getauxval(unsigned long cap) {
 #endif
 
 void crc_init() {
-	crc = crcutil_interface::CRC::Create(
-		0xEDB88320, 0, 32, true, 0, 0, 0, 0, NULL);
-	// instance never deleted... oh well...
-	
-#if !defined(PLATFORM_X86) || defined(__ILP32__)
-	generate_crc32_slice_table();
-#endif
+	GENERIC_CRC_INIT;
 	
 #ifdef PLATFORM_X86
 	int support = cpu_supports_crc_isa();

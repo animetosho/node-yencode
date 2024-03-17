@@ -383,7 +383,7 @@ FUNC(CRC32Combine) {
 	uint32_t crc1 = read_crc32(args[0]), crc2 = read_crc32(args[1]);
 	size_t len = (size_t)ARG_TO_INT(args[2]);
 	
-	crc1 = do_crc32_combine(crc1, crc2, len);
+	crc1 = crc32_combine(crc1, crc2, len);
 	RETURN_VAL(pack_crc32(ISOLATE crc1));
 }
 
@@ -400,7 +400,7 @@ FUNC(CRC32Zeroes) {
 		crc1 = read_crc32(args[1]);
 	}
 	size_t len = (size_t)ARG_TO_INT(args[0]);
-	crc1 = do_crc32_zeros(crc1, len);
+	crc1 = crc32_zeros(crc1, len);
 	RETURN_VAL(pack_crc32(ISOLATE crc1));
 }
 

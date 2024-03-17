@@ -1,7 +1,8 @@
 {
   "variables": {
     "enable_native_tuning%": 1,
-    "disable_avx256%": 0
+    "disable_avx256%": 0,
+    "disable_crcutil%": 0
   },
   "target_defaults": {
     "conditions": [
@@ -41,6 +42,9 @@
       ['disable_avx256!=0', {
         "defines": ["YENC_DISABLE_AVX256=1"]
       }],
+      ['disable_crcutil!=0', {
+        "defines": ["YENC_DISABLE_CRCUTIL=1"]
+      }],
       ['OS!="win" and enable_native_tuning!=0', {
         "defines": ["YENC_BUILD_NATIVE=1"]
       }],
@@ -74,7 +78,7 @@
   "targets": [
     {
       "target_name": "yencode",
-      "dependencies": ["crcutil", "yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_clmul256", "yencode_avx", "yencode_avx2", "yencode_vbmi2", "yencode_neon", "yencode_armcrc", "yencode_rvv", "yencode_zbkc"],
+      "dependencies": ["yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_clmul256", "yencode_avx", "yencode_avx2", "yencode_vbmi2", "yencode_neon", "yencode_armcrc", "yencode_rvv", "yencode_zbkc"],
       "sources": [
         "src/yencode.cc",
         "src/platform.cc",
@@ -82,7 +86,12 @@
         "src/decoder.cc",
         "src/crc.cc"
       ],
-      "include_dirs": ["crcutil-1.0/code","crcutil-1.0/examples"]
+      "conditions": [
+        ['target_arch in "ia32 x64" and disable_crcutil==0', {
+          "dependencies": ["crcutil"],
+          "include_dirs": ["crcutil-1.0/code","crcutil-1.0/examples"]
+        }]
+      ]
     },
     {
       "target_name": "yencode_sse2",
