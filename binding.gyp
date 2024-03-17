@@ -468,7 +468,7 @@
     },
     {
       "target_name": "crcutil",
-      "type": "static_library",
+      "type": "none",
       "sources": [
         "crcutil-1.0/code/crc32c_sse4.cc",
         "crcutil-1.0/code/multiword_64_64_cl_i386_mmx.cc",
@@ -490,7 +490,12 @@
       },
       "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
       "include_dirs": ["crcutil-1.0/code", "crcutil-1.0/tests"],
-      "defines": ["CRCUTIL_USE_MM_CRC32=0"]
+      "defines": ["CRCUTIL_USE_MM_CRC32=0"],
+      "conditions": [
+        ['target_arch in "ia32 x64" and disable_crcutil==0', {
+          "type": "static_library",
+        }]
+      ]
     }
   ]
 }
