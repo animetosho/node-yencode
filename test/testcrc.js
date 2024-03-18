@@ -45,6 +45,22 @@ assert.equal(y.crc32_zeroes(1, ycrc32('')).toString('hex'), 'd202ef8d', 'Zeroes-
 assert.equal(y.crc32_zeroes(0, ycrc32('z')).toString('hex'), crc32('z').toString('hex'), 'Zeroes Empty Join');
 assert.equal(y.crc32_zeroes(4, ycrc32('z')).toString('hex'), crc32('z\u0000\u0000\u0000\u0000').toString('hex'), 'Zeroes (4) Join');
 
+assert.equal(y.crc32_zeroes(4, y.crc32_zeroes(-4)).toString('hex'), '00000000', 'Zeroes (-4+4)');
+assert.equal(y.crc32_zeroes(-4, y.crc32_zeroes(4)).toString('hex'), '00000000', 'Zeroes (4-4)');
+assert.equal(y.crc32_zeroes(6, y.crc32_zeroes(-2, ycrc32('z'))).toString('hex'), crc32('z\u0000\u0000\u0000\u0000').toString('hex'), 'Zeroes (-2+6) Join');
+
+
+assert.equal(y.crc32_multiply(Buffer([1,2,3,4]), ycrc32('')).toString('hex'), '00000000', 'Multiply by 0');
+assert.equal(y.crc32_multiply(Buffer([0x80,0,0,0]), Buffer([0x80,0,0,0])).toString('hex'), '80000000', 'Multiply by 1');
+assert.equal(y.crc32_multiply(Buffer([1,2,3,4]), Buffer([5,6,7,8])).toString('hex'), '81e243a3', 'Multiply random');
+
+assert.equal(y.crc32_shift(0).toString('hex'), '80000000', '2^0');
+assert.equal(y.crc32_shift(1).toString('hex'), '40000000', '2^1');
+assert.equal(y.crc32_shift(2).toString('hex'), '20000000', '2^2');
+assert.equal(y.crc32_shift(-1).toString('hex'), 'db710641', '2^-1');
+assert.equal(y.crc32_shift(-1, y.crc32_shift(1)).toString('hex'), '80000000', '2^(1-1)');
+assert.equal(y.crc32_shift(4, y.crc32_shift(-2)).toString('hex'), '20000000', '2^(-2+4)');
+
 
 doTest('Random', 'crc32', 'fj[-oqijnw34-59n26 4345j8yn89032q78t9ab9gabh023quhoiBO Z GEB780a sdasdq2345673-98hq2-9348h-na9we8zdfgh-n9  8qwhn-098');
 doTest('Random Continue', 'crc32', ['KZSHZ5EDOVAmDdakZZOrGSUGGKSpCJoWH7M0MHy6ohnSzvHY4DjpxXmyfWYJQoJ7tKdNhGcuRVUzrgXM', ycrc32('BdenbmoBgiB10ZkeUBjrsZV3dg2Da2fhHqU9TMdi69AHhLRck3Nk60YuFBXh6lvtefBpjdTxbeEmsaEm')], crc32('BdenbmoBgiB10ZkeUBjrsZV3dg2Da2fhHqU9TMdi69AHhLRck3Nk60YuFBXh6lvtefBpjdTxbeEmsaEmKZSHZ5EDOVAmDdakZZOrGSUGGKSpCJoWH7M0MHy6ohnSzvHY4DjpxXmyfWYJQoJ7tKdNhGcuRVUzrgXM'));

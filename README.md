@@ -199,6 +199,7 @@ Buffer(4) crc32_zeroes(int len, Buffer(4) initial=false)
 Calculates the CRC32 of a sequence of *len* null bytes, returning the resulting
 CRC32 as a 4 byte Buffer.
 You can supply a starting CRC32 value by passing it in the second parameter.
+If *len* is negative, it will remove that many null bytes instead.
 
 **Example**
 
@@ -207,11 +208,37 @@ y.crc32_zeroes(2)
 // <Buffer 41 d9 12 ff>
 y.crc32(new Buffer([0, 0]))
 // <Buffer 41 d9 12 ff>
+y.crc32_zeroes(-3, y.crc32_zeroes(5))
+// <Buffer 41 d9 12 ff>
+
 y.crc32_zeroes(2, y.crc32(new Buffer([1, 2])))
 // <Buffer 9a 7c 6c 17>
 y.crc32(new Buffer([1, 2, 0, 0]))
 // <Buffer 9a 7c 6c 17>
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Buffer(4) crc32_multiply(Buffer(4) x, Buffer(4) y)
+
+Returns the product of *x* and *y* in the CRC32 field.
+This is a low-level CRC32 operation should you find the need to use it.
+
+## Buffer(4) crc32_shift(int n, Buffer(4) crc=[128,0,0,0])
+
+Returns 2<sup>*n*</sup> in the CRC32 field if *crc* is not supplied. If *crc* is supplied, shifts it forward by *n* bits. *n* can be negative.
+This is a low-level CRC32 operation should you find the need to use it.
+
+**Example**
+
+```javascript
+function crc32_combine(crc1, crc2, len2) {
+	var shifted = y.crc32_shift(len2*8, crc1);
+	shifted[0] ^= crc2[0];
+	shifted[1] ^= crc2[1];
+	shifted[2] ^= crc2[2];
+	shifted[3] ^= crc2[3];
+	return shifted;
+}
+```
 
 Buffer post(string filename, data, int line_size=128)
 -----------------------------------------------------

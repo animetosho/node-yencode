@@ -160,8 +160,8 @@ static const uint32_t crc_power[] = { // pre-computed 2^(2^n)
 	0xbad90e37, 0x2e4e5eef, 0x4eaba214, 0xa8a472c0, 0x429a969e, 0x148d302a, 0xc40ba6d0, 0xc4e22c3c
 };
 
-uint32_t crc32_mul2pow(uint32_t n, uint32_t base /*default 0x80000000*/) {
-	uint32_t result = base;
+uint32_t crc32_shift(uint32_t crc1, uint32_t n) {
+	uint32_t result = crc1;
 #ifdef __GNUC__
 	while(n) {
 		result = crc32_multiply(result, crc_power[__builtin_ctz(n)]);

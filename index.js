@@ -190,6 +190,8 @@ module.exports = {
 	crc32: y.crc32,
 	crc32_combine: y.crc32_combine,
 	crc32_zeroes: y.crc32_zeroes,
+	crc32_multiply: y.crc32_multiply,
+	crc32_shift: y.crc32_shift,
 	
 	post: function(filename, data, line_size) {
 		if(!line_size) line_size = 128;

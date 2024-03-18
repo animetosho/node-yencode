@@ -399,10 +399,50 @@ FUNC(CRC32Zeroes) {
 			RETURN_ERROR("Second argument must be a 4 byte buffer");
 		crc1 = read_crc32(args[1]);
 	}
-	size_t len = (size_t)ARG_TO_INT(args[0]);
-	crc1 = crc32_zeros(crc1, len);
+	int len = ARG_TO_INT(args[0]);
+	if(len < 0)
+		crc1 = crc32_unzero(crc1, -len);
+	else
+		crc1 = crc32_zeros(crc1, len);
 	RETURN_VAL(pack_crc32(ISOLATE crc1));
 }
+
+FUNC(CRC32Multiply) {
+	FUNC_START;
+	
+	if (args.Length() < 2)
+		RETURN_ERROR("At least 2 arguments required");
+	
+	if (!node::Buffer::HasInstance(args[0]) || node::Buffer::Length(args[0]) != 4
+	|| !node::Buffer::HasInstance(args[1]) || node::Buffer::Length(args[1]) != 4)
+		RETURN_ERROR("You must supply a 4 byte Buffer for the first two arguments");
+	
+	uint32_t crc1 = read_crc32(args[0]);
+	uint32_t crc2 = read_crc32(args[1]);
+	crc1 = crc32_multiply(crc1, crc2);
+	RETURN_VAL(pack_crc32(ISOLATE crc1));
+}
+
+FUNC(CRC32Shift) {
+	FUNC_START;
+	
+	if (args.Length() < 1)
+		RETURN_ERROR("At least 1 argument required");
+	
+	uint32_t crc1 = 0x80000000;
+	if (args.Length() >= 2) {
+		if (!node::Buffer::HasInstance(args[1]) || node::Buffer::Length(args[1]) != 4)
+			RETURN_ERROR("Second argument must be a 4 byte buffer");
+		crc1 = read_crc32(args[1]);
+	}
+	int n = ARG_TO_INT(args[0]);
+	if(n < 0)
+		crc1 = crc32_shift(crc1, ~crc32_powmod(-n));
+	else
+		crc1 = crc32_shift(crc1, crc32_powmod(n));
+	RETURN_VAL(pack_crc32(ISOLATE crc1));
+}
+
 
 static void init_all() {
 	encoder_init();
@@ -436,6 +476,8 @@ void yencode_init(
 	NODE_SET_METHOD(exports, "crc32", CRC32);
 	NODE_SET_METHOD(exports, "crc32_combine", CRC32Combine);
 	NODE_SET_METHOD(exports, "crc32_zeroes", CRC32Zeroes);
+	NODE_SET_METHOD(exports, "crc32_multiply", CRC32Multiply);
+	NODE_SET_METHOD(exports, "crc32_shift", CRC32Shift);
 	
 #if NODE_VERSION_AT_LEAST(10, 7, 0)
 	uv_once(&init_once, init_all);
