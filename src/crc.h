@@ -1,5 +1,6 @@
 #ifndef __YENC_CRC_H
 #define __YENC_CRC_H
+#include <stdlib.h> // for llabs
 
 #ifdef __cplusplus
 extern "C" {
