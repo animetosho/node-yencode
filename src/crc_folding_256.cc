@@ -1,6 +1,8 @@
 // 256-bit version of crc_folding
 
 #include "crc_common.h"
+
+void crc_clmul_set_funcs();
  
 #if !defined(YENC_DISABLE_AVX256) && ((defined(__VPCLMULQDQ__) && defined(__AVX2__) && defined(__PCLMUL__)) || (defined(_MSC_VER) && _MSC_VER >= 1920 && defined(PLATFORM_X86) && !defined(__clang__)))
 #include <inttypes.h>
@@ -211,11 +213,11 @@ static uint32_t do_crc32_incremental_clmul(const void* data, size_t length, uint
 }
 
 void crc_clmul256_set_funcs() {
+	crc_clmul_set_funcs(); // set multiply/shift function
 	_do_crc32_incremental = &do_crc32_incremental_clmul;
 	_crc32_isa = ISA_LEVEL_VPCLMUL;
 }
 #else
-void crc_clmul_set_funcs();
 void crc_clmul256_set_funcs() {
 	crc_clmul_set_funcs();
 }

@@ -56,8 +56,11 @@ static inline uint32_t crc32_bytepow(uint64_t n) {
 #endif
 }
 
-uint32_t crc32_shift(uint32_t crc1, uint32_t n);
-uint32_t crc32_multiply(uint32_t a, uint32_t b);
+typedef uint32_t (*crc_mul_func)(uint32_t, uint32_t);
+extern crc_mul_func _crc32_shift;
+extern crc_mul_func _crc32_multiply;
+#define crc32_shift (*_crc32_shift)
+#define crc32_multiply (*_crc32_multiply)
 
 static inline uint32_t crc32_combine(uint32_t crc1, uint32_t crc2, uint64_t len2) {
 	return crc32_shift(crc1, crc32_bytepow(len2)) ^ crc2;

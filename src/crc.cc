@@ -132,16 +132,11 @@ static void generate_crc32_slice_table() {
 #define GENERIC_CRC_INIT generate_crc32_slice_table()
 #endif
 
-extern "C" {
-	crc_func _do_crc32_incremental = &do_crc32_incremental_generic;
-	int _crc32_isa = ISA_GENERIC;
-}
-
 
 
 // workaround MSVC complaining "unary minus operator applied to unsigned type, result still unsigned"
 #define NEGATE(n) (uint32_t)(-((int32_t)(n)))
-uint32_t crc32_multiply(uint32_t a, uint32_t b) {
+uint32_t crc32_multiply_generic(uint32_t a, uint32_t b) {
 	uint32_t res = 0;
 	for(int i=0; i<31; i++) {
 		res ^= NEGATE(b>>31) & a;
@@ -153,37 +148,45 @@ uint32_t crc32_multiply(uint32_t a, uint32_t b) {
 }
 #undef NEGATE
 
-static const uint32_t crc_power[] = { // pre-computed 2^(2^n)
+const uint32_t crc_power[32] = { // pre-computed 2^(2^n)
 	0x40000000, 0x20000000, 0x08000000, 0x00800000, 0x00008000, 0xedb88320, 0xb1e6b092, 0xa06a2517,
 	0xed627dae, 0x88d14467, 0xd7bbfe6a, 0xec447f11, 0x8e7ea170, 0x6427800e, 0x4d47bae0, 0x09fe548f,
 	0x83852d0f, 0x30362f1a, 0x7b5a9cc3, 0x31fec169, 0x9fec022a, 0x6c8dedc4, 0x15d6874d, 0x5fde7a4e,
 	0xbad90e37, 0x2e4e5eef, 0x4eaba214, 0xa8a472c0, 0x429a969e, 0x148d302a, 0xc40ba6d0, 0xc4e22c3c
 };
 
-uint32_t crc32_shift(uint32_t crc1, uint32_t n) {
+uint32_t crc32_shift_generic(uint32_t crc1, uint32_t n) {
 	uint32_t result = crc1;
 #ifdef __GNUC__
 	while(n) {
-		result = crc32_multiply(result, crc_power[__builtin_ctz(n)]);
+		result = crc32_multiply_generic(result, crc_power[__builtin_ctz(n)]);
 		n &= n-1;
 	}
 #elif defined(_MSC_VER)
 	unsigned long power;
 	while(_BitScanForward(&power, n)) {
-		result = crc32_multiply(result, crc_power[power]);
+		result = crc32_multiply_generic(result, crc_power[power]);
 		n &= n-1;
 	}
 #else
 	unsigned power = 0;
 	while(n) {
 		if(n & 1) {
-			result = crc32_multiply(result, crc_power[power]);
+			result = crc32_multiply_generic(result, crc_power[power]);
 		}
 		n >>= 1;
 		power++;
 	}
 #endif
 	return result;
+}
+
+
+extern "C" {
+	crc_func _do_crc32_incremental = &do_crc32_incremental_generic;
+	crc_mul_func _crc32_shift = &crc32_shift_generic;
+	crc_mul_func _crc32_multiply = &crc32_multiply_generic;
+	int _crc32_isa = ISA_GENERIC;
 }
 
 

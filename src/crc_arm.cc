@@ -59,42 +59,36 @@ HEDLEY_WARNING("CRC32 acceleration has been disabled due to missing arm_acle.h")
 #endif
 
 
+
+#ifdef __aarch64__
+uint32_t crc32_multiply_arm(uint32_t a, uint32_t b) {
+	// perform PMULL
+	uint64_t res = 0;
+	uint64_t a64 = (uint64_t)a << 32;
+	int64_t b64 = (int64_t)b << 32;
+	for(int i=0; i<32; i++) {
+		res ^= a64 & (b64 >> 63);
+		b64 += b64;
+		a64 >>= 1;
+	}
+	// reduction via CRC
+	res = __crc32w(0, res) ^ (res >> 32);
+	return res;
+}
+#endif
+// regular multiply is probably better for AArch32
+
+
 // exploit CPU pipelining during CRC computation; unfortunately I haven't been able to measure any benefit
 // - Neoverse N1: no noticeable difference
 // - Cortex A53: actually runs a bit slower
 //#define ENABLE_PIPELINE_OPT 1
 
 #ifdef ENABLE_PIPELINE_OPT
-// workaround MSVC complaining "unary minus operator applied to unsigned type, result still unsigned"
-#define NEGATE(n) (uint32_t)(-((int32_t)(n)))
-
-static HEDLEY_ALWAYS_INLINE uint32_t crc_multiply(uint32_t a, uint32_t b) {
-	uint32_t res = 0;
-	for(int i=0; i<31; i++) {
-		res ^= NEGATE(b>>31) & a;
-		a = ((a >> 1) ^ (0xEDB88320 & NEGATE(a&1)));
-		b <<= 1;
-	}
-	res ^= NEGATE(b>>31) & a;
-	return res;
-}
-
-static const uint32_t crc_power[] = { // pre-computed 2^(2^n), with first 3 entries removed (saves a shift)
-	0x00800000, 0x00008000, 0xedb88320, 0xb1e6b092, 0xa06a2517, 0xed627dae, 0x88d14467, 0xd7bbfe6a,
-	0xec447f11, 0x8e7ea170, 0x6427800e, 0x4d47bae0, 0x09fe548f, 0x83852d0f, 0x30362f1a, 0x7b5a9cc3,
-	0x31fec169, 0x9fec022a, 0x6c8dedc4, 0x15d6874d, 0x5fde7a4e, 0xbad90e37, 0x2e4e5eef, 0x4eaba214,
-	0xa8a472c0, 0x429a969e, 0x148d302a, 0xc40ba6d0, 0xc4e22c3c, 0x40000000, 0x20000000, 0x08000000
-};
-/* above table can be computed with
-	int main(void) {
-		uint32_t k = 0x80000000 >> 1;
-		for (size_t i = 0; i < 32+3; ++i) {
-			if(i>2) printf("0x%08x, ", k);
-			k = crc_multiply(k, k);
-		}
-		return 0;
-	}
-*/
+#ifndef __aarch64__
+uint32_t crc32_multiply_generic(uint32_t a, uint32_t b);
+# define crc32_multiply_arm crc32_multiply_generic
+#endif
 #endif
 
 
@@ -130,6 +124,7 @@ static uint32_t arm_crc_calc(uint32_t crc, const unsigned char *src, long len) {
 	// (this is a slightly less efficient, but much simpler implementation of the idea)
 	const unsigned SPLIT_WORDS_LOG = 10;  // make sure it's at least 2
 	const unsigned SPLIT_WORDS = 1<<SPLIT_WORDS_LOG;
+	const unsigned blockCoeff = crc_power[SPLIT_WORDS_LOG + WORDSIZE_LOG + 3];
 	while(len >= (long)(sizeof(WORD_T)*SPLIT_WORDS*2)) {
 		// compute 2x CRCs concurrently to leverage piplining
 		uint32_t crc2 = 0;
@@ -148,8 +143,7 @@ static uint32_t arm_crc_calc(uint32_t crc, const unsigned char *src, long len) {
 			srcW++;
 		}
 		// merge the CRCs
-		// since we're multiplying by a fixed number, it could be sped up with some lookup tables
-		crc = crc_multiply(crc, crc_power[SPLIT_WORDS_LOG + WORDSIZE_LOG]) ^ crc2;
+		crc = crc32_multiply_arm(crc, blockCoeff) ^ crc2;
 		srcW += SPLIT_WORDS;
 		len -= sizeof(WORD_T)*SPLIT_WORDS*2;
 	}
@@ -200,8 +194,27 @@ static uint32_t do_crc32_incremental_arm(const void* data, size_t length, uint32
 	return ~arm_crc_calc(~init, (const unsigned char*)data, (long)length);
 }
 
+
+#if defined(__GNUC__) || defined(_MSC_VER)
+uint32_t crc32_shift_arm(uint32_t crc1, uint32_t n) {
+	uint32_t result = crc1;
+	while(n) {
+		result = crc32_multiply_arm(result, crc_power[ctz32(n)]);
+		n &= n-1;
+	}
+	return result;
+}
+#endif
+
+
 void crc_arm_set_funcs() {
 	_do_crc32_incremental = &do_crc32_incremental_arm;
+#ifdef __aarch64__
+	_crc32_multiply = &crc32_multiply_arm;
+# if defined(__GNUC__) || defined(_MSC_VER)
+	_crc32_shift = &crc32_shift_arm;
+# endif
+#endif
 	_crc32_isa = ISA_FEATURE_CRC;
 }
 #else

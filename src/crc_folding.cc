@@ -355,8 +355,56 @@ static uint32_t do_crc32_incremental_clmul(const void* data, size_t length, uint
 	return crc_fold((const unsigned char*)data, (long)length, init);
 }
 
+
+uint32_t crc32_multiply_clmul(uint32_t a, uint32_t b) {
+	// do the actual multiply
+	__m128i prod = _mm_clmulepi64_si128(_mm_cvtsi32_si128(a), _mm_cvtsi32_si128(b), 0);
+	
+	// prepare product for reduction
+	prod = _mm_add_epi64(prod, prod); // bit alignment fix, due to CRC32 being bit-reversal
+	prod = _mm_slli_si128(prod, 4);   // straddle low/high halves across 64-bit boundary - this provides automatic truncation during reduction
+	
+	// do Barrett reduction back into 32-bit field
+	const __m128i reduction_const = _mm_set_epi32(
+		1, 0xdb710640, // polynomial * 2
+		0, 0xf7011641  // 2**63 / polynomial
+	);
+	__m128i t = _mm_clmulepi64_si128(prod, reduction_const, 0);
+	t = _mm_clmulepi64_si128(t, reduction_const, 0x10);
+	t = _mm_xor_si128(t, prod);
+	
+	return _mm_extract_epi32(t, 2);
+}
+
+#if defined(__GNUC__) || defined(_MSC_VER)
+uint32_t crc32_shift_clmul(uint32_t crc1, uint32_t n) {
+	if(!n) return crc1;
+	
+	// use two accumulators to leverage some IPC from slow CLMUL
+	uint32_t result = crc1;
+	uint32_t result2 = crc_power[ctz32(n)];
+	n &= n-1;
+	
+	while(n) {
+		result = crc32_multiply_clmul(result, crc_power[ctz32(n)]);
+		n &= n-1;
+		
+		if(n) {
+			result2 = crc32_multiply_clmul(result2, crc_power[ctz32(n)]);
+			n &= n-1;
+		}
+	}
+	return crc32_multiply_clmul(result, result2);
+}
+#endif
+
+
 void crc_clmul_set_funcs() {
 	_do_crc32_incremental = &do_crc32_incremental_clmul;
+	_crc32_multiply = &crc32_multiply_clmul;
+#if defined(__GNUC__) || defined(_MSC_VER)
+	_crc32_shift = &crc32_shift_clmul;
+#endif
 	_crc32_isa = ISA_LEVEL_PCLMUL;
 }
 #else

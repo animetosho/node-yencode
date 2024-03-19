@@ -179,8 +179,59 @@ static uint32_t do_crc32_incremental_rv_zbc(const void* data, size_t length, uin
 	return ~rv_crc_calc(~init, (const unsigned char*)data, (long)length);
 }
 
+
+uint32_t crc32_multiply_rv_zbc(uint32_t a, uint32_t b) {
+#if __riscv_xlen == 64
+	uint64_t prod = rv_clmul(a, b);
+	// note that prod is shifted by 1 place to the right, due to bit-reflection
+	
+	uint64_t t = rv_clmul(prod << 33, 0xf7011641);
+	t = rv_clmulh(t, 0x1db710640);
+	t ^= prod >> 31;
+#else
+	uint32_t prodLo = rv_clmul(a, b);
+	uint32_t prodHi = rv_clmulh(a, b);
+	
+	// fix prodHi for bit-reflection (clmulr would be ideal here)
+	prodHi += prodHi;
+	prodHi |= prodLo >> 31;
+	prodLo += prodLo;
+	
+	uint32_t t = rv_clmul(prodLo, 0xf7011641);
+	t ^= rv_clmulh(t, 0xdb710640);
+	t ^= prodHi;
+#endif
+	return t;
+}
+
+#if defined(__GNUC__) || defined(_MSC_VER)
+uint32_t crc32_shift_rv_zbc(uint32_t crc1, uint32_t n) {
+	if(!n) return crc1;
+	
+	uint32_t result = crc1;
+	uint32_t result2 = crc_power[ctz32(n)];
+	n &= n-1;
+	
+	while(n) {
+		result = crc32_multiply_rv_zbc(result, crc_power[ctz32(n)]);
+		n &= n-1;
+		
+		if(n) {
+			result2 = crc32_multiply_rv_zbc(result2, crc_power[ctz32(n)]);
+			n &= n-1;
+		}
+	}
+	return crc32_multiply_rv_zbc(result, result2);
+}
+#endif
+
+
 void crc_riscv_set_funcs() {
 	_do_crc32_incremental = &do_crc32_incremental_rv_zbc;
+	_crc32_multiply = &crc32_multiply_rv_zbc;
+#if defined(__GNUC__) || defined(_MSC_VER)
+	_crc32_shift = &crc32_shift_rv_zbc;
+#endif
 	_crc32_isa = ISA_FEATURE_ZBC;
 }
 #else
