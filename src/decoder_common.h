@@ -471,26 +471,9 @@ YencDecoderEnd do_decode_simd(const unsigned char** src, unsigned char** dest, s
 }
 
 
-static inline void decoder_init_lut(void* compactLUT) {
-	#ifdef YENC_DEC_USE_THINTABLE
-	const int tableSize = 8;
-	#else
-	const int tableSize = 16;
-	#endif
-	for(int i=0; i<(tableSize==8?256:32768); i++) {
-		int k = i;
-		uint8_t* res = (uint8_t*)compactLUT + i*tableSize;
-		int p = 0;
-		for(int j=0; j<tableSize; j++) {
-			if(!(k & 1)) {
-				res[p++] = j;
-			}
-			k >>= 1;
-		}
-		for(; p<tableSize; p++)
-			res[p] = 0x80;
-	}
-}
+#if defined(PLATFORM_X86) || defined(PLATFORM_ARM)
+void decoder_init_lut(void* compactLUT);
+#endif
 
 template<bool isRaw>
 static inline void decoder_set_nextMask(const uint8_t* src, size_t len, uint16_t& nextMask) {
