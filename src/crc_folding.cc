@@ -429,33 +429,47 @@ static HEDLEY_ALWAYS_INLINE __m128i crc32_shift_clmul_mulred(unsigned pos, __m12
 uint32_t crc32_shift_clmul(uint32_t crc1, uint32_t n) {
 	if(!n) return crc1;
 	
-	// use two accumulators to leverage some IPC from slow CLMUL
 	__m128i result = _mm_cvtsi32_si128(BSWAP32(crc1));
 	result = reverse_bits_epi8(result);
-	__m128i result2 = _mm_cvtsi32_si128(crc_power_rev[ctz32(n)]);
-	n &= n-1;
 	
-	while(n) {
-		result = crc32_shift_clmul_mulred(ctz32(n), result);
+	// handle n < 32 with a shift
+	result = _mm_sll_epi64(result, _mm_cvtsi32_si128(n & 31));
+	n &= ~31;
+	
+	__m128i t;
+	if(n) {
+		// use a second accumulator to leverage some IPC from slow CLMUL
+		__m128i result2 = _mm_cvtsi32_si128(crc_power_rev[ctz32(n)]);
 		n &= n-1;
 		
 		if(n) {
-			result2 = crc32_shift_clmul_mulred(ctz32(n), result2);
+			// first multiply doesn't need reduction
+			result2 = _mm_clmulepi64_si128(result2, _mm_cvtsi32_si128(crc_power_rev[ctz32(n)]), 0);
 			n &= n-1;
+			
+			while(n) {
+				result = crc32_shift_clmul_mulred(ctz32(n), result);
+				n &= n-1;
+				
+				if(n) {
+					result2 = crc32_shift_clmul_mulred(ctz32(n), result2);
+					n &= n-1;
+				}
+			}
 		}
+		
+		const __m128i fold_const = _mm_set_epi32(0, 0x490d678d, 0, 0xf200aa66);
+		
+		// merge two results
+		result = _mm_clmulepi64_si128(result, result2, 0);
+		
+		// do 128b reduction
+		t = _mm_unpackhi_epi32(result, _mm_setzero_si128());
+		// fold [127:96] -> [63:0]
+		result = _mm_xor_si128(result, _mm_clmulepi64_si128(t, fold_const, 1));
+		// fold [95:64] -> [63:0]
+		result = _mm_xor_si128(result, _mm_clmulepi64_si128(t, fold_const, 0x10));
 	}
-	
-	const __m128i fold_const = _mm_set_epi32(0, 0x490d678d, 0, 0xf200aa66);
-	
-	// merge two results
-	result = _mm_clmulepi64_si128(result, result2, 0);
-	
-	// do 128b reduction
-	__m128i t = _mm_unpackhi_epi32(result, _mm_setzero_si128());
-	// fold [127:96] -> [63:0]
-	result = _mm_xor_si128(result, _mm_clmulepi64_si128(t, fold_const, 1));
-	// fold [95:64] -> [63:0]
-	result = _mm_xor_si128(result, _mm_clmulepi64_si128(t, fold_const, 0x10));
 	
 	// do Barrett reduction back into 32-bit field
 	const __m128i reduction_const = _mm_set_epi32(0, 0x04c11db7, 1, 0x04d101df);
