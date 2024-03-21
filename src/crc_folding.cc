@@ -356,6 +356,15 @@ static uint32_t do_crc32_incremental_clmul(const void* data, size_t length, uint
 }
 
 
+static HEDLEY_ALWAYS_INLINE __m128i crc32_reduce(__m128i prod) {
+	// do Barrett reduction back into 32-bit field
+	const __m128i reduction_const = _mm_load_si128((__m128i*)crc_k + 2);
+	__m128i t = _mm_clmulepi64_si128(prod, reduction_const, 0);
+	t = _mm_clmulepi64_si128(t, reduction_const, 0x10);
+	t = _mm_xor_si128(t, prod);
+	return t;
+}
+
 uint32_t crc32_multiply_clmul(uint32_t a, uint32_t b) {
 	// do the actual multiply
 	__m128i prod = _mm_clmulepi64_si128(_mm_cvtsi32_si128(a), _mm_cvtsi32_si128(b), 0);
@@ -364,37 +373,81 @@ uint32_t crc32_multiply_clmul(uint32_t a, uint32_t b) {
 	prod = _mm_add_epi64(prod, prod); // bit alignment fix, due to CRC32 being bit-reversal
 	prod = _mm_slli_si128(prod, 4);   // straddle low/high halves across 64-bit boundary - this provides automatic truncation during reduction
 	
-	// do Barrett reduction back into 32-bit field
-	const __m128i reduction_const = _mm_set_epi32(
-		1, 0xdb710640, // polynomial * 2
-		0, 0xf7011641  // 2**63 / polynomial
-	);
-	__m128i t = _mm_clmulepi64_si128(prod, reduction_const, 0);
-	t = _mm_clmulepi64_si128(t, reduction_const, 0x10);
-	t = _mm_xor_si128(t, prod);
-	
-	return _mm_extract_epi32(t, 2);
+	prod = crc32_reduce(prod);
+	return _mm_extract_epi32(prod, 2);
 }
 
 #if defined(__GNUC__) || defined(_MSC_VER)
+static HEDLEY_ALWAYS_INLINE __m128i crc32_shift_clmul_mulred(unsigned pos, __m128i prod) {
+	// this multiplies a 64-bit `prod` with a 32-bit CRC power
+	// compared with crc32_multiply_clmul, this only reduces the result to 64-bit, saving a multiply
+	__m128i coeff = _mm_cvtsi32_si128(crc_power[pos]);
+	coeff = _mm_add_epi64(coeff, coeff);
+	
+	prod = _mm_clmulepi64_si128(prod, coeff, 0);
+	prod = _mm_shuffle_epi32(prod, _MM_SHUFFLE(3,0,2,1)); // shift-right by 32, moving bottom 32b to top half
+	// do reduction: 96b->64b
+	const __m128i fold_const = _mm_load_si128((__m128i*)crc_k + 1);
+	__m128i hi = _mm_clmulepi64_si128(prod, fold_const, 0x11);
+	return _mm_xor_si128(hi, prod);
+}
+
 uint32_t crc32_shift_clmul(uint32_t crc1, uint32_t n) {
 	if(!n) return crc1;
 	
 	// use two accumulators to leverage some IPC from slow CLMUL
-	uint32_t result = crc1;
-	uint32_t result2 = crc_power[ctz32(n)];
+	__m128i result = _mm_insert_epi32(_mm_setzero_si128(), crc1, 1);
+	__m128i result2 = _mm_insert_epi32(_mm_setzero_si128(), crc_power[ctz32(n)], 1);
 	n &= n-1;
 	
 	while(n) {
-		result = crc32_multiply_clmul(result, crc_power[ctz32(n)]);
+		result = crc32_shift_clmul_mulred(ctz32(n), result);
 		n &= n-1;
 		
 		if(n) {
-			result2 = crc32_multiply_clmul(result2, crc_power[ctz32(n)]);
+			result2 = crc32_shift_clmul_mulred(ctz32(n), result2);
 			n &= n-1;
 		}
 	}
-	return crc32_multiply_clmul(result, result2);
+	
+	const __m128i fold_const = _mm_load_si128((__m128i*)crc_k + 1);
+	
+	// merge two results
+	result = _mm_clmulepi64_si128(result, result2, 0);
+	
+	// do 128b reduction
+	
+	// fold [127:96] -> [63:0]
+	__m128i hi = _mm_clmulepi64_si128(_mm_slli_epi64(result, 33), fold_const, 0);
+	// fold [95:64] -> [63:0]
+	__m128i lo = _mm_blend_epi16(_mm_add_epi64(result, result), _mm_setzero_si128(), 0xc3);
+	lo = _mm_clmulepi64_si128(lo, fold_const, 0x10);
+	// alignment fix for bottom 64b
+	result = _mm_shuffle_epi32(result, _MM_SHUFFLE(3,2,2,1));
+	result = _mm_add_epi64(result, result);
+	result = _mm_shuffle_epi32(result, _MM_SHUFFLE(3,3,1,1));
+	result = _mm_blend_epi16(result, _mm_setzero_si128(), 0xc3); // zero lowest and highest dword
+	
+	result = _mm_xor_si128(result, hi);
+	result = _mm_xor_si128(result, lo);
+	
+	
+	/* alternative, using only one constant, but likely higher latency due to chained clmul
+	__m128i hi = _mm_clmulepi64_si128(_mm_add_epi64(result, result), fold_const, 0x10);
+	// alignment fix
+	result = _mm_shuffle_epi32(result, _MM_SHUFFLE(3,2,2,1));
+	result = _mm_add_epi64(result, result);
+	result = _mm_shuffle_epi32(result, _MM_SHUFFLE(3,3,1,1));
+	result = _mm_blend_epi16(result, _mm_setzero_si128(), 0xc3); // zero lowest and highest dword
+	result = _mm_xor_si128(result, hi);
+	
+	hi = _mm_clmulepi64_si128(_mm_slli_epi64(result, 32), fold_const, 0x10);
+	result = _mm_blend_epi16(result, _mm_setzero_si128(), 0xc3);
+	result = _mm_xor_si128(result, hi);
+	*/
+	
+	result = crc32_reduce(result);
+	return _mm_extract_epi32(result, 2);
 }
 #endif
 
