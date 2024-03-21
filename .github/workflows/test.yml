@@ -78,13 +78,13 @@ jobs:
         t:
           # qemu x86 doesn't support AVX, so we use Intel SDE instead
           # NodeJS doesn't provide x86 Linux binaries
-          #- {arch: 'i386',  nodearch: 'x86',     target: 'i686-linux-gnu',       libc: 'i386',    emu: '$SDE_PATH/sde -icx --'}
-          - {arch: 'amd64', nodearch: 'x64',    target: 'x86-64-linux-gnu',     libc: 'amd64',   emu: '$SDE_PATH/sde64 -icx --'}
-          - {arch: 'aarch64', nodearch: 'arm64',  target: 'aarch64-linux-gnu',    libc: 'arm64',   emu: 'qemu-aarch64-static -L /usr/aarch64-linux-gnu -cpu max,sve-max-vq=4'}
-          - {arch: 'arm', nodearch: 'armv7l',      target: 'arm-linux-gnueabihf',  libc: 'armhf',   emu: 'qemu-arm-static -L /usr/arm-linux-gnueabihf -cpu max'}
+          #- {arch: 'i386',  nodearch: 'x86', gyparch: 'ia32', target: 'i686-linux-gnu', libc: 'i386', emu: '$SDE_PATH/sde -icx --'}
+          - {arch: 'amd64', nodearch: 'x64', gyparch: 'x64', target: 'x86-64-linux-gnu', libc: 'amd64', emu: '$SDE_PATH/sde64 -icx --'}
+          - {arch: 'aarch64', nodearch: 'arm64', gyparch: 'arm64', target: 'aarch64-linux-gnu',    libc: 'arm64', emu: 'qemu-aarch64-static -L /usr/aarch64-linux-gnu -cpu max,sve-max-vq=4'}
+          - {arch: 'arm', nodearch: 'armv7l', gyparch: 'arm', target: 'arm-linux-gnueabihf',  libc: 'armhf',   emu: 'qemu-arm-static -L /usr/arm-linux-gnueabihf -cpu max'}
           # RVV unavailable in Ubuntu 22.04's qemu
           # TODO: consider using newer qemu
-          #- {arch: 'riscv64', nodearch: 'riscv64',  target: 'riscv64-linux-gnu',    libc: 'riscv64', emu: 'qemu-riscv64-static -L /usr/riscv64-linux-gnu -cpu rv64,v=true,vlen=512,elen=64,vext_spec=v1.0,zba=true,zbb=true,zbc=true'}
+          #- {arch: 'riscv64', nodearch: 'riscv64', gyparch: 'riscv64', target: 'riscv64-linux-gnu', libc: 'riscv64', emu: 'qemu-riscv64-static -L /usr/riscv64-linux-gnu -cpu rv64,v=true,vlen=512,elen=64,vext_spec=v1.0,zba=true,zbb=true,zbc=true'}
     name: Test on GCC ${{ matrix.cc_ver }} ${{ matrix.t.arch }}
     runs-on: ubuntu-22.04
     steps:
@@ -108,7 +108,7 @@ jobs:
           wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           mv node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }} n
-      - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.t.arch }} --target=v${{ matrix.node_ver }} --openssl_fips='' --enable_native_tuning=0
+      - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.t.gyparch }} --target=v${{ matrix.node_ver }} --openssl_fips='' --enable_native_tuning=0
       - uses: ./.github/actions/run_tests
         with:
           node: ${{ matrix.t.emu }} n/bin/node
@@ -136,13 +136,13 @@ jobs:
         node_ver: ['12.22.12']
         cc_ver: ['11','15']
         t:
-          #- {arch: 'i386',  nodearch: 'x86', target: 'i686-linux-gnu', cl_target: 'i386-linux-gnu', libc: 'i386', emu: '$SDE_PATH/sde -icx --'}
-          - {arch: 'amd64', nodearch: 'x64', target: 'x86-64-linux-gnu', cl_target: 'x86_64-linux-gnu', libc: 'amd64', emu: '$SDE_PATH/sde64 -icx --'}
-          - {arch: 'aarch64', nodearch: 'arm64', target: 'aarch64-linux-gnu', cl_target: 'aarch64-linux-gnu', libc: 'arm64', emu: 'qemu-aarch64-static -L /usr/aarch64-linux-gnu -cpu max,sve-max-vq=4'}
-          - {arch: 'arm', nodearch: 'armv7l', target: 'arm-linux-gnueabihf', cl_target: 'armv7a-linux-gnueabihf', libc: 'armhf', emu: 'qemu-arm-static -L /usr/arm-linux-gnueabihf -cpu max'}
+          #- {arch: 'i386',  nodearch: 'x86', gyparch: 'ia32', target: 'i686-linux-gnu', cl_target: 'i386-linux-gnu', libc: 'i386', emu: '$SDE_PATH/sde -icx --'}
+          - {arch: 'amd64', nodearch: 'x64', gyparch: 'x64', target: 'x86-64-linux-gnu', cl_target: 'x86_64-linux-gnu', libc: 'amd64', emu: '$SDE_PATH/sde64 -icx --'}
+          - {arch: 'aarch64', nodearch: 'arm64', gyparch: 'arm64', target: 'aarch64-linux-gnu', cl_target: 'aarch64-linux-gnu', libc: 'arm64', emu: 'qemu-aarch64-static -L /usr/aarch64-linux-gnu -cpu max,sve-max-vq=4'}
+          - {arch: 'arm', nodearch: 'armv7l', gyparch: 'arm', target: 'arm-linux-gnueabihf', cl_target: 'armv7a-linux-gnueabihf', libc: 'armhf', emu: 'qemu-arm-static -L /usr/arm-linux-gnueabihf -cpu max'}
           # RVV unavailable in Ubuntu 22.04's qemu
           # TODO: consider using newer qemu
-          #- {arch: 'riscv64', nodearch: 'riscv64', target: 'riscv64-linux-gnu', cl_target: 'riscv64-linux-gnu', libc: 'riscv64', emu: 'qemu-riscv64-static -L /usr/riscv64-linux-gnu -cpu rv64,v=true,vlen=512,elen=64,vext_spec=v1.0,zba=true,zbb=true,zbc=true'}
+          #- {arch: 'riscv64', nodearch: 'riscv64', gyparch: 'riscv64', target: 'riscv64-linux-gnu', cl_target: 'riscv64-linux-gnu', libc: 'riscv64', emu: 'qemu-riscv64-static -L /usr/riscv64-linux-gnu -cpu rv64,v=true,vlen=512,elen=64,vext_spec=v1.0,zba=true,zbb=true,zbc=true'}
     name: Test Ubuntu Clang ${{ matrix.cc_ver }} ${{ matrix.t.arch }}
     runs-on: ubuntu-22.04
     steps:
@@ -168,7 +168,7 @@ jobs:
           wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           mv node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }} n
-      - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.t.arch }} --target=v${{ matrix.node_ver }} --openssl_fips='' --enable_native_tuning=0
+      - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.t.gyparch }} --target=v${{ matrix.node_ver }} --openssl_fips='' --enable_native_tuning=0
       - uses: ./.github/actions/run_tests
         with:
           node: ${{ matrix.t.emu }} n/bin/node
