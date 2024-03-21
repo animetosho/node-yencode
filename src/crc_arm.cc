@@ -195,22 +195,13 @@ static uint32_t do_crc32_incremental_arm(const void* data, size_t length, uint32
 }
 
 
-#if defined(__GNUC__) || defined(_MSC_VER)
+#if defined(__aarch64__) && (defined(__GNUC__) || defined(_MSC_VER))
 uint32_t crc32_shift_arm(uint32_t crc1, uint32_t n) {
 	uint32_t result = crc1;
-#ifdef __aarch64__
 	uint64_t prod = result;
 	prod <<= 32 - (n&31);
 	result = __crc32w(0, prod) ^ (prod >> 32);
 	n &= ~31;
-#else
-	if(n&31) {
-		uint32_t hi = result >> (n&31);
-		result <<= 32 - (n&31);
-		result = __crc32w(0, result) ^ hi;
-		n &= ~31;
-	}
-#endif
 	
 	while(n) {
 		result = crc32_multiply_arm(result, crc_power[ctz32(n)]);
