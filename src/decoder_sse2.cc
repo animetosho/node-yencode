@@ -4,8 +4,8 @@
 #include "decoder_common.h"
 #include "decoder_sse_base.h"
 
-void decoder_sse_init() {
-	ALIGN_ALLOC(lookups, sizeof(*lookups), 16);
+void decoder_sse_init(SSELookups* HEDLEY_RESTRICT& lookups) {
+	ALIGN_ALLOC(lookups, sizeof(SSELookups), 16);
 	for(int i=0; i<256; i++) {
 		lookups->BitsSetTable256inv[i] = 8 - (
 			(i & 1) + ((i>>1) & 1) + ((i>>2) & 1) + ((i>>3) & 1) + ((i>>4) & 1) + ((i>>5) & 1) + ((i>>6) & 1) + ((i>>7) & 1)
@@ -26,7 +26,7 @@ void decoder_sse_init() {
 }
 
 void decoder_set_sse2_funcs() {
-	decoder_sse_init();
+	decoder_sse_init(lookups);
 	decoder_init_lut(lookups->compact);
 	_do_decode = &do_decode_simd<false, false, sizeof(__m128i)*2, do_decode_sse<false, false, ISA_LEVEL_SSE2> >;
 	_do_decode_raw = &do_decode_simd<true, false, sizeof(__m128i)*2, do_decode_sse<true, false, ISA_LEVEL_SSE2> >;

@@ -1,5 +1,9 @@
 #include "decoder.h"
 
+#if defined(PLATFORM_ARM) && !defined(__aarch64__)
+#define YENC_DEC_USE_THINTABLE 1
+#endif
+
 // TODO: need to support max output length somehow
 // TODO: add branch probabilities
 

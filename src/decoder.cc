@@ -35,7 +35,7 @@ static inline void decoder_set_native_funcs() {
 # else
 #  include "decoder_sse_base.h"
 static inline void decoder_set_native_funcs() {
-	decoder_sse_init();
+	decoder_sse_init(lookups);
 	decoder_init_lut(lookups->compact);
 	_do_decode = &do_decode_simd<false, false, sizeof(__m128i)*2, do_decode_sse<false, false, ISA_NATIVE> >;
 	_do_decode_raw = &do_decode_simd<true, false, sizeof(__m128i)*2, do_decode_sse<true, false, ISA_NATIVE> >;

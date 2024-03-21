@@ -26,12 +26,13 @@
 #endif
 
 #pragma pack(16)
-static struct {
+typedef struct {
 	unsigned char BitsSetTable256inv[256];
 	/*align16*/ struct { char bytes[16]; } compact[32768];
 	/*align8*/ uint64_t eqAdd[256];
 	/*align16*/ int8_t unshufMask[32*16];
-} * HEDLEY_RESTRICT lookups;
+} SSELookups;
+static SSELookups* HEDLEY_RESTRICT lookups;
 #pragma pack()
 
 
@@ -44,7 +45,7 @@ static HEDLEY_ALWAYS_INLINE __m128i force_align_read_128(const void* p) {
 #endif
 }
 
-void decoder_sse_init(); // defined in decoder_sse2.cc
+void decoder_sse_init(SSELookups* HEDLEY_RESTRICT& lookups); // defined in decoder_sse2.cc
 
 
 // for LZCNT/BSR

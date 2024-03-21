@@ -1,9 +1,6 @@
 #include "common.h"
 #ifdef __ARM_NEON
 
-#ifndef __aarch64__
-#define YENC_DEC_USE_THINTABLE 1
-#endif
 #include "decoder_common.h"
 
 
