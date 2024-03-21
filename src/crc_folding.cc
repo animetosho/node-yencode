@@ -378,12 +378,22 @@ uint32_t crc32_multiply_clmul(uint32_t a, uint32_t b) {
 }
 
 #if defined(__GNUC__) || defined(_MSC_VER)
-static __m128i reverse_bits_epi8(__m128i src) {
+static HEDLEY_ALWAYS_INLINE __m128i reverse_bits_epi8(__m128i src) {
 #if defined(__GFNI__) && defined(YENC_BUILD_NATIVE) && YENC_BUILD_NATIVE!=0
     return _mm_gf2p8affine_epi64_epi8(src, _mm_set_epi32(
       0x80402010, 0x08040201,
       0x80402010, 0x08040201
     ), 0);
+/*
+#elif defined(ENABLE_AVX512)
+    // !! this only processes the bottom 32 bits !!
+    src = _mm_maskz_mov_epi32(1, src);
+    src = _mm_ternarylogic_epi32(src, _mm_slli_epi64(src, 28), _mm_set1_epi8(0xf), 0xa8); // (a|b)&c
+    src = _mm_shuffle_epi8(_mm_set_epi8(
+      -16, 112, -80, 48, -48, 80, -112, 16, -32, 96, -96, 32, -64, 64, -128, 0
+    ), src);
+    return _mm_maskz_or_epi32(1, src, _mm_srli_epi64(src, 36));
+*/
 #else
     __m128i xmm_t0 = _mm_and_si128(src, _mm_set1_epi8(0x0f));
     __m128i xmm_t1 = _mm_and_si128(_mm_srli_epi16(src, 4), _mm_set1_epi8(0x0f));
@@ -466,9 +476,15 @@ uint32_t crc32_shift_clmul(uint32_t crc1, uint32_t n) {
 		// do 128b reduction
 		t = _mm_unpackhi_epi32(result, _mm_setzero_si128());
 		// fold [127:96] -> [63:0]
-		result = _mm_xor_si128(result, _mm_clmulepi64_si128(t, fold_const, 1));
+		__m128i hi = _mm_clmulepi64_si128(t, fold_const, 1);
 		// fold [95:64] -> [63:0]
-		result = _mm_xor_si128(result, _mm_clmulepi64_si128(t, fold_const, 0x10));
+		__m128i lo = _mm_clmulepi64_si128(t, fold_const, 0x10);
+#ifdef ENABLE_AVX512
+		result = _mm_ternarylogic_epi32(result, hi, lo, 0x96);
+#else
+		result = _mm_xor_si128(result, hi);
+		result = _mm_xor_si128(result, lo);
+#endif
 	}
 	
 	// do Barrett reduction back into 32-bit field

@@ -180,14 +180,18 @@ static uint32_t do_crc32_incremental_rv_zbc(const void* data, size_t length, uin
 }
 
 
-uint32_t crc32_multiply_rv_zbc(uint32_t a, uint32_t b) {
 #if __riscv_xlen == 64
-	uint64_t prod = rv_clmul(a, b);
 	// note that prod is shifted by 1 place to the right, due to bit-reflection
-	
+static uint32_t crc32_reduce_rv_zbc(uint64_t prod) {
 	uint64_t t = rv_clmul(prod << 33, 0xf7011641);
 	t = rv_clmulh(t, 0x1db710640);
 	t ^= prod >> 31;
+	return t;
+}
+#endif
+uint32_t crc32_multiply_rv_zbc(uint32_t a, uint32_t b) {
+#if __riscv_xlen == 64
+	uint64_t t = crc32_reduce_rv_zbc(rv_clmul(a, b));
 #else
 	uint32_t prodLo = rv_clmul(a, b);
 	uint32_t prodHi = rv_clmulh(a, b);
@@ -206,9 +210,17 @@ uint32_t crc32_multiply_rv_zbc(uint32_t a, uint32_t b) {
 
 #if defined(__GNUC__) || defined(_MSC_VER)
 uint32_t crc32_shift_rv_zbc(uint32_t crc1, uint32_t n) {
-	if(!n) return crc1;
-	
+	// TODO: require Zbb for ctz
 	uint32_t result = crc1;
+#if __riscv_xlen == 64
+	// for n<32, can shift directly
+	uint64_t prod = result;
+	prod <<= 31 ^ (n&31);
+	n &= ~31;
+	result = crc32_reduce_rv_zbc(prod);
+#endif
+	if(!n) return result;
+	
 	uint32_t result2 = crc_power[ctz32(n)];
 	n &= n-1;
 	
