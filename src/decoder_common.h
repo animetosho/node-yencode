@@ -509,16 +509,20 @@ static inline uint16_t decoder_set_nextMask(const uint8_t* src, unsigned mask) {
 // resolve invalid sequences of = to deal with cases like '===='
 // bit hack inspired from simdjson: https://youtu.be/wlvKAT7SZIQ?t=33m38s
 template<typename T>
-static inline T fix_eqMask(T mask) {
+static inline T fix_eqMask(T mask, T maskShift1) {
 	// isolate the start of each consecutive bit group (e.g. 01011101 -> 01000101)
-	T start = mask & ~(mask << 1);
+	T start = mask & ~maskShift1;
 	
-	const T odd = (T)0xaaaaaaaaaaaaaaaa; // every odd bit (10101010...)
+	// this strategy works by firstly separating groups that start on even/odd bits
+	// generally, it doesn't matter which one (even/odd) we pick, but clearing even groups specifically allows the escFirst bit in maskShift1 to work
+	// (this is because the start of the escFirst group is at index -1, an odd bit, but we can't clear it due to being < 0, so we just retain all odd groups instead)
 	
-	// obtain groups which start on an even bit (clear groups that start on an odd bit, but this leaves an unwanted trailing bit)
-	T evenGroups = mask + (start & odd);
+	const T even = (T)0x5555555555555555; // every even bit (01010101...)
 	
-	// clear odd bits in even groups, whilst conversely preserving odd bits in odd groups
+	// obtain groups which start on an odd bit (clear groups that start on an even bit, but this leaves an unwanted trailing bit)
+	T oddGroups = mask + (start & even);
+	
+	// clear even bits in odd groups, whilst conversely preserving even bits in even groups
 	// the `& mask` also conveniently gets rid of unwanted trailing bits
-	return (evenGroups ^ odd) & mask;
+	return (oddGroups ^ even) & mask;
 }

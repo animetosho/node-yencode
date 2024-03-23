@@ -429,8 +429,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* src, long& len, unsigned
 			if(use_isa >= ISA_LEVEL_AVX3)
 				dataB = _mm256_add_epi8(oDataB, _mm256_set1_epi8(-42));
 			
-			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
-				maskEq = fix_eqMask<uint64_t>(maskEq & ~(uint64_t)escFirst);
+			uint64_t maskEqShift1 = (maskEq << 1) + escFirst;
+			if(LIKELIHOOD(0.0001, (mask & maskEqShift1) != 0)) {
+				maskEq = fix_eqMask<uint64_t>(maskEq, maskEqShift1);
 				mask &= ~(uint64_t)escFirst;
 				escFirst = maskEq>>63;
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed

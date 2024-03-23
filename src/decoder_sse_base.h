@@ -500,8 +500,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* src, long& len, unsigned 
 			if(!_USING_BLEND_ADD)
 				dataB = _mm_add_epi8(oDataB, _mm_set1_epi8(-42));
 			
-			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) + escFirst)) != 0)) {
-				maskEq = fix_eqMask<uint32_t>(maskEq & ~escFirst);
+			uint32_t maskEqShift1 = (maskEq << 1) + escFirst;
+			if(LIKELIHOOD(0.0001, (mask & maskEqShift1) != 0)) {
+				maskEq = fix_eqMask<uint32_t>(maskEq, maskEqShift1);
 				mask &= ~escFirst;
 				escFirst = maskEq >> 31;
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed

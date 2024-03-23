@@ -212,7 +212,7 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 					#endif
 					
 					// fix it
-					maskW = fix_eqMask<uintptr_t>(maskW & ~(uintptr_t)escFirst);
+					maskW = fix_eqMask<uintptr_t>(maskW, (maskW << 1) | escFirst);
 					uint8_t nextEscFirst = (maskW >> nextShiftDown) & 1;
 					
 					// shift it up (will be used for cmpEqShift1)

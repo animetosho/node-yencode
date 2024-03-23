@@ -322,8 +322,9 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned
 			// a spec compliant encoder should never generate sequences: ==, =\n and =\r, but we'll handle them to be spec compliant
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
-			if(LIKELIHOOD(0.0001, (mask & ((maskEq << 1) | escFirst)) != 0)) {
-				maskEq = fix_eqMask<uint32_t>(maskEq & ~escFirst);
+			uint32_t maskEqShift1 = (maskEq << 1) | escFirst;
+			if(LIKELIHOOD(0.0001, (mask & maskEqShift1) != 0)) {
+				maskEq = fix_eqMask<uint32_t>(maskEq, maskEqShift1);
 				
 				unsigned char nextEscFirst = maskEq>>31;
 				// next, eliminate anything following a `=` from the special char mask; this eliminates cases of `=\r` so that they aren't removed
