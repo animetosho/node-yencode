@@ -17,13 +17,14 @@
 
 // ARM's intrinsics guide seems to suggest that vmull_p64 is available on A32, but neither Clang/GCC seem to support it on AArch32
 #if (defined(__ARM_FEATURE_CRYPTO) && defined(__ARM_FEATURE_CRC32) && defined(__aarch64__)) || (defined(_M_ARM64) && !defined(__clang__))
+
 #include <arm_neon.h>
 #if defined(_MSC_VER) && !defined(__clang__)
-#include <intrin.h>
+# include <intrin.h>
 
-#ifdef _M_ARM64
+# ifdef _M_ARM64
 // MSVC may detect this pattern: https://devblogs.microsoft.com/cppblog/a-tour-of-4-msvc-backend-improvements/#byteswap-identification
-unsigned __int64 rbit64(unsigned __int64 x) {
+static HEDLEY_ALWAYS_INLINE uint64_t rbit64(uint64_t x) {
 	x = _byteswap_uint64(x);
 	x = (x & 0xaaaaaaaaaaaaaaaa) >> 1 | (x & 0x5555555555555555) << 1;
 	x = (x & 0xcccccccccccccccc) >> 2 | (x & 0x3333333333333333) << 2;
@@ -31,17 +32,42 @@ unsigned __int64 rbit64(unsigned __int64 x) {
 	return x;
 }
 // ...whilst this seems to work best for 32-bit RBIT
-unsigned __int32 rbit32(unsigned __int32 x) {
-	unsigned __int64 r = rbit64(x);
+static HEDLEY_ALWAYS_INLINE uint32_t rbit32(uint32_t x) {
+	uint64_t r = rbit64(x);
 	return r >> 32;
 }
+# else
+#  define rbit32 _arm_rbit
+# endif
 #else
-#define rbit32 _arm_rbit
-#endif
-#else
-#include <arm_acle.h>
-#define rbit32 __rbit
-#define rbit64 __rbitll
+# include <arm_acle.h>
+// __rbit not present before GCC 11.4.0 or 12.2.0; for ARM32, requires GCC 14
+# if defined(HEDLEY_GCC_VERSION) && !HEDLEY_GCC_VERSION_CHECK(14,0,0) && (!defined(__aarch64__) || !HEDLEY_GCC_VERSION_CHECK(11,3,0) || (HEDLEY_GCC_VERSION_CHECK(12,0,0) && !HEDLEY_GCC_VERSION_CHECK(12,2,0)))
+#  ifdef __aarch64__
+static HEDLEY_ALWAYS_INLINE uint64_t rbit64(uint64_t x) {
+	uint64_t r;
+	__asm__ ("rbit %0,%1\n"
+		: "=r"(r) : "r"(x)
+		: /* No clobbers */);
+	return r;
+}
+#  endif
+static HEDLEY_ALWAYS_INLINE uint32_t rbit32(uint32_t x) {
+	uint32_t r;
+	__asm__ (
+#  ifdef __aarch64__
+		"rbit %w0,%w1\n"
+#  else
+		"rbit %0,%1\n"
+#  endif
+		: "=r"(r) : "r"(x)
+		: /* No clobbers */);
+	return r;
+}
+# else
+#  define rbit32 __rbit
+#  define rbit64 __rbitll
+# endif
 #endif
 
 
