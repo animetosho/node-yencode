@@ -78,7 +78,7 @@
   "targets": [
     {
       "target_name": "yencode",
-      "dependencies": ["yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_clmul256", "yencode_avx", "yencode_avx2", "yencode_vbmi2", "yencode_neon", "yencode_armcrc", "yencode_rvv", "yencode_zbkc"],
+      "dependencies": ["yencode_sse2", "yencode_ssse3", "yencode_clmul", "yencode_clmul256", "yencode_avx", "yencode_avx2", "yencode_vbmi2", "yencode_neon", "yencode_armcrc", "yencode_pmull", "yencode_rvv", "yencode_zbkc"],
       "sources": [
         "src/yencode.cc",
         "src/platform.cc",
@@ -412,6 +412,42 @@
           "xcode_settings": {
             "OTHER_CFLAGS": ["-mfpu=fp-armv8","-fno-lto"],
             "OTHER_CXXFLAGS": ["-mfpu=fp-armv8","-fno-lto"]
+          }
+        }]
+      ]
+    },
+    {
+      "target_name": "yencode_pmull",
+      "type": "static_library",
+      "sources": [
+        "src/crc_arm_pmull.cc"
+      ],
+      "cflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "cxxflags!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+      "xcode_settings": {
+        "OTHER_CFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"],
+        "OTHER_CXXFLAGS!": ["-fno-omit-frame-pointer", "-fno-tree-vrp", "-fno-strict-aliasing"]
+      },
+      "msvs_settings": {"VCCLCompilerTool": {"BufferSecurityCheck": "false"}},
+      "conditions": [
+        ['target_arch in "arm arm64"', {
+          "cflags!": ["-march=native"],
+          "cxxflags!": ["-march=native"],
+          "cflags": ["-march=armv8-a+crc+crypto"],
+          "cxxflags": ["-march=armv8-a+crc+crypto"],
+          "xcode_settings": {
+            "OTHER_CFLAGS!": ["-march=native"],
+            "OTHER_CXXFLAGS!": ["-march=native"],
+            "OTHER_CFLAGS": ["-march=armv8-a+crc+crypto"],
+            "OTHER_CXXFLAGS": ["-march=armv8-a+crc+crypto"],
+          }
+        }],
+        ['OS!="win" and target_arch=="arm"', {
+          "cflags": ["-mfpu=neon","-fno-lto"],
+          "cxxflags": ["-mfpu=neon","-fno-lto"],
+          "xcode_settings": {
+            "OTHER_CFLAGS": ["-mfpu=neon","-fno-lto"],
+            "OTHER_CXXFLAGS": ["-mfpu=neon","-fno-lto"]
           }
         }]
       ]

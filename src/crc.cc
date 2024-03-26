@@ -194,6 +194,7 @@ extern "C" {
 void crc_clmul_set_funcs();
 void crc_clmul256_set_funcs();
 void crc_arm_set_funcs();
+void crc_pmull_set_funcs();
 void crc_riscv_set_funcs();
 
 #ifdef PLATFORM_X86
@@ -246,31 +247,47 @@ void crc_init() {
 #endif
 #ifdef PLATFORM_ARM
 # ifdef __APPLE__
-	int supported = 0;
-	size_t len = sizeof(supported);
-	if(sysctlbyname("hw.optional.armv8_crc32", &supported, &len, NULL, 0))
-		supported = 0;
-# endif
-	if(
-# if defined(AT_HWCAP2) && defined(HWCAP2_CRC32)
-		getauxval(AT_HWCAP2) & HWCAP2_CRC32
-# elif defined(AT_HWCAP) && defined(HWCAP_CRC32)
-		getauxval(AT_HWCAP) & HWCAP_CRC32
-# elif defined(ANDROID_CPU_FAMILY_ARM) && defined(__aarch64__)
-		android_getCpuFeatures() & ANDROID_CPU_ARM64_FEATURE_CRC32
-# elif defined(ANDROID_CPU_FAMILY_ARM) /* aarch32 */
-		android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_CRC32
-# elif defined(_WIN32)
-		IsProcessorFeaturePresent(PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE)
-# elif defined(__APPLE__)
-		supported
-# elif defined(__ARM_FEATURE_CRC32)
-		true /* assume available if compiled as such */
+	int supports_crc = 0;
+	int supports_pmull = 0;
+	size_t len = sizeof(supports_crc);
+	if(sysctlbyname("hw.optional.armv8_crc32", &supports_crc, &len, NULL, 0))
+		supports_crc = 0;
+	if(sysctlbyname("hw.optional.arm.FEAT_PMULL", &supports_pmull, &len, NULL, 0))
+		supports_pmull = 0;
 # else
-		false
+	bool supports_crc = false;
+	bool supports_pmull = false;
+#  if defined(AT_HWCAP2) && defined(HWCAP2_CRC32)
+	supports_crc = getauxval(AT_HWCAP2) & HWCAP2_CRC32;
+#  elif defined(AT_HWCAP) && defined(HWCAP_CRC32)
+	supports_crc = getauxval(AT_HWCAP) & HWCAP_CRC32;
+#  elif defined(ANDROID_CPU_FAMILY_ARM) && defined(__aarch64__)
+	supports_crc = android_getCpuFeatures() & ANDROID_CPU_ARM64_FEATURE_CRC32;
+	supports_pmull = android_getCpuFeatures() & ANDROID_CPU_ARM64_FEATURE_PMULL;
+#  elif defined(ANDROID_CPU_FAMILY_ARM) /* aarch32 */
+	supports_crc = android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_CRC32;
+	supports_pmull = android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_PMULL;
+#  elif defined(_WIN32)
+	supports_crc = IsProcessorFeaturePresent(PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE);
+	supports_pmull = IsProcessorFeaturePresent(PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE);
+#  else
+	#ifdef __ARM_FEATURE_CRC32
+	supports_crc = true; /* assume available if compiled as such */
+	#endif
+	#ifdef __ARM_FEATURE_CRYPTO
+	supports_pmull = true;
+	#endif
+#  endif
+#  if defined(AT_HWCAP2) && defined(HWCAP2_PMULL)
+	supports_pmull = getauxval(AT_HWCAP2) & HWCAP2_PMULL;
+#  elif defined(AT_HWCAP) && defined(HWCAP_PMULL)
+	supports_pmull = getauxval(AT_HWCAP) & HWCAP_PMULL;
+#  endif
 # endif
-	) {
+	
+	if(supports_crc) {
 		crc_arm_set_funcs();
+		if(supports_pmull) crc_pmull_set_funcs();
 	}
 #endif
 #ifdef __riscv

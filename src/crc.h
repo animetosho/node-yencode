@@ -28,7 +28,7 @@ static inline uint32_t crc32_powmod(uint64_t n) {
 	unsigned carry = __builtin_uadd_overflow(n >> 32, n, &res);
 	res += carry;
 	return res;
-#elif defined(_MSC_VER)
+#elif defined(_MSC_VER) && defined(PLATFORM_X86)
 	unsigned res;
 	unsigned char carry = _addcarry_u32(0, n >> 32, n, &res);
 	_addcarry_u32(carry, res, 0, &res);

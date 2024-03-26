@@ -240,6 +240,7 @@ enum YEncDecIsaLevel {
 enum YEncDecIsaLevel {
 	ISA_GENERIC = 0,
 	ISA_FEATURE_CRC = 8,
+	ISA_FEATURE_PMULL = 0x40,
 	ISA_LEVEL_NEON = 0x1000
 };
 #elif defined(__riscv)
