@@ -29,6 +29,17 @@ static inline vbool4_t mask_lshift(vbool4_t m, unsigned shiftIn, size_t vl) {
 		RV_MASK_CAST(4, 8, mvl), RV_MASK_CAST(4, 8, mvr), vl
 	);
 }
+template<int shift>
+static inline vbool64_t mask_lshift(vbool64_t m, unsigned shiftIn, size_t vl) {
+	vuint8m1_t mv = RV_VEC_CAST(64, 8, m);
+	vuint8m1_t mvl = RV(vsll_vx_u8m1)(mv, shift, vl/8);
+	vuint8m1_t mvr = RV(vsrl_vx_u8m1)(mv, 8-shift, vl/8);
+	mvr = RV(vslide1up_vx_u8m1)(mvr, shiftIn, vl/8);
+	
+	return RV(vmor_mm_b64)(
+		RV_MASK_CAST(64, 8, mvl), RV_MASK_CAST(64, 8, mvr), vl
+	);
+}
 
 static inline vuint8m2_t set_first_vu8(vuint8m2_t src, uint8_t item, size_t vl) {
 #ifdef __riscv_v_intrinsic
@@ -195,48 +206,41 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 			// the yEnc specification requires any character following = to be unescaped, not skipped over, so we'll deal with that
 			// firstly, check for invalid sequences of = (we assume that these are rare, as a spec compliant yEnc encoder should not generate these)
 			if(LIKELIHOOD(0.0001, RV(vcpop_m_b4)(RV(vmandn_mm_b4)(cmpEqShift1, cmp, vl2), vl2) != 0)) {
-				// note: we assume that uintptr_t corresponds with __riscv_xlen
-				#if __riscv_xlen == 64
-				vuint64m1_t cmpEqW = RV_VEC_CAST(4, 64, cmpEq);
-				#else
-				vuint32m1_t cmpEqW = RV_VEC_CAST(4, 32, cmpEq);
-				#endif
-				size_t nextShiftDown = (vl2 > sizeof(uintptr_t)*8 ? sizeof(uintptr_t)*8 : vl2) - 1;
-				size_t wvl = (vl2 + sizeof(uintptr_t)*8 -1) / (sizeof(uintptr_t)*8);
-				for(size_t w=0; w<vl2; w+=sizeof(uintptr_t)*8) {
-					// extract bottom word
-					#if __riscv_xlen == 64
-					uintptr_t maskW = RV(vmv_x_s_u64m1_u64)(cmpEqW);
-					#else
-					uintptr_t maskW = RV(vmv_x_s_u32m1_u32)(cmpEqW);
-					#endif
-					
-					// fix it
-					maskW = fix_eqMask<uintptr_t>(maskW, (maskW << 1) | escFirst);
-					uint8_t nextEscFirst = (maskW >> nextShiftDown) & 1;
-					
-					// shift it up (will be used for cmpEqShift1)
-					maskW = (maskW<<1) | escFirst; // TODO: should this be done using mask_lshift<1> instead?
-					escFirst = nextEscFirst;
-					
-					// slide the new value in from the top
-					#if __riscv_xlen == 64
-					cmpEqW = RV(vslide1down_vx_u64m1)(cmpEqW, maskW, wvl);
-					#else
-					cmpEqW = RV(vslide1down_vx_u32m1)(cmpEqW, maskW, wvl);
-					#endif
+				// replicate fix_eqMask, but in vector form
+				vbool4_t groupStart = RV(vmandn_mm_b4)(cmpEq, cmpEqShift1, vl2);
+				vbool4_t evenBits = RV_MASK_CAST(4, 8, RV(vmv_v_x_u8m1)(0x55, vl2));
+				vbool4_t evenStart = RV(vmand_mm_b4)(groupStart, evenBits, vl2);
+				
+				// compute `cmpEq + evenStart` to obtain oddGroups
+				vbool4_t oddGroups;
+				vuint64m1_t cmpEq64 = RV_VEC_CAST(4, 64, cmpEq);
+				vuint64m1_t evenStart64 = RV_VEC_CAST(4, 64, evenStart);
+				vuint64m1_t oddGroups64;
+				if(vl2 <= 64) {
+					// no loop needed - single 64b add will work
+					oddGroups64 = RV(vadd_vv_u64m1)(cmpEq64, evenStart64, 1);
+				} else {
+					// need to loop whilst the add causes a carry
+					unsigned vl64 = vl2/64;
+					vbool64_t carry = RV(vmadc_vv_u64m1_b64)(cmpEq64, evenStart64, vl64);
+					carry = mask_lshift<1>(carry, 0, vl64);
+					oddGroups64 = RV(vadd_vv_u64m1)(cmpEq64, evenStart64, 1);
+					while(RV(vcpop_m_b64)(carry, vl64)) {
+						vbool64_t nextCarry = RV(vmadc_vx_u64m1_b64)(oddGroups64, 1, vl64);
+						oddGroups64 = RV(vadd_vx_u64m1_mu)(carry, oddGroups64, oddGroups64, 1, vl64);
+						carry = mask_lshift<1>(nextCarry, 0, vl64);
+					}
 				}
-				#if __riscv_xlen == 64
-				cmpEqShift1 = RV_MASK_CAST(4, 64, cmpEqW);
-				#else
-				cmpEqShift1 = RV_MASK_CAST(4, 32, cmpEqW);
-				#endif
+				oddGroups = RV_MASK_CAST(4, 64, oddGroups64);
+				
+				cmpEq = RV(vmand_mm_b4)(RV(vmxor_mm_b4)(oddGroups, evenBits, vl2), cmpEq, vl2);
+				
+				cmpEqShift1 = mask_lshift<1>(cmpEq, escFirst, vl2);
 				cmp = RV(vmor_mm_b4)(cmpEqShift1, cmp, vl2); // ~(~cmp & ~cmpEqShift1)
 				numOutputChars = RV(vcpop_m_b4)(cmp, vl2);
-			} else {
-				// no invalid = sequences found - don't need to fix up cmpEq
-				escFirst = RV(vcpop_m_b4)(RV(vmand_mm_b4)(cmpEq, lastBit, vl2), vl2);
 			}
+			escFirst = RV(vcpop_m_b4)(RV(vmand_mm_b4)(cmpEq, lastBit, vl2), vl2);
+			
 			data = RV(vsub_vv_u8m2)(data, RV_vmerge_vxm_u8m2(yencOffset, 64+42, cmpEqShift1, vl2), vl2);
 			yencOffset = set_first_vu8(yencOffset, 42 | (escFirst<<6), vl2);
 			
