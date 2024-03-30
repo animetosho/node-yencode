@@ -81,12 +81,14 @@ module.exports = {
 			module.exports._benchAsync(fn, cb, trials, []);
 		}, asyncWait);
 	},
-	run: function(name, fn, sz2) {
+	run: function(name, fn, sz2, fn2) {
 		var time = module.exports.bench(fn);
+		var time2 = fn2 ? module.exports.bench(fn2) : null;
 		console.log(
 			(name+'                         ').substring(0, 25) + ':'
 			+ fmtSpeed(sz*rounds, time)
-			+ (sz2 ? (' ' + fmtSpeed(sz2*rounds, time)) : '')
+			+ ' ' + (sz2 ? fmtSpeed(sz2*rounds, time) : '                 ')
+			+ ' ' + (fn2 ? fmtSpeed(sz*rounds, time2) : '                 ')
 		);
 	},
 	
