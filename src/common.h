@@ -319,7 +319,11 @@ bool cpu_supports_rvv();
 # include <stddef.h>
 #else
 /* Workaround for older MSVC not supporting stdint.h - just pull it from V8 */
-# include <v8.h>
+# if defined(NODE_GYP_MODULE_NAME) || defined(V8_DEPRECATION_WARNINGS)
+#  include <v8.h>
+# else
+#  include "stdint.h"
+# endif
 #endif
 
 
