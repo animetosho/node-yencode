@@ -32,14 +32,14 @@ extern YencDecoderEnd (*_do_decode_raw)(const unsigned char**, unsigned char**, 
 extern YencDecoderEnd (*_do_decode_end_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*);
 extern int _decode_isa;
 
-static inline size_t decode(int isRaw, const unsigned char* src, unsigned char* dest, size_t len, YencDecoderState* state) {
-	unsigned char* ds = dest;
-	(*(isRaw ? _do_decode_raw : _do_decode))(&src, &ds, len, state);
-	return ds - dest;
+static inline size_t decode(int isRaw, const void* src, void* dest, size_t len, YencDecoderState* state) {
+	unsigned char* ds = (unsigned char*)dest;
+	(*(isRaw ? _do_decode_raw : _do_decode))((const unsigned char**)&src, &ds, len, state);
+	return ds - (unsigned char*)dest;
 }
 
-static inline YencDecoderEnd decode_end(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
-	return _do_decode_end_raw(src, dest, len, state);
+static inline YencDecoderEnd decode_end(const void** src, void** dest, size_t len, YencDecoderState* state) {
+	return _do_decode_end_raw((const unsigned char**)src, (unsigned char**)dest, len, state);
 }
 
 void decoder_init();
