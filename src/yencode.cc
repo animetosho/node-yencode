@@ -11,6 +11,7 @@
 #include "crc.h"
 
 using namespace v8;
+using namespace RapidYenc;
 
 static void free_buffer(char* data, void* _size) {
 #if !NODE_VERSION_AT_LEAST(0, 11, 0)
@@ -129,7 +130,7 @@ FUNC(Encode) {
 	size_t dest_len = YENC_MAX_SIZE(arg_len, line_size);
 	
 	unsigned char *result = (unsigned char*) malloc(dest_len);
-	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, true);
+	size_t len = encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, true);
 	result = (unsigned char*)realloc(result, len);
 	MARK_EXT_MEM(len);
 	RETURN_VAL( NEW_BUFFER((char*)result, len, free_buffer, (void*)len) );
@@ -164,7 +165,7 @@ FUNC(EncodeTo) {
 	if(node::Buffer::Length(args[1]) < dest_len)
 		RETURN_ERROR("Destination buffer does not have enough space (use `maxSize` to compute required space)");
 	
-	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, true);
+	size_t len = encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, true);
 	RETURN_VAL( Integer::New(ISOLATE len) );
 }
 
@@ -220,7 +221,7 @@ FUNC(EncodeIncr) {
 		result = (unsigned char*) malloc(dest_len);
 	}
 	
-	size_t len = do_encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, false);
+	size_t len = encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, false);
 	
 	SET_OBJ(ret, "written", Integer::New(ISOLATE len));
 	if(allocResult) {
@@ -247,7 +248,7 @@ FUNC(Decode) {
 		isRaw = ARG_TO_BOOL(args[1]);
 	
 	unsigned char *result = (unsigned char*) malloc(arg_len);
-	size_t len = do_decode(isRaw, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL);
+	size_t len = decode(isRaw, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, NULL);
 	result = (unsigned char*)realloc(result, len);
 	MARK_EXT_MEM(len);
 	RETURN_VAL( NEW_BUFFER((char*)result, len, free_buffer, (void*)len) );
@@ -271,7 +272,7 @@ FUNC(DecodeTo) {
 	if (args.Length() > 2)
 		isRaw = ARG_TO_BOOL(args[2]);
 	
-	size_t len = do_decode(isRaw, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL);
+	size_t len = decode(isRaw, (const unsigned char*)node::Buffer::Data(args[0]), (unsigned char*)node::Buffer::Data(args[1]), arg_len, NULL);
 	RETURN_VAL( Integer::New(ISOLATE len) );
 }
 
@@ -310,7 +311,7 @@ FUNC(DecodeIncr) {
 	
 	if(allocResult) result = (unsigned char*) malloc(arg_len);
 	unsigned char* dp = result;
-	YencDecoderEnd ended = do_decode_end(&sp, &dp, arg_len, &state);
+	YencDecoderEnd ended = decode_end(&sp, &dp, arg_len, &state);
 	size_t len = dp - result;
 	if(allocResult) result = (unsigned char*)realloc(result, len);
 	
@@ -363,7 +364,7 @@ FUNC(CRC32) {
 			RETURN_ERROR("Second argument must be a 4 byte buffer");
 		crc = read_crc32(args[1]);
 	}
-	crc = do_crc32(
+	crc = crc32(
 		(const void*)node::Buffer::Data(args[0]),
 		node::Buffer::Length(args[0]),
 		crc
@@ -447,7 +448,7 @@ FUNC(CRC32Shift) {
 static void init_all() {
 	encoder_init();
 	decoder_init();
-	crc_init();	
+	crc32_init();	
 }
 
 #if NODE_VERSION_AT_LEAST(10, 7, 0)

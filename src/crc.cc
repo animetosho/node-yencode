@@ -182,7 +182,7 @@ uint32_t crc32_shift_generic(uint32_t crc1, uint32_t n) {
 }
 
 
-extern "C" {
+namespace RapidYenc {
 	crc_func _do_crc32_incremental = &do_crc32_incremental_generic;
 	crc_mul_func _crc32_shift = &crc32_shift_generic;
 	crc_mul_func _crc32_multiply = &crc32_multiply_generic;
@@ -235,7 +235,7 @@ static unsigned long getauxval(unsigned long cap) {
 # endif
 #endif
 
-void crc_init() {
+void RapidYenc::crc32_init() {
 	GENERIC_CRC_INIT;
 	
 #ifdef PLATFORM_X86

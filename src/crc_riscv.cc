@@ -239,12 +239,12 @@ uint32_t crc32_shift_rv_zbc(uint32_t crc1, uint32_t n) {
 
 
 void crc_riscv_set_funcs() {
-	_do_crc32_incremental = &do_crc32_incremental_rv_zbc;
-	_crc32_multiply = &crc32_multiply_rv_zbc;
+	RapidYenc::_do_crc32_incremental = &do_crc32_incremental_rv_zbc;
+	RapidYenc::_crc32_multiply = &crc32_multiply_rv_zbc;
 #if defined(__GNUC__) || defined(_MSC_VER)
-	_crc32_shift = &crc32_shift_rv_zbc;
+	RapidYenc::_crc32_shift = &crc32_shift_rv_zbc;
 #endif
-	_crc32_isa = ISA_FEATURE_ZBC;
+	RapidYenc::_crc32_isa = ISA_FEATURE_ZBC;
 }
 #else
 void crc_riscv_set_funcs() {}

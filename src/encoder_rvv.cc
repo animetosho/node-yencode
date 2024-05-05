@@ -197,8 +197,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_rvv(int line_size, int* colOffset, const uin
 }
 
 void encoder_rvv_init() {
-	_do_encode = &do_encode_simd<do_encode_rvv>;
-	_encode_isa = ISA_LEVEL_RVV;
+	RapidYenc::_do_encode = &do_encode_simd<do_encode_rvv>;
+	RapidYenc::_encode_isa = ISA_LEVEL_RVV;
 }
 #else
 void encoder_rvv_init() {}

@@ -268,10 +268,10 @@ size_t decoder_rvv_width() {
 }
 
 void decoder_set_rvv_funcs() {
-	_do_decode = &do_decode_simd<false, false, decoder_rvv_width, do_decode_rvv<false, false> >;
-	_do_decode_raw = &do_decode_simd<true, false, decoder_rvv_width, do_decode_rvv<true, false> >;
-	_do_decode_end_raw = &do_decode_simd<true, true, decoder_rvv_width, do_decode_rvv<true, true> >;
-	_decode_isa = ISA_LEVEL_RVV;
+	RapidYenc::_do_decode = &do_decode_simd<false, false, decoder_rvv_width, do_decode_rvv<false, false> >;
+	RapidYenc::_do_decode_raw = &do_decode_simd<true, false, decoder_rvv_width, do_decode_rvv<true, false> >;
+	RapidYenc::_do_decode_end_raw = &do_decode_simd<true, true, decoder_rvv_width, do_decode_rvv<true, true> >;
+	RapidYenc::_decode_isa = ISA_LEVEL_RVV;
 }
 #else
 void decoder_set_rvv_funcs() {}

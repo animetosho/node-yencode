@@ -213,14 +213,14 @@ uint32_t crc32_shift_arm(uint32_t crc1, uint32_t n) {
 
 
 void crc_arm_set_funcs() {
-	_do_crc32_incremental = &do_crc32_incremental_arm;
+	RapidYenc::_do_crc32_incremental = &do_crc32_incremental_arm;
 #ifdef __aarch64__
-	_crc32_multiply = &crc32_multiply_arm;
+	RapidYenc::_crc32_multiply = &crc32_multiply_arm;
 # if defined(__GNUC__) || defined(_MSC_VER)
-	_crc32_shift = &crc32_shift_arm;
+	RapidYenc::_crc32_shift = &crc32_shift_arm;
 # endif
 #endif
-	_crc32_isa = ISA_FEATURE_CRC;
+	RapidYenc::_crc32_isa = ISA_FEATURE_CRC;
 }
 #else
 void crc_arm_set_funcs() {}

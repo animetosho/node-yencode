@@ -2,25 +2,25 @@
 #define __YENC_CRC_H
 #include <stdlib.h> // for llabs
 
-#ifdef __cplusplus
-extern "C" {
+#if !defined(__GNUC__) && defined(_MSC_VER)
+# include <intrin.h>
 #endif
 
+namespace RapidYenc {
 
 
 typedef uint32_t (*crc_func)(const void*, size_t, uint32_t);
 extern crc_func _do_crc32_incremental;
 
 extern int _crc32_isa;
-#define do_crc32 (*_do_crc32_incremental)
+static inline uint32_t crc32(const void* data, size_t length, uint32_t init) {
+	return (*_do_crc32_incremental)(data, length, init);
+}
 static inline int crc32_isa_level() {
 	return _crc32_isa;
 }
 
 
-#if !defined(__GNUC__) && defined(_MSC_VER)
-# include <intrin.h>
-#endif
 // computes `n % 0xffffffff` (well, almost), using some bit-hacks
 static inline uint32_t crc32_powmod(uint64_t n) {
 #ifdef __GNUC__
@@ -59,8 +59,12 @@ static inline uint32_t crc32_bytepow(uint64_t n) {
 typedef uint32_t (*crc_mul_func)(uint32_t, uint32_t);
 extern crc_mul_func _crc32_shift;
 extern crc_mul_func _crc32_multiply;
-#define crc32_shift (*_crc32_shift)
-#define crc32_multiply (*_crc32_multiply)
+static inline uint32_t crc32_shift(uint32_t a, uint32_t b) {
+	return (*_crc32_shift)(a, b);
+}
+static inline uint32_t crc32_multiply(uint32_t a, uint32_t b) {
+	return (*_crc32_multiply)(a, b);
+}
 
 static inline uint32_t crc32_combine(uint32_t crc1, uint32_t crc2, uint64_t len2) {
 	return crc32_shift(crc1, crc32_bytepow(len2)) ^ crc2;
@@ -79,11 +83,9 @@ static inline uint32_t crc32_256pow(uint64_t n) {
 	return crc32_shift(0x80000000, crc32_bytepow(n));
 }
 
-void crc_init();
+void crc32_init();
 
 
 
-#ifdef __cplusplus
-}
-#endif
-#endif
+} // namespace
+#endif // defined(__YENC_CRC_H)

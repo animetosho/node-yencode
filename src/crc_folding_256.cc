@@ -214,8 +214,8 @@ static uint32_t do_crc32_incremental_clmul(const void* data, size_t length, uint
 
 void crc_clmul256_set_funcs() {
 	crc_clmul_set_funcs(); // set multiply/shift function
-	_do_crc32_incremental = &do_crc32_incremental_clmul;
-	_crc32_isa = ISA_LEVEL_VPCLMUL;
+	RapidYenc::_do_crc32_incremental = &do_crc32_incremental_clmul;
+	RapidYenc::_crc32_isa = ISA_LEVEL_VPCLMUL;
 }
 #else
 void crc_clmul256_set_funcs() {

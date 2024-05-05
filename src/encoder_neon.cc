@@ -519,8 +519,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 }
 
 void encoder_neon_init() {
-	_do_encode = &do_encode_simd<do_encode_neon>;
-	_encode_isa = ISA_LEVEL_NEON;
+	RapidYenc::_do_encode = &do_encode_simd<do_encode_neon>;
+	RapidYenc::_encode_isa = ISA_LEVEL_NEON;
 	// generate shuf LUT
 	for(int i=0; i<256; i++) {
 		int k = i;

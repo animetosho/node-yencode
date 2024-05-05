@@ -1,10 +1,9 @@
 #ifndef __YENC_DECODER_H
 #define __YENC_DECODER_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "hedley.h"
 
+namespace RapidYenc {
 
 
 // the last state that the decoder was in (i.e. last few characters processed)
@@ -27,20 +26,19 @@ typedef enum {
 	YDEC_END_ARTICLE  // \r\n.\r\n sequence found, src points to byte after last '\n'
 } YencDecoderEnd;
 
-#include "hedley.h"
 
 extern YencDecoderEnd (*_do_decode)(const unsigned char**, unsigned char**, size_t, YencDecoderState*);
 extern YencDecoderEnd (*_do_decode_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*);
 extern YencDecoderEnd (*_do_decode_end_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*);
 extern int _decode_isa;
 
-static inline size_t do_decode(int isRaw, const unsigned char* src, unsigned char* dest, size_t len, YencDecoderState* state) {
+static inline size_t decode(int isRaw, const unsigned char* src, unsigned char* dest, size_t len, YencDecoderState* state) {
 	unsigned char* ds = dest;
 	(*(isRaw ? _do_decode_raw : _do_decode))(&src, &ds, len, state);
 	return ds - dest;
 }
 
-static inline YencDecoderEnd do_decode_end(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
+static inline YencDecoderEnd decode_end(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
 	return _do_decode_end_raw(src, dest, len, state);
 }
 
@@ -51,7 +49,5 @@ static inline int decode_isa_level() {
 }
 
 
-#ifdef __cplusplus
-}
-#endif
-#endif
+} // namespace
+#endif // defined(__YENC_DECODER_H)

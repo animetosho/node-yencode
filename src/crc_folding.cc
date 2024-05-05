@@ -500,12 +500,12 @@ uint32_t crc32_shift_clmul(uint32_t crc1, uint32_t n) {
 
 
 void crc_clmul_set_funcs() {
-	_do_crc32_incremental = &do_crc32_incremental_clmul;
-	_crc32_multiply = &crc32_multiply_clmul;
+	RapidYenc::_do_crc32_incremental = &do_crc32_incremental_clmul;
+	RapidYenc::_crc32_multiply = &crc32_multiply_clmul;
 #if defined(__GNUC__) || defined(_MSC_VER)
-	_crc32_shift = &crc32_shift_clmul;
+	RapidYenc::_crc32_shift = &crc32_shift_clmul;
 #endif
-	_crc32_isa = ISA_LEVEL_PCLMUL;
+	RapidYenc::_crc32_isa = ISA_LEVEL_PCLMUL;
 }
 #else
 void crc_clmul_set_funcs() {}

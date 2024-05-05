@@ -3,7 +3,7 @@
 #include "decoder_common.h"
 #include "decoder.h"
 
-extern "C" {
+namespace RapidYenc {
 	YencDecoderEnd (*_do_decode)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_scalar<false, false>;
 	YencDecoderEnd (*_do_decode_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_scalar<true, false>;
 	YencDecoderEnd (*_do_decode_end_raw)(const unsigned char**, unsigned char**, size_t, YencDecoderState*) = &do_decode_end_scalar<true>;
@@ -27,9 +27,9 @@ void decoder_set_rvv_funcs();
 static inline void decoder_set_native_funcs() {
 	ALIGN_ALLOC(lookups, sizeof(*lookups), 16);
 	decoder_init_lut(lookups->compact);
-	_do_decode = &do_decode_simd<false, false, sizeof(__m256i)*2, do_decode_avx2<false, false, ISA_NATIVE> >;
-	_do_decode_raw = &do_decode_simd<true, false, sizeof(__m256i)*2, do_decode_avx2<true, false, ISA_NATIVE> >;
-	_do_decode_end_raw = &do_decode_simd<true, true, sizeof(__m256i)*2, do_decode_avx2<true, true, ISA_NATIVE> >;
+	RapidYenc::_do_decode = &do_decode_simd<false, false, sizeof(__m256i)*2, do_decode_avx2<false, false, ISA_NATIVE> >;
+	RapidYenc::_do_decode_raw = &do_decode_simd<true, false, sizeof(__m256i)*2, do_decode_avx2<true, false, ISA_NATIVE> >;
+	RapidYenc::_do_decode_end_raw = &do_decode_simd<true, true, sizeof(__m256i)*2, do_decode_avx2<true, true, ISA_NATIVE> >;
 	_decode_isa = ISA_NATIVE;
 }
 # else
@@ -70,7 +70,7 @@ void decoder_init_lut(void* compactLUT) {
 #endif
 
 
-void decoder_init() {
+void RapidYenc::decoder_init() {
 #ifdef PLATFORM_X86
 # if defined(YENC_BUILD_NATIVE) && YENC_BUILD_NATIVE!=0
 	decoder_set_native_funcs();

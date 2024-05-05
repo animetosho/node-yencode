@@ -6,9 +6,9 @@
 #include "encoder_sse_base.h"
 
 void encoder_ssse3_init() {
-	_do_encode = &do_encode_simd< do_encode_sse<ISA_LEVEL_SSSE3> >;
+	RapidYenc::_do_encode = &do_encode_simd< do_encode_sse<ISA_LEVEL_SSSE3> >;
 	encoder_sse_lut<ISA_LEVEL_SSSE3>();
-	_encode_isa = ISA_LEVEL_SSSE3;
+	RapidYenc::_encode_isa = ISA_LEVEL_SSSE3;
 }
 #else
 void encoder_sse2_init();
