@@ -209,7 +209,8 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 			if(LIKELIHOOD(0.0001, RV(vcpop_m_b4)(RV(vmandn_mm_b4)(cmpEqShift1, cmp, vl2), vl2) != 0)) {
 				// replicate fix_eqMask, but in vector form
 				vbool4_t groupStart = RV(vmandn_mm_b4)(cmpEq, cmpEqShift1, vl2);
-				vbool4_t evenBits = RV_MASK_CAST(4, 8, RV(vmv_v_x_u8m1)(0x55, vl2));
+				vuint8m1_t evenBitsV = RV(vmv_v_x_u8m1)(0x55, vl2);
+				vbool4_t evenBits = RV_MASK_CAST(4, 8, evenBitsV);
 				vbool4_t evenStart = RV(vmand_mm_b4)(groupStart, evenBits, vl2);
 				
 				// compute `cmpEq + evenStart` to obtain oddGroups
