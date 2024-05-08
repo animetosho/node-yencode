@@ -4,7 +4,7 @@
 #ifdef __SSE2__
 #include "decoder_sse_base.h"
 
-void RapidYenc::decoder_sse_init(SSELookups* HEDLEY_RESTRICT& lookups) {
+void RapidYenc::decoder_sse_init(RapidYenc::SSELookups* HEDLEY_RESTRICT& lookups) {
 	ALIGN_ALLOC(lookups, sizeof(SSELookups), 16);
 	for(int i=0; i<256; i++) {
 		lookups->BitsSetTable256inv[i] = 8 - (

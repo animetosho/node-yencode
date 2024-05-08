@@ -25,15 +25,17 @@
 # define KOR16(a, b) ((a) | (b))
 #endif
 
-#pragma pack(16)
-typedef struct {
-	unsigned char BitsSetTable256inv[256];
-	/*align16*/ struct { char bytes[16]; } compact[32768];
-	/*align8*/ uint64_t eqAdd[256];
-	/*align16*/ int8_t unshufMask[32*16];
-} SSELookups;
-static SSELookups* HEDLEY_RESTRICT lookups;
-#pragma pack()
+namespace RapidYenc {
+	#pragma pack(16)
+	typedef struct {
+		unsigned char BitsSetTable256inv[256];
+		/*align16*/ struct { char bytes[16]; } compact[32768];
+		/*align8*/ uint64_t eqAdd[256];
+		/*align16*/ int8_t unshufMask[32*16];
+	} SSELookups;
+	#pragma pack()
+}
+static RapidYenc::SSELookups* HEDLEY_RESTRICT lookups;
 
 
 static HEDLEY_ALWAYS_INLINE __m128i force_align_read_128(const void* p) {
