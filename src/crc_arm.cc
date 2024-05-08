@@ -61,7 +61,7 @@ HEDLEY_WARNING("CRC32 acceleration has been disabled due to missing arm_acle.h")
 
 
 #ifdef __aarch64__
-uint32_t crc32_multiply_arm(uint32_t a, uint32_t b) {
+static uint32_t crc32_multiply_arm(uint32_t a, uint32_t b) {
 	// perform PMULL
 	uint64_t res = 0;
 	uint64_t a64 = (uint64_t)a << 32;
@@ -86,8 +86,7 @@ uint32_t crc32_multiply_arm(uint32_t a, uint32_t b) {
 
 #ifdef ENABLE_PIPELINE_OPT
 #ifndef __aarch64__
-uint32_t crc32_multiply_generic(uint32_t a, uint32_t b);
-# define crc32_multiply_arm crc32_multiply_generic
+# define crc32_multiply_arm RapidYenc::crc32_multiply_generic
 #endif
 #endif
 
@@ -124,7 +123,7 @@ static uint32_t arm_crc_calc(uint32_t crc, const unsigned char *src, long len) {
 	// (this is a slightly less efficient, but much simpler implementation of the idea)
 	const unsigned SPLIT_WORDS_LOG = 10;  // make sure it's at least 2
 	const unsigned SPLIT_WORDS = 1<<SPLIT_WORDS_LOG;
-	const unsigned blockCoeff = crc_power[SPLIT_WORDS_LOG + WORDSIZE_LOG + 3];
+	const unsigned blockCoeff = RapidYenc::crc_power[SPLIT_WORDS_LOG + WORDSIZE_LOG + 3];
 	while(len >= (long)(sizeof(WORD_T)*SPLIT_WORDS*2)) {
 		// compute 2x CRCs concurrently to leverage piplining
 		uint32_t crc2 = 0;
@@ -196,7 +195,7 @@ static uint32_t do_crc32_incremental_arm(const void* data, size_t length, uint32
 
 
 #if defined(__aarch64__) && (defined(__GNUC__) || defined(_MSC_VER))
-uint32_t crc32_shift_arm(uint32_t crc1, uint32_t n) {
+static uint32_t crc32_shift_arm(uint32_t crc1, uint32_t n) {
 	uint32_t result = crc1;
 	uint64_t prod = result;
 	prod <<= 32 - (n&31);
@@ -204,7 +203,7 @@ uint32_t crc32_shift_arm(uint32_t crc1, uint32_t n) {
 	n &= ~31;
 	
 	while(n) {
-		result = crc32_multiply_arm(result, crc_power[ctz32(n)]);
+		result = crc32_multiply_arm(result, RapidYenc::crc_power[ctz32(n)]);
 		n &= n-1;
 	}
 	return result;
@@ -212,16 +211,16 @@ uint32_t crc32_shift_arm(uint32_t crc1, uint32_t n) {
 #endif
 
 
-void crc_arm_set_funcs() {
-	RapidYenc::_do_crc32_incremental = &do_crc32_incremental_arm;
+void RapidYenc::crc_arm_set_funcs() {
+	_do_crc32_incremental = &do_crc32_incremental_arm;
 #ifdef __aarch64__
-	RapidYenc::_crc32_multiply = &crc32_multiply_arm;
+	_crc32_multiply = &crc32_multiply_arm;
 # if defined(__GNUC__) || defined(_MSC_VER)
-	RapidYenc::_crc32_shift = &crc32_shift_arm;
+	_crc32_shift = &crc32_shift_arm;
 # endif
 #endif
-	RapidYenc::_crc32_isa = ISA_FEATURE_CRC;
+	_crc32_isa = ISA_FEATURE_CRC;
 }
 #else
-void crc_arm_set_funcs() {}
+void RapidYenc::crc_arm_set_funcs() {}
 #endif

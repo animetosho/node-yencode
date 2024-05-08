@@ -311,7 +311,7 @@ FUNC(DecodeIncr) {
 	
 	if(allocResult) result = (unsigned char*) malloc(arg_len);
 	unsigned char* dp = result;
-	YencDecoderEnd ended = decode_end(&sp, &dp, arg_len, &state);
+	YencDecoderEnd ended = RapidYenc::decode_end((const void**)&sp, (void**)&dp, arg_len, &state);
 	size_t len = dp - result;
 	if(allocResult) result = (unsigned char*)realloc(result, len);
 	

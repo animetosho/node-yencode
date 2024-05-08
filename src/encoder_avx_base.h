@@ -76,6 +76,8 @@ static void encoder_avx2_lut() {
 	}
 }
 
+namespace RapidYenc {
+
 template<enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
 	// offset position to enable simpler loop condition checking
@@ -568,5 +570,6 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 	dest = p;
 	len = -(i - INPUT_OFFSET);
 }
+} // namespace
 
 #endif

@@ -1,344 +1,32 @@
 #include "decoder.h"
 
-using namespace RapidYenc;
+namespace RapidYenc {
+	void decoder_set_sse2_funcs();
+	void decoder_set_ssse3_funcs();
+	void decoder_set_avx_funcs();
+	void decoder_set_avx2_funcs();
+	void decoder_set_vbmi2_funcs();
+	extern const bool decoder_has_avx10;
+	void decoder_set_neon_funcs();
+	void decoder_set_rvv_funcs();
+	
+	template<bool isRaw, bool searchEnd>
+	YencDecoderEnd do_decode_scalar(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state);
+}
+
 
 #if defined(PLATFORM_ARM) && !defined(__aarch64__)
 #define YENC_DEC_USE_THINTABLE 1
 #endif
 
 // TODO: need to support max output length somehow
-// TODO: add branch probabilities
-
-
-// state var: refers to the previous state - only used for incremental processing
-template<bool isRaw>
-size_t do_decode_noend_scalar(const unsigned char* src, unsigned char* dest, size_t len, YencDecoderState* state) {
-	const unsigned char *es = src + len; // end source pointer
-	unsigned char *p = dest; // destination pointer
-	long i = -(long)len; // input position
-	unsigned char c; // input character
-	
-	if(len < 1) return 0;
-	
-	if(isRaw) {
-		
-		if(state) switch(*state) {
-			case YDEC_STATE_EQ:
-				c = es[i];
-				*p++ = c - 42 - 64;
-				i++;
-				if(c == '\r') {
-					*state = YDEC_STATE_CR;
-					if(i >= 0) return 0;
-				} else {
-					*state = YDEC_STATE_NONE;
-					break;
-				}
-				// fall-thru
-			case YDEC_STATE_CR:
-				if(es[i] != '\n') break;
-				i++;
-				*state = YDEC_STATE_CRLF;
-				if(i >= 0) return 0;
-				// Else fall-thru
-			case YDEC_STATE_CRLF:
-				// skip past first dot
-				if(es[i] == '.') i++;
-				// fall-thru
-			default: break; // silence compiler warnings
-		} else // treat as YDEC_STATE_CRLF
-			if(es[i] == '.') i++;
-		
-		for(; i < -2; i++) {
-			c = es[i];
-			switch(c) {
-				case '\r':
-					// skip past \r\n. sequences
-					//i += (es[i+1] == '\n' && es[i+2] == '.') << 1;
-					if(es[i+1] == '\n' && es[i+2] == '.')
-						i += 2;
-					// fall-thru
-				case '\n':
-					continue;
-				case '=':
-					c = es[i+1];
-					*p++ = c - 42 - 64;
-					i += (c != '\r'); // if we have a \r, reprocess character to deal with \r\n. case
-					continue;
-				default:
-					*p++ = c - 42;
-			}
-		}
-		if(state) *state = YDEC_STATE_NONE;
-		
-		if(i == -2) { // 2nd last char
-			c = es[i];
-			switch(c) {
-				case '\r':
-					if(state && es[i+1] == '\n') {
-						*state = YDEC_STATE_CRLF;
-						return p - dest;
-					}
-					// Else fall-thru
-				case '\n':
-					break;
-				case '=':
-					c = es[i+1];
-					*p++ = c - 42 - 64;
-					i += (c != '\r');
-					break;
-				default:
-					*p++ = c - 42;
-			}
-			i++;
-		}
-		
-		// do final char; we process this separately to prevent an overflow if the final char is '='
-		if(i == -1) {
-			c = es[i];
-			if(c != '\n' && c != '\r' && c != '=') {
-				*p++ = c - 42;
-			} else if(state) {
-				if(c == '=') *state = YDEC_STATE_EQ;
-				else if(c == '\r') *state = YDEC_STATE_CR;
-				else *state = YDEC_STATE_NONE;
-			}
-		}
-		
-	} else {
-		
-		if(state && *state == YDEC_STATE_EQ) {
-			*p++ = es[i] - 42 - 64;
-			i++;
-			*state = YDEC_STATE_NONE;
-		}
-		
-		/*for(i = 0; i < len - 1; i++) {
-			c = src[i];
-			if(c == '\n' || c == '\r') continue;
-			unsigned char isEquals = (c == '=');
-			i += isEquals;
-			*p++ = src[i] - (42 + (isEquals << 6));
-		}*/
-		for(; i < -1; i++) {
-			c = es[i];
-			switch(c) {
-				case '\n': case '\r': continue;
-				case '=':
-					i++;
-					c = es[i] - 64;
-			}
-			*p++ = c - 42;
-		}
-		if(state) *state = YDEC_STATE_NONE;
-		// do final char; we process this separately to prevent an overflow if the final char is '='
-		if(i == -1) {
-			c = es[i];
-			if(c != '\n' && c != '\r' && c != '=') {
-				*p++ = c - 42;
-			} else
-				if(state) *state = (c == '=' ? YDEC_STATE_EQ : YDEC_STATE_NONE);
-		}
-		
-	}
-	
-	return p - dest;
-}
-
-template<bool isRaw>
-YencDecoderEnd do_decode_end_scalar(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
-	const unsigned char *es = (*src) + len; // end source pointer
-	unsigned char *p = *dest; // destination pointer
-	long i = -(long)len; // input position
-	unsigned char c; // input character
-	
-	if(len < 1) return YDEC_END_NONE;
-	
-#define YDEC_CHECK_END(s) if(i == 0) { \
-	*state = s; \
-	*src = es; \
-	*dest = p; \
-	return YDEC_END_NONE; \
-}
-	if(state) switch(*state) {
-		case YDEC_STATE_CRLFEQ: do_decode_endable_scalar_ceq:
-			if(es[i] == 'y') {
-				*state = YDEC_STATE_NONE;
-				*src = es+i+1;
-				*dest = p;
-				return YDEC_END_CONTROL;
-			} // Else fall-thru
-		case YDEC_STATE_EQ:
-			c = es[i];
-			*p++ = c - 42 - 64;
-			i++;
-			if(c != '\r') break;
-			YDEC_CHECK_END(YDEC_STATE_CR)
-			// fall-through
-		case YDEC_STATE_CR:
-			if(es[i] != '\n') break;
-			i++;
-			YDEC_CHECK_END(YDEC_STATE_CRLF)
-			// fall-through
-		case YDEC_STATE_CRLF: do_decode_endable_scalar_c0:
-			if(es[i] == '.' && isRaw) {
-				i++;
-				YDEC_CHECK_END(YDEC_STATE_CRLFDT)
-			} else if(es[i] == '=') {
-				i++;
-				YDEC_CHECK_END(YDEC_STATE_CRLFEQ)
-				goto do_decode_endable_scalar_ceq;
-			} else
-				break;
-			// fall-through
-		case YDEC_STATE_CRLFDT:
-			if(isRaw && es[i] == '\r') {
-				i++;
-				YDEC_CHECK_END(YDEC_STATE_CRLFDTCR)
-			} else if(isRaw && es[i] == '=') { // check for dot-stuffed ending: \r\n.=y
-				i++;
-				YDEC_CHECK_END(YDEC_STATE_CRLFEQ)
-				goto do_decode_endable_scalar_ceq;
-			} else
-				break;
-			// fall-through
-		case YDEC_STATE_CRLFDTCR:
-			if(es[i] == '\n') {
-				if(isRaw) {
-					*state = YDEC_STATE_CRLF;
-					*src = es + i + 1;
-					*dest = p;
-					return YDEC_END_ARTICLE;
-				} else {
-					i++;
-					YDEC_CHECK_END(YDEC_STATE_CRLF)
-					goto do_decode_endable_scalar_c0; // handle as CRLF
-				}
-			} else
-				break;
-		case YDEC_STATE_NONE: break; // silence compiler warning
-	} else // treat as YDEC_STATE_CRLF
-		goto do_decode_endable_scalar_c0;
-	
-	for(; i < -2; i++) {
-		c = es[i];
-		switch(c) {
-			case '\r': if(es[i+1] == '\n') {
-				if(isRaw && es[i+2] == '.') {
-					// skip past \r\n. sequences
-					i += 3;
-					YDEC_CHECK_END(YDEC_STATE_CRLFDT)
-					// check for end
-					if(es[i] == '\r') {
-						i++;
-						YDEC_CHECK_END(YDEC_STATE_CRLFDTCR)
-						if(es[i] == '\n') {
-							*src = es + i + 1;
-							*dest = p;
-							*state = YDEC_STATE_CRLF;
-							return YDEC_END_ARTICLE;
-						} else i--;
-					} else if(es[i] == '=') {
-						i++;
-						YDEC_CHECK_END(YDEC_STATE_CRLFEQ)
-						if(es[i] == 'y') {
-							*src = es + i + 1;
-							*dest = p;
-							*state = YDEC_STATE_NONE;
-							return YDEC_END_CONTROL;
-						} else {
-							// escape char & continue
-							c = es[i];
-							*p++ = c - 42 - 64;
-							i -= (c == '\r');
-						}
-					} else i--;
-				}
-				else if(es[i+2] == '=') {
-					i += 3;
-					YDEC_CHECK_END(YDEC_STATE_CRLFEQ)
-					if(es[i] == 'y') {
-						// ended
-						*src = es + i + 1;
-						*dest = p;
-						*state = YDEC_STATE_NONE;
-						return YDEC_END_CONTROL;
-					} else {
-						// escape char & continue
-						c = es[i];
-						*p++ = c - 42 - 64;
-						i -= (c == '\r');
-					}
-				}
-			} // fall-thru
-			case '\n':
-				continue;
-			case '=':
-				c = es[i+1];
-				*p++ = c - 42 - 64;
-				i += (c != '\r'); // if we have a \r, reprocess character to deal with \r\n. case
-				continue;
-			default:
-				*p++ = c - 42;
-		}
-	}
-	if(state) *state = YDEC_STATE_NONE;
-	
-	if(i == -2) { // 2nd last char
-		c = es[i];
-		switch(c) {
-			case '\r':
-				if(state && es[i+1] == '\n') {
-					*state = YDEC_STATE_CRLF;
-					*src = es;
-					*dest = p;
-					return YDEC_END_NONE;
-				}
-				// Else fall-thru
-			case '\n':
-				break;
-			case '=':
-				c = es[i+1];
-				*p++ = c - 42 - 64;
-				i += (c != '\r');
-				break;
-			default:
-				*p++ = c - 42;
-		}
-		i++;
-	}
-	
-	// do final char; we process this separately to prevent an overflow if the final char is '='
-	if(i == -1) {
-		c = es[i];
-		if(c != '\n' && c != '\r' && c != '=') {
-			*p++ = c - 42;
-		} else if(state) {
-			if(c == '=') *state = YDEC_STATE_EQ;
-			else if(c == '\r') *state = YDEC_STATE_CR;
-			else *state = YDEC_STATE_NONE;
-		}
-	}
-#undef YDEC_CHECK_END
-	
-	*src = es;
-	*dest = p;
-	return YDEC_END_NONE;
-}
-
-template<bool isRaw, bool searchEnd>
-YencDecoderEnd do_decode_scalar(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
-	if(searchEnd)
-		return do_decode_end_scalar<isRaw>(src, dest, len, state);
-	*dest += do_decode_noend_scalar<isRaw>(*src, *dest, len, state);
-	*src += len;
-	return YDEC_END_NONE;
-}
 
 
 
 template<bool isRaw, bool searchEnd, void(&kernel)(const uint8_t*, long&, unsigned char*&, unsigned char&, uint16_t&)>
-inline YencDecoderEnd _do_decode_simd(size_t width, const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
+static inline RapidYenc::YencDecoderEnd _do_decode_simd(size_t width, const unsigned char** src, unsigned char** dest, size_t len, RapidYenc::YencDecoderState* state) {
+	using namespace RapidYenc;
+	
 	if(len <= width*2) return do_decode_scalar<isRaw, searchEnd>(src, dest, len, state);
 	
 	YencDecoderState tState = YDEC_STATE_CRLF;
@@ -468,17 +156,19 @@ inline YencDecoderEnd _do_decode_simd(size_t width, const unsigned char** src, u
 }
 
 template<bool isRaw, bool searchEnd, size_t width, void(&kernel)(const uint8_t*, long&, unsigned char*&, unsigned char&, uint16_t&)>
-YencDecoderEnd do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
+static RapidYenc::YencDecoderEnd do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, RapidYenc::YencDecoderState* state) {
 	return _do_decode_simd<isRaw, searchEnd, kernel>(width, src, dest, len, state);
 }
 template<bool isRaw, bool searchEnd, size_t(&getWidth)(), void(&kernel)(const uint8_t*, long&, unsigned char*&, unsigned char&, uint16_t&)>
-YencDecoderEnd do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, YencDecoderState* state) {
+static RapidYenc::YencDecoderEnd do_decode_simd(const unsigned char** src, unsigned char** dest, size_t len, RapidYenc::YencDecoderState* state) {
 	return _do_decode_simd<isRaw, searchEnd, kernel>(getWidth(), src, dest, len, state);
 }
 
 
 #if defined(PLATFORM_X86) || defined(PLATFORM_ARM)
-void decoder_init_lut(void* compactLUT);
+namespace RapidYenc {
+	void decoder_init_lut(void* compactLUT);
+}
 #endif
 
 template<bool isRaw>

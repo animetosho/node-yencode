@@ -1,10 +1,10 @@
 #include "common.h"
 
-#ifdef __SSE2__
 #include "decoder_common.h"
+#ifdef __SSE2__
 #include "decoder_sse_base.h"
 
-void decoder_sse_init(SSELookups* HEDLEY_RESTRICT& lookups) {
+void RapidYenc::decoder_sse_init(SSELookups* HEDLEY_RESTRICT& lookups) {
 	ALIGN_ALLOC(lookups, sizeof(SSELookups), 16);
 	for(int i=0; i<256; i++) {
 		lookups->BitsSetTable256inv[i] = 8 - (
@@ -25,14 +25,14 @@ void decoder_sse_init(SSELookups* HEDLEY_RESTRICT& lookups) {
 	}
 }
 
-void decoder_set_sse2_funcs() {
+void RapidYenc::decoder_set_sse2_funcs() {
 	decoder_sse_init(lookups);
 	decoder_init_lut(lookups->compact);
-	RapidYenc::_do_decode = &do_decode_simd<false, false, sizeof(__m128i)*2, do_decode_sse<false, false, ISA_LEVEL_SSE2> >;
-	RapidYenc::_do_decode_raw = &do_decode_simd<true, false, sizeof(__m128i)*2, do_decode_sse<true, false, ISA_LEVEL_SSE2> >;
-	RapidYenc::_do_decode_end_raw = &do_decode_simd<true, true, sizeof(__m128i)*2, do_decode_sse<true, true, ISA_LEVEL_SSE2> >;
-	RapidYenc::_decode_isa = ISA_LEVEL_SSE2;
+	_do_decode = &do_decode_simd<false, false, sizeof(__m128i)*2, do_decode_sse<false, false, ISA_LEVEL_SSE2> >;
+	_do_decode_raw = &do_decode_simd<true, false, sizeof(__m128i)*2, do_decode_sse<true, false, ISA_LEVEL_SSE2> >;
+	_do_decode_end_raw = &do_decode_simd<true, true, sizeof(__m128i)*2, do_decode_sse<true, true, ISA_LEVEL_SSE2> >;
+	_decode_isa = ISA_LEVEL_SSE2;
 }
 #else
-void decoder_set_sse2_funcs() {}
+void RapidYenc::decoder_set_sse2_funcs() {}
 #endif

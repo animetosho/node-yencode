@@ -45,7 +45,9 @@ static HEDLEY_ALWAYS_INLINE __m128i force_align_read_128(const void* p) {
 #endif
 }
 
-void decoder_sse_init(SSELookups* HEDLEY_RESTRICT& lookups); // defined in decoder_sse2.cc
+namespace RapidYenc {
+	void decoder_sse_init(SSELookups* HEDLEY_RESTRICT& lookups); // defined in decoder_sse2.cc
+}
 
 
 // for LZCNT/BSR
@@ -89,6 +91,8 @@ static HEDLEY_ALWAYS_INLINE __m128i sse2_compact_vect(uint32_t mask, __m128i dat
 	}
 	return data;
 }
+
+namespace RapidYenc {
 
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& _nextMask) {
@@ -689,4 +693,5 @@ HEDLEY_ALWAYS_INLINE void do_decode_sse(const uint8_t* src, long& len, unsigned 
 	}
 	_escFirst = (unsigned char)escFirst;
 }
+} // namespace
 #endif

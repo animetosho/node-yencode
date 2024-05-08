@@ -189,7 +189,7 @@ static uint32_t crc32_reduce_rv_zbc(uint64_t prod) {
 	return t;
 }
 #endif
-uint32_t crc32_multiply_rv_zbc(uint32_t a, uint32_t b) {
+static uint32_t crc32_multiply_rv_zbc(uint32_t a, uint32_t b) {
 #if __riscv_xlen == 64
 	uint64_t t = crc32_reduce_rv_zbc(rv_clmul(a, b));
 #else
@@ -209,7 +209,7 @@ uint32_t crc32_multiply_rv_zbc(uint32_t a, uint32_t b) {
 }
 
 #if defined(__GNUC__) || defined(_MSC_VER)
-uint32_t crc32_shift_rv_zbc(uint32_t crc1, uint32_t n) {
+static uint32_t crc32_shift_rv_zbc(uint32_t crc1, uint32_t n) {
 	// TODO: require Zbb for ctz
 	uint32_t result = crc1;
 #if __riscv_xlen == 64
@@ -221,15 +221,15 @@ uint32_t crc32_shift_rv_zbc(uint32_t crc1, uint32_t n) {
 #endif
 	if(!n) return result;
 	
-	uint32_t result2 = crc_power[ctz32(n)];
+	uint32_t result2 = RapidYenc::crc_power[ctz32(n)];
 	n &= n-1;
 	
 	while(n) {
-		result = crc32_multiply_rv_zbc(result, crc_power[ctz32(n)]);
+		result = crc32_multiply_rv_zbc(result, RapidYenc::crc_power[ctz32(n)]);
 		n &= n-1;
 		
 		if(n) {
-			result2 = crc32_multiply_rv_zbc(result2, crc_power[ctz32(n)]);
+			result2 = crc32_multiply_rv_zbc(result2, RapidYenc::crc_power[ctz32(n)]);
 			n &= n-1;
 		}
 	}
@@ -238,14 +238,14 @@ uint32_t crc32_shift_rv_zbc(uint32_t crc1, uint32_t n) {
 #endif
 
 
-void crc_riscv_set_funcs() {
-	RapidYenc::_do_crc32_incremental = &do_crc32_incremental_rv_zbc;
-	RapidYenc::_crc32_multiply = &crc32_multiply_rv_zbc;
+void RapidYenc::crc_riscv_set_funcs() {
+	_do_crc32_incremental = &do_crc32_incremental_rv_zbc;
+	_crc32_multiply = &crc32_multiply_rv_zbc;
 #if defined(__GNUC__) || defined(_MSC_VER)
-	RapidYenc::_crc32_shift = &crc32_shift_rv_zbc;
+	_crc32_shift = &crc32_shift_rv_zbc;
 #endif
-	RapidYenc::_crc32_isa = ISA_FEATURE_ZBC;
+	_crc32_isa = ISA_FEATURE_ZBC;
 }
 #else
-void crc_riscv_set_funcs() {}
+void RapidYenc::crc_riscv_set_funcs() {}
 #endif

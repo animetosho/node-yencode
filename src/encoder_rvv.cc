@@ -1,23 +1,23 @@
 #include "common.h"
+#include "encoder_common.h"
 
 #ifdef __riscv_vector
 #include "encoder.h"
-#include "encoder_common.h"
 
 
 static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RESTRICT _src, long& inpos, uint8_t*& outp, long& col, long lineSizeOffset) {
 	// TODO: vectorize
 	uint8_t c = _src[inpos++];
-	if(HEDLEY_UNLIKELY(escapedLUT[c] && c != '.'-42)) {
-		memcpy(outp, &escapedLUT[c], sizeof(uint16_t));
+	if(HEDLEY_UNLIKELY(RapidYenc::escapedLUT[c] && c != '.'-42)) {
+		memcpy(outp, &RapidYenc::escapedLUT[c], sizeof(uint16_t));
 		outp += 2;
 	} else {
 		*(outp++) = c + 42;
 	}
 	
 	c = _src[inpos++];
-	if(LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
-		uint32_t w = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+	if(LIKELIHOOD(0.0273, RapidYenc::escapedLUT[c]!=0)) {
+		uint32_t w = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)RapidYenc::escapedLUT[c]);
 		memcpy(outp, &w, sizeof(w));
 		outp += 4;
 		col = lineSizeOffset + 2;
@@ -29,6 +29,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	}
 }
 
+namespace RapidYenc {
 
 HEDLEY_ALWAYS_INLINE void do_encode_rvv(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
 	size_t vl2 = RV(vsetvlmax_e8m2)(); // TODO: limit to line length
@@ -195,11 +196,12 @@ HEDLEY_ALWAYS_INLINE void do_encode_rvv(int line_size, int* colOffset, const uin
 	dest = outp;
 	len = -(inpos - INPUT_OFFSET);
 }
+} // namespace
 
-void encoder_rvv_init() {
-	RapidYenc::_do_encode = &do_encode_simd<do_encode_rvv>;
-	RapidYenc::_encode_isa = ISA_LEVEL_RVV;
+void RapidYenc::encoder_rvv_init() {
+	_do_encode = &do_encode_simd<do_encode_rvv>;
+	_encode_isa = ISA_LEVEL_RVV;
 }
 #else
-void encoder_rvv_init() {}
+void RapidYenc::encoder_rvv_init() {}
 #endif /* defined(__riscv_vector) */

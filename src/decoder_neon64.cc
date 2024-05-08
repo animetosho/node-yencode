@@ -1,7 +1,7 @@
 #include "common.h"
+#include "decoder_common.h"
 #if defined(__ARM_NEON) && defined(__aarch64__)
 
-#include "decoder_common.h"
 
 #pragma pack(16)
 static struct { char bytes[16]; } ALIGN_TO(16, compactLUT[32768]);
@@ -43,6 +43,8 @@ static HEDLEY_ALWAYS_INLINE uint8x16_t mergeCompares(uint8x16_t a, uint8x16_t b,
 	);
 }
 
+
+namespace RapidYenc {
 
 template<bool isRaw, bool searchEnd>
 HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned char*& p, unsigned char& escFirst, uint16_t& nextMask) {
@@ -430,14 +432,15 @@ HEDLEY_ALWAYS_INLINE void do_decode_neon(const uint8_t* src, long& len, unsigned
 		}
 	}
 }
+} // namespace
 
-void decoder_set_neon_funcs() {
+void RapidYenc::decoder_set_neon_funcs() {
 	decoder_init_lut(compactLUT);
-	RapidYenc::_do_decode = &do_decode_simd<false, false, sizeof(uint8x16_t)*4, do_decode_neon<false, false> >;
-	RapidYenc::_do_decode_raw = &do_decode_simd<true, false, sizeof(uint8x16_t)*4, do_decode_neon<true, false> >;
-	RapidYenc::_do_decode_end_raw = &do_decode_simd<true, true, sizeof(uint8x16_t)*4, do_decode_neon<true, true> >;
-	RapidYenc::_decode_isa = ISA_LEVEL_NEON;
+	_do_decode = &do_decode_simd<false, false, sizeof(uint8x16_t)*4, do_decode_neon<false, false> >;
+	_do_decode_raw = &do_decode_simd<true, false, sizeof(uint8x16_t)*4, do_decode_neon<true, false> >;
+	_do_decode_end_raw = &do_decode_simd<true, true, sizeof(uint8x16_t)*4, do_decode_neon<true, true> >;
+	_decode_isa = ISA_LEVEL_NEON;
 }
 #else
-void decoder_set_neon_funcs() {}
+void RapidYenc::decoder_set_neon_funcs() {}
 #endif

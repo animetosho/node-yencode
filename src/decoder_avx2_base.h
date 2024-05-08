@@ -49,6 +49,8 @@ static HEDLEY_ALWAYS_INLINE __m256i force_align_read_256(const void* p) {
 # define COMPRESS_STORE(dst, mask, vec) _mm256_storeu_si256((__m256i*)(dst), _mm256_maskz_compress_epi8(mask, vec))
 #endif
 
+namespace RapidYenc {
+
 template<bool isRaw, bool searchEnd, enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* src, long& len, unsigned char*& p, unsigned char& _escFirst, uint16_t& _nextMask) {
 	HEDLEY_ASSUME(_escFirst == 0 || _escFirst == 1);
@@ -612,4 +614,5 @@ HEDLEY_ALWAYS_INLINE void do_decode_avx2(const uint8_t* src, long& len, unsigned
 	_escFirst = (unsigned char)escFirst;
 	_mm256_zeroupper();
 }
+} // namespace
 #endif

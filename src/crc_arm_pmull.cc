@@ -109,7 +109,7 @@ static HEDLEY_ALWAYS_INLINE uint64x2_t pmull_high(uint64x2_t a, uint64x2_t b) {
 #endif
 
 
-uint32_t crc32_multiply_pmull(uint32_t a, uint32_t b) {
+static uint32_t crc32_multiply_pmull(uint32_t a, uint32_t b) {
 	uint64x1_t prod = vget_low_u64(pmull_low(
 		vreinterpret_u64_u32(vset_lane_u32(a, vdup_n_u32(0), 0)),
 		vreinterpret_u64_u32(vset_lane_u32(b, vdup_n_u32(0), 0))
@@ -126,7 +126,7 @@ uint32_t crc32_multiply_pmull(uint32_t a, uint32_t b) {
 
 
 
-const uint32_t crc_power_rev[32] = { // bit-reversed crc_power
+static const uint32_t crc_power_rev[32] = { // bit-reversed crc_power
 	0x00000002, 0x00000004, 0x00000010, 0x00000100, 0x00010000, 0x04c11db7, 0x490d678d, 0xe8a45605,
 	0x75be46b7, 0xe6228b11, 0x567fddeb, 0x88fe2237, 0x0e857e71, 0x7001e426, 0x075de2b2, 0xf12a7f90,
 	0xf0b4a1c1, 0x58f46c0c, 0xc3395ade, 0x96837f8c, 0x544037f9, 0x23b7b136, 0xb2e16ba8, 0x725e7bfa,
@@ -141,7 +141,7 @@ static HEDLEY_ALWAYS_INLINE uint64x1_t crc32_shift_pmull_mulred(uint64x1_t a, ui
 }
 
 
-uint32_t crc32_shift_pmull(uint32_t crc1, uint32_t n) {
+static uint32_t crc32_shift_pmull(uint32_t crc1, uint32_t n) {
 	crc1 = rbit32(crc1);
 	
 	uint64x1_t res;
@@ -204,12 +204,12 @@ uint32_t crc32_shift_pmull(uint32_t crc1, uint32_t n) {
 }
 
 
-void crc_pmull_set_funcs() {
-	RapidYenc::_crc32_multiply = &crc32_multiply_pmull;
-	RapidYenc::_crc32_shift = &crc32_shift_pmull;
-	RapidYenc::_crc32_isa &= ISA_FEATURE_PMULL;
+void RapidYenc::crc_pmull_set_funcs() {
+	_crc32_multiply = &crc32_multiply_pmull;
+	_crc32_shift = &crc32_shift_pmull;
+	_crc32_isa &= ISA_FEATURE_PMULL;
 }
 
 #else
-void crc_pmull_set_funcs() {}
+void RapidYenc::crc_pmull_set_funcs() {}
 #endif /* defined(__ARM_FEATURE_CRYPTO) && defined(__ARM_FEATURE_CRC32) */

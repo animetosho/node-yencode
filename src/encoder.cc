@@ -9,12 +9,12 @@
 #define _B3(n) _B2(n), _B2(n+16), _B2(n+32), _B2(n+48)
 #define _BX _B3(0), _B3(64), _B3(128), _B3(192)
 
-const unsigned char escapeLUT[256] = { // whether or not the character is critical
+const unsigned char RapidYenc::escapeLUT[256] = { // whether or not the character is critical
 #define _B(n) ((n == 214 || n == '\r'+214 || n == '\n'+214 || n == '='-42) ? 0 : (n+42) & 0xff)
 	_BX
 #undef _B
 };
-const uint16_t escapedLUT[256] = { // escaped sequences for characters that need escaping
+const uint16_t RapidYenc::escapedLUT[256] = { // escaped sequences for characters that need escaping
 #define _B(n) ((n == 214 || n == 214+'\r' || n == 214+'\n' || n == '='-42 || n == 214+'\t' || n == 214+' ' || n == '.'-42) ? UINT16_PACK('=', ((n+42+64)&0xff)) : 0)
 	_BX
 #undef _B
@@ -27,7 +27,7 @@ const uint16_t escapedLUT[256] = { // escaped sequences for characters that need
 
 
 
-size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len, int doEnd) {
+size_t RapidYenc::do_encode_generic(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len, int doEnd) {
 	unsigned char* es = (unsigned char*)src + len;
 	unsigned char *p = dest; // destination pointer
 	long i = -(long)len; // input position
@@ -36,8 +36,8 @@ size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HED
 	
 	if (col == 0) {
 		c = es[i++];
-		if (escapedLUT[c]) {
-			memcpy(p, &escapedLUT[c], sizeof(uint16_t));
+		if (RapidYenc::escapedLUT[c]) {
+			memcpy(p, &RapidYenc::escapedLUT[c], sizeof(uint16_t));
 			p += 2;
 			col = 2;
 		} else {
@@ -52,11 +52,11 @@ size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HED
 			// 8 cycle unrolled version
 			sp = p;
 			#define DO_THING(n) \
-				c = es[i+n], escaped = escapeLUT[c]; \
+				c = es[i+n], escaped = RapidYenc::escapeLUT[c]; \
 				if (escaped) \
 					*(p++) = escaped; \
 				else { \
-					memcpy(p, &escapedLUT[c], sizeof(uint16_t)); \
+					memcpy(p, &RapidYenc::escapedLUT[c], sizeof(uint16_t)); \
 					p += 2; \
 				}
 			DO_THING(0);
@@ -80,13 +80,13 @@ size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HED
 		}
 		// handle remaining chars
 		while(col < line_size-1) {
-			c = es[i++], escaped = escapeLUT[c];
+			c = es[i++], escaped = RapidYenc::escapeLUT[c];
 			if (escaped) {
 				*(p++) = escaped;
 				col++;
 			}
 			else {
-				memcpy(p, &escapedLUT[c], sizeof(uint16_t));
+				memcpy(p, &RapidYenc::escapedLUT[c], sizeof(uint16_t));
 				p += 2;
 				col += 2;
 			}
@@ -104,8 +104,8 @@ size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HED
 		// last line char
 		if(col < line_size) { // this can only be false if the last character was an escape sequence (or line_size is horribly small), in which case, we don't need to handle space/tab cases
 			c = es[i++];
-			if (escapedLUT[c] && c != '.'-42) {
-				memcpy(p, &escapedLUT[c], sizeof(uint16_t));
+			if (RapidYenc::escapedLUT[c] && c != '.'-42) {
+				memcpy(p, &RapidYenc::escapedLUT[c], sizeof(uint16_t));
 				p += 2;
 			} else {
 				*(p++) = c + 42;
@@ -115,8 +115,8 @@ size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HED
 		if (i >= 0) break;
 		
 		c = es[i++];
-		if (escapedLUT[c]) {
-			uint32_t w = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+		if (RapidYenc::escapedLUT[c]) {
+			uint32_t w = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)RapidYenc::escapedLUT[c]);
 			memcpy(p, &w, sizeof(w));
 			p += 4;
 			col = 2;
@@ -150,27 +150,18 @@ namespace RapidYenc {
 	int _encode_isa = ISA_GENERIC;
 }
 
-void encoder_sse2_init();
-void encoder_ssse3_init();
-void encoder_avx_init();
-void encoder_avx2_init();
-void encoder_vbmi2_init();
-extern const bool encoder_has_avx10;
-void encoder_neon_init();
-void encoder_rvv_init();
-
 #if defined(PLATFORM_X86) && defined(YENC_BUILD_NATIVE) && YENC_BUILD_NATIVE!=0
 # if defined(__AVX2__) && !defined(YENC_DISABLE_AVX256)
 #  include "encoder_avx_base.h"
 static inline void encoder_native_init() {
-	RapidYenc::_do_encode = &do_encode_simd< do_encode_avx2<ISA_NATIVE> >;
+	RapidYenc::_do_encode = &do_encode_simd< RapidYenc::do_encode_avx2<ISA_NATIVE> >;
 	encoder_avx2_lut<ISA_NATIVE>();
 	RapidYenc::_encode_isa = ISA_NATIVE;
 }
 # else
 #  include "encoder_sse_base.h"
 static inline void encoder_native_init() {
-	RapidYenc::_do_encode = &do_encode_simd< do_encode_sse<ISA_NATIVE> >;
+	RapidYenc::_do_encode = &do_encode_simd< RapidYenc::do_encode_sse<ISA_NATIVE> >;
 	encoder_sse_lut<ISA_NATIVE>();
 	RapidYenc::_encode_isa = ISA_NATIVE;
 }

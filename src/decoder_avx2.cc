@@ -1,9 +1,9 @@
 #include "common.h"
 
-#if defined(__AVX2__) && !defined(YENC_DISABLE_AVX256)
 #include "decoder_common.h"
+#if defined(__AVX2__) && !defined(YENC_DISABLE_AVX256)
 #include "decoder_avx2_base.h"
-void decoder_set_avx2_funcs() {
+void RapidYenc::decoder_set_avx2_funcs() {
 	ALIGN_ALLOC(lookups, sizeof(*lookups), 16);
 	decoder_init_lut(lookups->compact);
 	RapidYenc::_do_decode = &do_decode_simd<false, false, sizeof(__m256i)*2, do_decode_avx2<false, false, ISA_LEVEL_AVX2> >;
@@ -12,8 +12,7 @@ void decoder_set_avx2_funcs() {
 	RapidYenc::_decode_isa = ISA_LEVEL_AVX2;
 }
 #else
-void decoder_set_avx_funcs();
-void decoder_set_avx2_funcs() {
+void RapidYenc::decoder_set_avx2_funcs() {
 	decoder_set_avx_funcs();
 }
 #endif

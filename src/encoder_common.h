@@ -1,19 +1,31 @@
 #ifndef __YENC_ENCODER_COMMON
 #define __YENC_ENCODER_COMMON
 
-// lookup tables for scalar processing
-extern const unsigned char escapeLUT[256];
-extern const uint16_t escapedLUT[256];
+namespace RapidYenc {
+	void encoder_sse2_init();
+	void encoder_ssse3_init();
+	void encoder_avx_init();
+	void encoder_avx2_init();
+	void encoder_vbmi2_init();
+	extern const bool encoder_has_avx10;
+	void encoder_neon_init();
+	void encoder_rvv_init();
+	
+	// lookup tables for scalar processing
+	extern const unsigned char escapeLUT[256];
+	extern const uint16_t escapedLUT[256];
+	
+	size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len, int doEnd);
+}
 
 
-size_t do_encode_generic(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len, int doEnd);
 
 template<void(&kernel)(int, int*, const uint8_t* HEDLEY_RESTRICT, uint8_t* HEDLEY_RESTRICT&, size_t&)>
-static size_t do_encode_simd(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT src, uint8_t* HEDLEY_RESTRICT dest, size_t len, int doEnd) {
+static size_t do_encode_simd(int line_size, int* colOffset, const unsigned char* HEDLEY_RESTRICT src, unsigned char* HEDLEY_RESTRICT dest, size_t len, int doEnd) {
 	if(len < 1) return 0;
 	if(line_size < 12) { // short lines probably not worth processing in a SIMD way
 		// we assume at least the first and last char exist in the line, and since the first char could be escaped, and SIMD encoder assumes at least one non-first/last char, assumption means that line size has to be >= 4
-		return do_encode_generic(line_size, colOffset, src, dest, len, doEnd);
+		return RapidYenc::do_encode_generic(line_size, colOffset, src, dest, len, doEnd);
 	}
 	
 	const uint8_t* es = src + len;
@@ -27,8 +39,8 @@ static size_t do_encode_simd(int line_size, int* colOffset, const uint8_t* HEDLE
 	long i = -(long)len;
 	if(*colOffset == 0 && i < 0) {
 		uint8_t c = es[i++];
-		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
-			memcpy(p, escapedLUT + c, 2);
+		if (LIKELIHOOD(0.0273, RapidYenc::escapedLUT[c] != 0)) {
+			memcpy(p, RapidYenc::escapedLUT + c, 2);
 			p += 2;
 			*colOffset = 2;
 		} else {
@@ -39,19 +51,19 @@ static size_t do_encode_simd(int line_size, int* colOffset, const uint8_t* HEDLE
 	while(i < 0) {
 		uint8_t c = es[i++];
 		if(*colOffset < line_size-1) {
-			if(!escapeLUT[c]) {
+			if(!RapidYenc::escapeLUT[c]) {
 				p[0] = '=';
 				p[1] = c+42+64;
 				p += 2;
 				(*colOffset) += 2;
 			} else {
-				*(p++) = escapeLUT[c];
+				*(p++) = RapidYenc::escapeLUT[c];
 				(*colOffset) += 1;
 			}
 		} else {
 			if(*colOffset < line_size) {
-				if (escapedLUT[c] && c != '.'-42) {
-					memcpy(p, escapedLUT + c, 2);
+				if (RapidYenc::escapedLUT[c] && c != '.'-42) {
+					memcpy(p, RapidYenc::escapedLUT + c, 2);
 					p += 2;
 				} else {
 					*(p++) = c + 42;
@@ -61,8 +73,8 @@ static size_t do_encode_simd(int line_size, int* colOffset, const uint8_t* HEDLE
 			}
 			
 			// handle EOL
-			if (escapedLUT[c]) {
-				uint32_t w = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+			if (RapidYenc::escapedLUT[c]) {
+				uint32_t w = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)RapidYenc::escapedLUT[c]);
 				memcpy(p, &w, sizeof(w));
 				p += 4;
 				*colOffset = 2;

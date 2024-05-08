@@ -365,7 +365,7 @@ static HEDLEY_ALWAYS_INLINE __m128i crc32_reduce(__m128i prod) {
 	return t;
 }
 
-uint32_t crc32_multiply_clmul(uint32_t a, uint32_t b) {
+static uint32_t crc32_multiply_clmul(uint32_t a, uint32_t b) {
 	// do the actual multiply
 	__m128i prod = _mm_clmulepi64_si128(_mm_cvtsi32_si128(a), _mm_cvtsi32_si128(b), 0);
 	
@@ -418,7 +418,7 @@ static HEDLEY_ALWAYS_INLINE __m128i reverse_bits_epi8(__m128i src) {
 
 
 
-const uint32_t crc_power_rev[32] = { // bit-reversed crc_power
+static const uint32_t crc_power_rev[32] = { // bit-reversed crc_power
 	0x00000002, 0x00000004, 0x00000010, 0x00000100, 0x00010000, 0x04c11db7, 0x490d678d, 0xe8a45605,
 	0x75be46b7, 0xe6228b11, 0x567fddeb, 0x88fe2237, 0x0e857e71, 0x7001e426, 0x075de2b2, 0xf12a7f90,
 	0xf0b4a1c1, 0x58f46c0c, 0xc3395ade, 0x96837f8c, 0x544037f9, 0x23b7b136, 0xb2e16ba8, 0x725e7bfa,
@@ -436,7 +436,7 @@ static HEDLEY_ALWAYS_INLINE __m128i crc32_shift_clmul_mulred(unsigned pos, __m12
 	return _mm_xor_si128(hi, prod);
 }
 
-uint32_t crc32_shift_clmul(uint32_t crc1, uint32_t n) {
+static uint32_t crc32_shift_clmul(uint32_t crc1, uint32_t n) {
 	if(!n) return crc1;
 	
 	__m128i result = _mm_cvtsi32_si128(BSWAP32(crc1));
@@ -499,15 +499,15 @@ uint32_t crc32_shift_clmul(uint32_t crc1, uint32_t n) {
 #endif
 
 
-void crc_clmul_set_funcs() {
-	RapidYenc::_do_crc32_incremental = &do_crc32_incremental_clmul;
-	RapidYenc::_crc32_multiply = &crc32_multiply_clmul;
+void RapidYenc::crc_clmul_set_funcs() {
+	_do_crc32_incremental = &do_crc32_incremental_clmul;
+	_crc32_multiply = &crc32_multiply_clmul;
 #if defined(__GNUC__) || defined(_MSC_VER)
-	RapidYenc::_crc32_shift = &crc32_shift_clmul;
+	_crc32_shift = &crc32_shift_clmul;
 #endif
-	RapidYenc::_crc32_isa = ISA_LEVEL_PCLMUL;
+	_crc32_isa = ISA_LEVEL_PCLMUL;
 }
 #else
-void crc_clmul_set_funcs() {}
+void RapidYenc::crc_clmul_set_funcs() {}
 #endif
 

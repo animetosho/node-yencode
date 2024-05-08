@@ -1,6 +1,6 @@
 #include "common.h"
-#ifdef __riscv_vector
 #include "decoder_common.h"
+#ifdef __riscv_vector
 
 
 #ifdef __riscv_v_intrinsic
@@ -59,6 +59,7 @@ static inline vuint16m2_t set_first_vu16(vuint16m2_t src, uint16_t item, size_t 
 }
 
 
+namespace RapidYenc {
 
 template<bool isRaw, bool searchEnd>
 HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned char*& outp, unsigned char& escFirst, uint16_t& nextMask) {
@@ -266,13 +267,14 @@ HEDLEY_ALWAYS_INLINE void do_decode_rvv(const uint8_t* src, long& len, unsigned 
 size_t decoder_rvv_width() {
 	return RV(vsetvlmax_e8m2)();
 }
+} // namespace
 
-void decoder_set_rvv_funcs() {
-	RapidYenc::_do_decode = &do_decode_simd<false, false, decoder_rvv_width, do_decode_rvv<false, false> >;
-	RapidYenc::_do_decode_raw = &do_decode_simd<true, false, decoder_rvv_width, do_decode_rvv<true, false> >;
-	RapidYenc::_do_decode_end_raw = &do_decode_simd<true, true, decoder_rvv_width, do_decode_rvv<true, true> >;
-	RapidYenc::_decode_isa = ISA_LEVEL_RVV;
+void RapidYenc::decoder_set_rvv_funcs() {
+	_do_decode = &do_decode_simd<false, false, decoder_rvv_width, do_decode_rvv<false, false> >;
+	_do_decode_raw = &do_decode_simd<true, false, decoder_rvv_width, do_decode_rvv<true, false> >;
+	_do_decode_end_raw = &do_decode_simd<true, true, decoder_rvv_width, do_decode_rvv<true, true> >;
+	_decode_isa = ISA_LEVEL_RVV;
 }
 #else
-void decoder_set_rvv_funcs() {}
+void RapidYenc::decoder_set_rvv_funcs() {}
 #endif

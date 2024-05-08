@@ -147,6 +147,7 @@ static HEDLEY_ALWAYS_INLINE uintptr_t sse2_expand_store_vector(__m128i data, uns
 	}
 }
 
+namespace RapidYenc {
 
 template<enum YEncDecIsaLevel use_isa>
 HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
@@ -720,4 +721,5 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 	dest = p;
 	len = -(i - INPUT_OFFSET);
 }
+} // namespace
 

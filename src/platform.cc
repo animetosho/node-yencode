@@ -17,7 +17,7 @@
 #   endif
 #  endif
 # endif
-bool cpu_supports_neon() {
+bool RapidYenc::cpu_supports_neon() {
 # if defined(AT_HWCAP)
 #  ifdef __FreeBSD__
 	unsigned long supported;
@@ -95,7 +95,7 @@ static inline int _GET_XCR() {
 // }
 
 
-int cpu_supports_isa() {
+int RapidYenc::cpu_supports_isa() {
 	int flags[4];
 	_cpuid1(flags);
 	int ret = 0;
@@ -170,7 +170,7 @@ int cpu_supports_isa() {
 	return ret | ISA_LEVEL_SSE2;
 }
 
-int cpu_supports_crc_isa() {
+int RapidYenc::cpu_supports_crc_isa() {
 	int flags[4];
 	_cpuid1(flags);
 	
@@ -201,7 +201,7 @@ int cpu_supports_crc_isa() {
 #   endif
 #  endif
 # endif
-bool cpu_supports_rvv() {
+bool RapidYenc::cpu_supports_rvv() {
 # if defined(AT_HWCAP)
 	unsigned long ret;
 #  ifdef __FreeBSD__

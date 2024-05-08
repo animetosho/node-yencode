@@ -133,6 +133,7 @@ static void generate_crc32_slice_table() {
 #endif
 
 
+namespace RapidYenc {
 
 // workaround MSVC complaining "unary minus operator applied to unsigned type, result still unsigned"
 #define NEGATE(n) (uint32_t)(-((int32_t)(n)))
@@ -180,6 +181,7 @@ uint32_t crc32_shift_generic(uint32_t crc1, uint32_t n) {
 #endif
 	return result;
 }
+} // namespace
 
 
 namespace RapidYenc {
@@ -190,16 +192,6 @@ namespace RapidYenc {
 }
 
 
-
-void crc_clmul_set_funcs();
-void crc_clmul256_set_funcs();
-void crc_arm_set_funcs();
-void crc_pmull_set_funcs();
-void crc_riscv_set_funcs();
-
-#ifdef PLATFORM_X86
-int cpu_supports_crc_isa();
-#endif
 
 #if defined(PLATFORM_ARM) && defined(_WIN32)
 # define WIN32_LEAN_AND_MEAN

@@ -209,7 +209,9 @@ static HEDLEY_ALWAYS_INLINE uint8x16x4_t vcreate4_u8(uint8x16_t a, uint8x16_t b,
 # undef _CREATE_TUPLE
 #endif
 #ifdef PLATFORM_ARM
-bool cpu_supports_neon();
+namespace RapidYenc {
+	bool cpu_supports_neon();
+}
 #endif
 
 #ifdef _MSC_VER
@@ -283,12 +285,17 @@ enum YEncDecIsaLevel {
 # endif
 #endif
 
-int cpu_supports_isa();
+namespace RapidYenc {
+	int cpu_supports_isa();
+	int cpu_supports_crc_isa();
+}
 #endif // PLATFORM_X86
 
 
 #ifdef __riscv
-bool cpu_supports_rvv();
+namespace RapidYenc {
+	bool cpu_supports_rvv();
+}
 #endif
 #if defined(__riscv_vector) && defined(HEDLEY_GCC_VERSION) && !HEDLEY_GCC_VERSION_CHECK(13,0,0)
 // GCC added RVV intrinsics in GCC13

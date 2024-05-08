@@ -1,8 +1,8 @@
 #include "common.h"
+#include "encoder_common.h"
 
 #ifdef __ARM_NEON
 #include "encoder.h"
-#include "encoder_common.h"
 
 // Clang wrongly assumes alignment on vst1q_u8_x2, and ARMv7 GCC doesn't support the function, so effectively, it can only be used in ARMv8 compilers
 #if defined(__aarch64__) && (defined(__clang__) || HEDLEY_GCC_VERSION_CHECK(8,5,0))
@@ -258,6 +258,8 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 	// TODO: check col >= 0 if we want to support short lines
 }
 
+
+namespace RapidYenc {
 
 HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const uint8_t* HEDLEY_RESTRICT srcEnd, uint8_t* HEDLEY_RESTRICT& dest, size_t& len) {
 	// offset position to enable simpler loop condition checking
@@ -517,10 +519,11 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 	dest = p;
 	len = -(i - INPUT_OFFSET);
 }
+} // namespace
 
-void encoder_neon_init() {
-	RapidYenc::_do_encode = &do_encode_simd<do_encode_neon>;
-	RapidYenc::_encode_isa = ISA_LEVEL_NEON;
+void RapidYenc::encoder_neon_init() {
+	_do_encode = &do_encode_simd<do_encode_neon>;
+	_encode_isa = ISA_LEVEL_NEON;
 	// generate shuf LUT
 	for(int i=0; i<256; i++) {
 		int k = i;
@@ -543,5 +546,5 @@ void encoder_neon_init() {
 	}
 }
 #else
-void encoder_neon_init() {}
+void RapidYenc::encoder_neon_init() {}
 #endif /* defined(__ARM_NEON) */
