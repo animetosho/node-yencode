@@ -207,7 +207,7 @@ static uint32_t crc32_shift_pmull(uint32_t crc1, uint32_t n) {
 void RapidYenc::crc_pmull_set_funcs() {
 	_crc32_multiply = &crc32_multiply_pmull;
 	_crc32_shift = &crc32_shift_pmull;
-	_crc32_isa &= ISA_FEATURE_PMULL;
+	_crc32_isa |= ISA_FEATURE_PMULL;
 }
 
 #else
