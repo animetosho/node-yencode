@@ -23,7 +23,7 @@ static inline int crc32_isa_level() {
 
 // computes `n % 0xffffffff` (well, almost), using some bit-hacks
 static inline uint32_t crc32_powmod(uint64_t n) {
-#ifdef __GNUC__
+#if defined(__GNUC__) && (__GNUC__ >= 5 || (defined(__clang__) && (__clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ > 3))))
 	unsigned res;
 	unsigned carry = __builtin_uadd_overflow(n >> 32, n, &res);
 	res += carry;
