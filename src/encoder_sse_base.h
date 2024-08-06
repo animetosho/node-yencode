@@ -351,7 +351,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 #if defined(__POPCNT__) && !defined(__tune_btver1__)
 				if(use_isa & ISA_FEATURE_POPCNT) {
 					shuf2Len = popcnt32(maskA) + 16;
-# if defined(__tune_znver4__) || defined(__tune_znver3__) || defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__)
+# if defined(__tune_znver6__) || defined(__tune_znver5__) || defined(__tune_znver4__) || defined(__tune_znver3__) || defined(__tune_znver2__) || defined(__tune_znver1__) || defined(__tune_btver2__)
 					shuf1Len = popcnt32(m1) + 8;
 					shuf3Len = popcnt32(m3) + shuf2Len + 8;
 # else
