@@ -50,7 +50,7 @@
       }],
       ['OS!="win"', {
         "variables": {
-          "missing_memalign%": "<!(<!(echo ${CC_target:-${CC:-cc}}) -c src/test_alignalloc.c -o /dev/null -Werror 2>/dev/null || echo failed)",
+          "missing_memalign%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -c src/test_alignalloc.c -o /dev/null -Werror 2>/dev/null || echo failed)",
         },
         "conditions": [
           ['missing_memalign!=""', {
@@ -60,7 +60,7 @@
       }]
     ],
     "cflags": ["-Wno-unused-function"],
-    "cxxflags": ["-Wno-unused-function", "-std=c++03", "-D_POSIX_C_SOURCE=200112L"],
+    "cxxflags": ["-Wno-unused-function", "-std=c++03"],
     "xcode_settings": {
       "OTHER_CFLAGS": ["-Wno-unused-function"],
       "OTHER_CXXFLAGS": ["-Wno-unused-function"]
