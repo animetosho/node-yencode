@@ -50,7 +50,7 @@
       }],
       ['OS!="win"', {
         "variables": {
-          "missing_memalign%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -c src/test_alignalloc.c -o /dev/null -Werror 2>/dev/null || echo failed)",
+          "missing_memalign%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -c src/test_alignalloc.cc -o /dev/null -Werror 2>/dev/null || echo failed)",
         },
         "conditions": [
           ['missing_memalign!=""', {
