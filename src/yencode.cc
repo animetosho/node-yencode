@@ -101,6 +101,7 @@ static inline size_t YENC_MAX_SIZE(size_t len, size_t line_size) {
 #endif
 
 
+#ifndef YENC_NO_EXTERNAL_BUFFER
 // encode(str, line_size, col)
 FUNC(Encode) {
 	FUNC_START;
@@ -135,6 +136,7 @@ FUNC(Encode) {
 	MARK_EXT_MEM(len);
 	RETURN_VAL( NEW_BUFFER((char*)result, len, free_buffer, (void*)len) );
 }
+#endif
 
 FUNC(EncodeTo) {
 	FUNC_START;
@@ -205,6 +207,9 @@ FUNC(EncodeIncr) {
 			}
 		}
 	}
+#ifdef YENC_NO_EXTERNAL_BUFFER
+	if(allocResult) RETURN_ERROR("Destination buffer must be supplied as buffer allocation isn't enabled in this build");
+#endif
 	
 	Local<Object> ret = NEW_OBJECT;
 	
@@ -215,24 +220,29 @@ FUNC(EncodeIncr) {
 		RETURN_VAL( ret );
 	}
 	
+#ifndef YENC_NO_EXTERNAL_BUFFER
 	if(allocResult) {
 		// allocate enough memory to handle worst case requirements
 		size_t dest_len = YENC_MAX_SIZE(arg_len, line_size);
 		result = (unsigned char*) malloc(dest_len);
 	}
+#endif
 	
 	size_t len = encode(line_size, &col, (const unsigned char*)node::Buffer::Data(args[0]), result, arg_len, false);
 	
 	SET_OBJ(ret, "written", Integer::New(ISOLATE len));
+#ifndef YENC_NO_EXTERNAL_BUFFER
 	if(allocResult) {
 		result = (unsigned char*)realloc(result, len);
 		SET_OBJ(ret, "output", NEW_BUFFER((char*)result, len, free_buffer, (void*)len));
 		MARK_EXT_MEM(len);
 	}
+#endif
 	SET_OBJ(ret, "col", Integer::New(ISOLATE col));
 	RETURN_VAL( ret );
 }
 
+#ifndef YENC_NO_EXTERNAL_BUFFER
 FUNC(Decode) {
 	FUNC_START;
 	
@@ -253,6 +263,7 @@ FUNC(Decode) {
 	MARK_EXT_MEM(len);
 	RETURN_VAL( NEW_BUFFER((char*)result, len, free_buffer, (void*)len) );
 }
+#endif
 
 FUNC(DecodeTo) {
 	FUNC_START;
@@ -301,6 +312,10 @@ FUNC(DecodeIncr) {
 		}
 	}
 	
+#ifdef YENC_NO_EXTERNAL_BUFFER
+	if(allocResult) RETURN_ERROR("Destination buffer must be supplied as buffer allocation isn't enabled in this build");
+#endif
+	
 	const unsigned char* src = (const unsigned char*)node::Buffer::Data(args[0]);
 	const unsigned char* sp = src;
 #ifdef DBG_ALIGN_SOURCE
@@ -309,11 +324,15 @@ FUNC(DecodeIncr) {
 	sp = (const unsigned char*)newSrc;
 #endif
 	
+#ifndef YENC_NO_EXTERNAL_BUFFER
 	if(allocResult) result = (unsigned char*) malloc(arg_len);
+#endif
 	unsigned char* dp = result;
 	YencDecoderEnd ended = RapidYenc::decode_end((const void**)&sp, (void**)&dp, arg_len, &state);
 	size_t len = dp - result;
+#ifndef YENC_NO_EXTERNAL_BUFFER
 	if(allocResult) result = (unsigned char*)realloc(result, len);
+#endif
 	
 #ifdef DBG_ALIGN_SOURCE
 	free(newSrc);
@@ -322,10 +341,12 @@ FUNC(DecodeIncr) {
 	Local<Object> ret = NEW_OBJECT;
 	SET_OBJ(ret, "read", Integer::New(ISOLATE sp - src));
 	SET_OBJ(ret, "written", Integer::New(ISOLATE len));
+#ifndef YENC_NO_EXTERNAL_BUFFER
 	if(allocResult) {
 		SET_OBJ(ret, "output", NEW_BUFFER((char*)result, len, free_buffer, (void*)len));
 		MARK_EXT_MEM(len);
 	}
+#endif
 	SET_OBJ(ret, "ended", Integer::New(ISOLATE (int)ended));
 	SET_OBJ(ret, "state", Integer::New(ISOLATE state));
 	RETURN_VAL( ret );
@@ -468,10 +489,12 @@ void yencode_init(
 )
 #endif
 {
+#ifndef YENC_NO_EXTERNAL_BUFFER
 	NODE_SET_METHOD(exports, "encode", Encode);
+	NODE_SET_METHOD(exports, "decode", Decode);
+#endif
 	NODE_SET_METHOD(exports, "encodeTo", EncodeTo);
 	NODE_SET_METHOD(exports, "encodeIncr", EncodeIncr);
-	NODE_SET_METHOD(exports, "decode", Decode);
 	NODE_SET_METHOD(exports, "decodeTo", DecodeTo);
 	NODE_SET_METHOD(exports, "decodeIncr", DecodeIncr);
 	NODE_SET_METHOD(exports, "crc32", CRC32);

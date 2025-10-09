@@ -3,6 +3,7 @@
 var y = require('./build/Release/yencode.node');
 
 var toBuffer = Buffer.alloc ? Buffer.from : Buffer;
+var allocBuffer = (Buffer.allocUnsafe || Buffer);
 var bufferSlice = Buffer.prototype.readBigInt64BE ? Buffer.prototype.subarray : Buffer.prototype.slice;
 
 var nl = toBuffer([13, 10]);
@@ -125,9 +126,17 @@ var propIsNotValidNumber = function(prop) {
 module.exports = {
 	encoding: 'utf8',
 	
-	encode: y.encode,
+	encode: y.encode || function(data, line_size, column_offset) {
+		var buffer = allocBuffer(module.exports.maxSize(data.length, line_size));
+		var length = y.encodeTo(data, buffer, line_size, column_offset);
+		return bufferSlice.call(buffer, 0, length);
+	},
 	encodeTo: y.encodeTo,
-	decode: y.decode,
+	decode: y.decode || function(data, stripDots) {
+		var buffer = allocBuffer(data.length);
+		var length = y.decodeTo(data, buffer, stripDots);
+		return bufferSlice.call(buffer, 0, length);
+	},
 	decodeTo: y.decodeTo,
 	
 	decodeChunk: function(data, output, prev) {
@@ -157,7 +166,13 @@ module.exports = {
 			}
 			if(state < 0) state = decodePrev.indexOf('');
 		}
-		var ret = y.decodeIncr(data, state, output);
+		var ret;
+		if(!output && !y.decode) {
+			output = allocBuffer(data.length);
+			ret = y.decodeIncr(data, state, output);
+			ret.output = bufferSlice.call(output, 0, ret.written);
+		} else
+			ret = y.decodeIncr(data, state, output);
 		
 		return {
 			read: ret.read,
@@ -325,7 +340,7 @@ module.exports = {
 			warnings.push(DecoderWarning('size_mismatch', 'Size specified for part exceeds size specified for whole file'));
 		
 		if(ret.dataStart) {
-			ret.data = y.decode(bufferSlice.call(data, ret.dataStart, ret.dataEnd), !!isRaw);
+			ret.data = module.exports.decode(bufferSlice.call(data, ret.dataStart, ret.dataEnd), !!isRaw);
 			ret.crc32 = y.crc32(ret.data);
 			var hexCrc = ret.crc32.toString('hex');
 			
@@ -407,7 +422,7 @@ YEncoder.prototype = {
 			toBuffer('=ybegin part='+this.part),
 			yInfo,
 			toBuffer('=ypart begin='+( this.pos+1 )+' end='+end+'\r\n'),
-			y.encode(data, this.line_size),
+			module.exports.encode(data, this.line_size),
 			toBuffer('\r\n=yend size='+data.length+' part='+this.part+' pcrc32='+crc.toString('hex')+fullCrc)
 		]);
 		
@@ -430,7 +445,7 @@ YEncoder.prototype = {
 		this.yInfo = null;
 		return Buffer.concat([
 			yInfo,
-			y.encode(data, this.line_size),
+			module.exports.encode(data, this.line_size),
 			toBuffer('\r\n=yend size='+data.length+' crc32=' + this.crc.toString('hex'))
 		]);
 	}
