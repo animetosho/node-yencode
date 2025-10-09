@@ -214,13 +214,17 @@ module.exports = {
 		if(!Buffer.isBuffer(data)) data = toBuffer(data);
 		
 		filename = toBuffer(filename.replace(RE_BADCHAR, '').substring(0, 256), exports.encoding);
-		var e = encodeCrc(data, line_size);
-		return Buffer.concat([
-			toBuffer('=ybegin line='+line_size+' size='+data.length+' name='),
-			filename, nl,
-			e.output,
-			toBuffer('\r\n=yend size='+data.length+' crc32=' + e.crc32.toString('hex'))
-		]);
+		
+		var yBegin = '=ybegin line='+line_size+' size='+data.length+' name=';
+		var yEnd = '\r\n=yend size='+data.length+' crc32=';
+		var ret = allocBuffer(yBegin.length + filename.length + 2 + module.exports.maxSize(data.length, line_size) + yEnd.length + 8);
+		
+		var writePos = ret.write(yBegin);
+		writePos += filename.copy(ret, writePos);
+		writePos += nl.copy(ret, writePos);
+		writePos += y.encodeTo(data, bufferSlice.call(ret, writePos), line_size);
+		writePos += ret.write(yEnd + y.crc32(data).toString('hex'), writePos);
+		return bufferSlice.call(ret, 0, writePos);
 	},
 	multi_post: function(filename, size, parts, line_size) {
 		return new YEncoder(filename, size, parts, line_size);
@@ -418,16 +422,19 @@ YEncoder.prototype = {
 			this.yInfo = null;
 		}
 		
-		var ret = Buffer.concat([
-			toBuffer('=ybegin part='+this.part),
-			yInfo,
-			toBuffer('=ypart begin='+( this.pos+1 )+' end='+end+'\r\n'),
-			module.exports.encode(data, this.line_size),
-			toBuffer('\r\n=yend size='+data.length+' part='+this.part+' pcrc32='+crc.toString('hex')+fullCrc)
-		]);
+		var yBegin = '=ybegin part='+this.part;
+		var yPart = '=ypart begin='+( this.pos+1 )+' end='+end+'\r\n';
+		var yEnd = '\r\n=yend size='+data.length+' part='+this.part+' pcrc32='+crc.toString('hex')+fullCrc;
+		var ret = allocBuffer(yBegin.length + yInfo.length + yPart.length + module.exports.maxSize(data.length, this.line_size) + yEnd.length);
+		
+		var writePos = ret.write(yBegin);
+		writePos += yInfo.copy(ret, writePos);
+		writePos += ret.write(yPart, writePos);
+		writePos += y.encodeTo(data, bufferSlice.call(ret, writePos), this.line_size);
+		writePos += ret.write(yEnd, writePos);
 		
 		this.pos = end;
-		return ret;
+		return bufferSlice.call(ret, 0, writePos);
 	},
 	
 	_encodeSingle: function(data) {
@@ -443,10 +450,12 @@ YEncoder.prototype = {
 		
 		var yInfo = this.yInfo;
 		this.yInfo = null;
-		return Buffer.concat([
-			yInfo,
-			module.exports.encode(data, this.line_size),
-			toBuffer('\r\n=yend size='+data.length+' crc32=' + this.crc.toString('hex'))
-		]);
+		
+		var tail = '\r\n=yend size='+data.length+' crc32=' + this.crc.toString('hex');
+		var ret = allocBuffer(yInfo.length + module.exports.maxSize(data.length, this.line_size) + tail.length);
+		var writePos = yInfo.copy(ret);
+		writePos += y.encodeTo(data, bufferSlice.call(ret, writePos), this.line_size);
+		writePos += ret.write(tail, writePos);
+		return bufferSlice.call(ret, 0, writePos);
 	}
 };
