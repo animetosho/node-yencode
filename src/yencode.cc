@@ -13,6 +13,11 @@
 using namespace v8;
 using namespace RapidYenc;
 
+#ifdef V8_ENABLE_SANDBOX
+// V8 Memory Cage is enabled - no external buffers allowed
+# define YENC_NO_EXTERNAL_BUFFER 1
+#endif
+
 static void free_buffer(char* data, void* _size) {
 #if !NODE_VERSION_AT_LEAST(0, 11, 0)
 	int size = (int)(size_t)_size;
