@@ -37,6 +37,11 @@ jobs:
         with:
           python-version: '2.7'
         if: ${{ matrix.python2 }}
+      # older GYP issuing 'rU' open mode, removed in Python 3.11
+      - uses: MatteoH2O1999/setup-python@v3
+        with:
+          python-version: '3.9'
+        if: ${{ matrix.python2 }}
       - uses: actions/setup-node@v3
         with:
           node-version: ${{ matrix.version }}
@@ -90,10 +95,8 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: sudo apt update
-      - uses: petarpetrovt/setup-sde@v2.2
+      - uses: petarpetrovt/setup-sde@v3.0
         if: ${{ matrix.t.arch == 'amd64' || matrix.t.arch == 'i386' }}
-      - run: sudo apt install -y qemu-user-static
-        if: ${{ matrix.t.arch != 'amd64' && matrix.t.arch != 'i386' }}
       - run: |
           sudo apt install -y g++-${{ matrix.cc_ver }}-${{ matrix.t.target }}
           echo "CC=${{ matrix.t.target }}-gcc-${{ matrix.cc_ver }}" >> $GITHUB_ENV
@@ -105,7 +108,16 @@ jobs:
           echo "CXX=g++-${{ matrix.cc_ver }}" >> $GITHUB_ENV
         if: ${{ matrix.t.arch == 'amd64' }}
       - run: |
-          wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
+          echo -e "deb http://azure.archive.ubuntu.com/ubuntu mantic main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/mantic.list
+          sudo apt update
+        if: ${{ matrix.t.arch == 'riscv64' || matrix.t.arch == 'riscv32' }}  # RVV unavailable in Ubuntu 22.04's qemu
+      - run: sudo apt install -y qemu-user-static
+        if: ${{ matrix.t.arch != 'amd64' && matrix.t.arch != 'i386' }}
+      - run: wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
+        if: ${{ matrix.t.arch != 'riscv64' && matrix.t.arch != 'riscv32' }}
+      - run: wget https://unofficial-builds.nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
+        if: ${{ matrix.t.arch == 'riscv64' || matrix.t.arch == 'riscv32' }}
+      - run: |
           tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           mv node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }} n
       - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.t.gyparch }} --target=v${{ matrix.node_ver }} --openssl_fips='' --enable_native_tuning=0
@@ -148,10 +160,8 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: sudo apt update && sudo apt install -y clang-${{ matrix.cc_ver }}
-      - uses: petarpetrovt/setup-sde@v2.2
+      - uses: petarpetrovt/setup-sde@v3.0
         if: ${{ matrix.t.arch == 'amd64' || matrix.t.arch == 'i386' }}
-      - run: sudo apt install -y qemu-user-static
-        if: ${{ matrix.t.arch != 'amd64' && matrix.t.arch != 'i386' }}
       - run: sudo apt install -y binutils-${{ matrix.t.target }} libgcc-12-dev-${{ matrix.t.libc }}-cross libstdc++-12-dev-${{ matrix.t.libc }}-cross
         if: ${{ matrix.t.arch != 'amd64' }}
       - run: |
@@ -165,7 +175,16 @@ jobs:
             sed -i 's/"target_defaults": [{]/"target_defaults": { "libraries!":["-lnode"],/' binding.gyp
           fi
       - run: |
-          wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
+          echo -e "deb http://azure.archive.ubuntu.com/ubuntu mantic main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/mantic.list
+          sudo apt update
+        if: ${{ matrix.t.arch == 'riscv64' || matrix.t.arch == 'riscv32' }}  # RVV unavailable in Ubuntu 22.04's qemu
+      - run: sudo apt install -y qemu-user-static
+        if: ${{ matrix.t.arch != 'amd64' && matrix.t.arch != 'i386' }}
+      - run: wget https://nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
+        if: ${{ matrix.t.arch != 'riscv64' && matrix.t.arch != 'riscv32' }}
+      - run: wget https://unofficial-builds.nodejs.org/download/release/v${{ matrix.node_ver }}/node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
+        if: ${{ matrix.t.arch == 'riscv64' || matrix.t.arch == 'riscv32' }}
+      - run: |
           tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           mv node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }} n
       - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.t.gyparch }} --target=v${{ matrix.node_ver }} --openssl_fips='' --enable_native_tuning=0
