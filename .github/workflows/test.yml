@@ -46,7 +46,7 @@ jobs:
         with:
           node-version: ${{ matrix.version }}
       - uses: actions/checkout@v3
-      - run: npx node-gyp@${{ matrix.gyp_ver }} rebuild --target=v${{ matrix.version }}
+      - run: npx node-gyp@${{ matrix.gyp_ver }} rebuild --target=v${{ matrix.version }} -v
       - uses: ./.github/actions/run_tests
         with:
           node: node ${{ matrix.flags }}
@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        win_ver: [2019, 2022]  # correlates with MSVC version
+        win_ver: [2022]  # correlates with MSVC version
         arch: [x86, x64]
     name: Test on Windows ${{ matrix.win_ver }}, MSVC ${{ matrix.arch }}
     runs-on: windows-${{ matrix.win_ver }}
@@ -66,7 +66,7 @@ jobs:
           architecture: ${{ matrix.arch }}
           node-version: '20.11.0'
       # TODO: consider SDE
-      - run: npx node-gyp rebuild --arch=${{ matrix.arch }} --target=v20.11.0
+      - run: npx node-gyp rebuild --arch=${{ matrix.arch }} --target=v20.11.0 -v
         if: ${{ matrix.arch != 'x86' }}
       - run: npx node-gyp rebuild --arch=ia32 --target=v20.11.0
         if: ${{ matrix.arch == 'x86' }}
@@ -79,7 +79,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
-      - run: npx node-gyp rebuild
+      - run: npx node-gyp rebuild -v
       - uses: ./.github/actions/run_tests
   
   test-gcc:
@@ -128,7 +128,7 @@ jobs:
       - run: |
           tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           mv node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }} n
-      - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.t.gyparch }} --target=v${{ matrix.node_ver }} --openssl_fips='' --enable_native_tuning=0
+      - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.t.gyparch }} --target=v${{ matrix.node_ver }} --openssl_fips='' --enable_native_tuning=0 -v
       - uses: ./.github/actions/run_tests
         with:
           node: ${{ matrix.t.emu }} n/bin/node
@@ -195,7 +195,7 @@ jobs:
       - run: |
           tar -Jxf node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }}.tar.xz
           mv node-v${{ matrix.node_ver }}-linux-${{ matrix.t.nodearch }} n
-      - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.t.gyparch }} --target=v${{ matrix.node_ver }} --openssl_fips='' --enable_native_tuning=0
+      - run: npx node-gyp@8.4.1 rebuild --arch=${{ matrix.t.gyparch }} --target=v${{ matrix.node_ver }} --openssl_fips='' --enable_native_tuning=0 -v
       - uses: ./.github/actions/run_tests
         with:
           node: ${{ matrix.t.emu }} n/bin/node
