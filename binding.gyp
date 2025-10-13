@@ -11,7 +11,7 @@
       }],
       ['OS!="win" and enable_native_tuning!=0', {
         "variables": {
-          "supports_native%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/common.h -march=native 2>/dev/null || true)"
+          "supports_native%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -w -c -x c++ src/common.h -march=native -o /dev/null 2>/dev/null && echo success || true)"
         },
         "conditions": [
           ['supports_native!=""', {
