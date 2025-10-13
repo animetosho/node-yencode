@@ -74,6 +74,14 @@ jobs:
   
   #MSVC ARM?
   
+  test-mac-arm:
+    name: Test on MacOS ARM
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: npx node-gyp rebuild
+      - uses: ./.github/actions/run_tests
+  
   test-gcc:
     strategy:
       fail-fast: false
