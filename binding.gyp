@@ -20,7 +20,8 @@
             "xcode_settings": {
               "OTHER_CFLAGS": ["-march=native"],
               "OTHER_CXXFLAGS": ["-march=native"],
-            }
+            },
+            "defines": ["YENC_BUILD_NATIVE=1"]
           }]
         ]
       }],
@@ -44,9 +45,6 @@
       }],
       ['disable_crcutil!=0', {
         "defines": ["YENC_DISABLE_CRCUTIL=1"]
-      }],
-      ['OS!="win" and enable_native_tuning!=0', {
-        "defines": ["YENC_BUILD_NATIVE=1"]
       }],
       ['OS!="win"', {
         "variables": {
