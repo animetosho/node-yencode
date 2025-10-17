@@ -1,6 +1,6 @@
 {
   "name": "yencode",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "SIMD accelerated yEnc encoder/decoder and CRC32 calculator",
   "keywords": [
     "yenc",
@@ -18,12 +18,20 @@
     "node": ">=0.10"
   },
   "scripts": {
-    "install": "node-gyp rebuild"
+    "install": "node-gyp-build",
+    "prebuild": "prebuildify --napi --strip",
+    "prebuild-ia32": "prebuildify --napi --strip --arch=ia32"
   },
   "gypfile": true,
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/animetosho/node-yencode/issues"
+  },
+  "dependencies": {
+    "node-gyp-build": "^4.2.0"
+  },
+  "devDependencies": {
+    "prebuildify": "^6.0.1"
   },
   "homepage": "https://animetosho.org/app/node-yencode"
 }
