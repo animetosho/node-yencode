@@ -2,14 +2,15 @@
   "variables": {
     "enable_native_tuning%": 1,
     "disable_avx256%": 0,
-    "disable_crcutil%": 0
+    "disable_crcutil%": 0,
+    "built_with_electron%": 0
   },
   "target_defaults": {
     "conditions": [
       ['target_arch=="ia32"', {
         "msvs_settings": {"VCCLCompilerTool": {"EnableEnhancedInstructionSet": "2"}}
       }],
-      ['OS!="win" and enable_native_tuning!=0 and target_arch==host_arch', {
+      ['OS!="win" and enable_native_tuning!=0 and target_arch==host_arch and (built_with_electron==0 or host_arch!="x64")', {
         "variables": {
           "supports_native%": "<!(<!(echo ${CXX_target:-${CXX:-c++}}) -MM -E src/common.h -march=native 2>/dev/null || true)"
         },
