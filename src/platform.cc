@@ -1,8 +1,6 @@
 #include "common.h"
 #ifdef PLATFORM_ARM
-# ifdef __ANDROID__
-#  include <cpu-features.h>
-# elif defined(_WIN32)
+# if defined(_WIN32)
 #  define WIN32_LEAN_AND_MEAN
 #  define NOMINMAX
 #  include <Windows.h>
@@ -15,6 +13,9 @@
 #   if __has_include(<asm/hwcap.h>)
 #    include <asm/hwcap.h>
 #   endif
+#  endif
+#  if defined(__ANDROID__) && __has_include(<cpu-features.h>)
+#   include <cpu-features.h>
 #  endif
 # endif
 bool RapidYenc::cpu_supports_neon() {
