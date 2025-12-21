@@ -1,6 +1,6 @@
 "use strict";
 
-var y = require('./build/Release/yencode.node');
+var y = require('node-gyp-build')(__dirname);
 
 var toBuffer = Buffer.alloc ? Buffer.from : Buffer;
 var allocBuffer = (Buffer.allocUnsafe || Buffer);
