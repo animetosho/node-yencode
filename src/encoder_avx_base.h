@@ -6,12 +6,6 @@
 #include "encoder_common.h"
 #define YMM_SIZE 32
 
-#if (defined(__GNUC__) && __GNUC__ >= 7) || (defined(_MSC_VER) && _MSC_VER >= 1924)
-# define KLOAD32(a, offs) _load_mask32((__mmask32*)(a) + (offs))
-#else
-# define KLOAD32(a, offs) (((uint32_t*)(a))[(offs)])
-#endif
-
 #pragma pack(16)
 static struct {
 	uint32_t eolLastChar[256];
@@ -20,7 +14,6 @@ static struct {
 } * HEDLEY_RESTRICT lookupsAVX2;
 static struct {
 	uint32_t eolLastChar[256];
-	uint32_t expand[65536]; // biggish 256KB table (but still smaller than the 2MB table)
 } * HEDLEY_RESTRICT lookupsVBMI2;
 #pragma pack()
 
@@ -33,21 +26,8 @@ static inline void fill_eolLastChar(uint32_t* table) {
 template<enum YEncDecIsaLevel use_isa>
 static void encoder_avx2_lut() {
 	if(use_isa >= ISA_LEVEL_VBMI2) {
-		ALIGN_ALLOC(lookupsVBMI2, sizeof(*lookupsVBMI2), 32);
+		ALIGN_ALLOC(lookupsVBMI2, sizeof(*lookupsVBMI2), 8);
 		fill_eolLastChar(lookupsVBMI2->eolLastChar);
-		for(int i=0; i<65536; i++) {
-			int k = i;
-			uint32_t expand = 0;
-			int p = 0;
-			for(int j=0; j<16; j++) {
-				if(k & 1) {
-					p++;
-				}
-				expand |= 1<<(j+p);
-				k >>= 1;
-			}
-			lookupsVBMI2->expand[i] = expand;
-		}
 	} else {
 		ALIGN_ALLOC(lookupsAVX2, sizeof(*lookupsAVX2), 32);
 		fill_eolLastChar(lookupsAVX2->eolLastChar);
@@ -179,28 +159,46 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 		if (LIKELIHOOD(0.170, (maskBitsA|maskBitsB) > 1)) {
 			_encode_loop_branch_slow:
 			unsigned int m1 = maskA & 0xffff, m3 = maskB & 0xffff;
-			unsigned int m2, m4;
 			__m256i data1A, data2A;
 			__m256i data1B, data2B;
 			__m256i shuf1A, shuf1B; // not set in VBMI2 path
 			__m256i shuf2A, shuf2B; // not set in VBMI2 path
 			
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
+# ifdef PLATFORM_AMD64
+			const uint64_t ALT_BITS = 0xaaaaaaaaaaaaaaaa;
+			uint64_t eqMaskA, eqMaskB;
+# else
+			const uint32_t ALT_BITS = 0xaaaaaaaa;
+# endif
+#endif
+			
+#if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 			if(use_isa >= ISA_LEVEL_VBMI2) {
-				m2 = maskA >> 16;
-				m4 = maskB >> 16;
+# ifdef PLATFORM_AMD64
+				uint64_t expandMaskA = _pdep_u64(maskA, ~ALT_BITS) | ALT_BITS;
+				uint64_t expandMaskB = _pdep_u64(maskB, ~ALT_BITS) | ALT_BITS;
+				eqMaskA = _pext_u64(ALT_BITS, expandMaskA);
+				eqMaskB = _pext_u64(ALT_BITS, expandMaskB);
 				
-				/* alternative no-LUT strategy
-				uint64_t expandMaskA = ~_pdep_u64(~maskA, 0x5555555555555555); // expand bits, with bits set
-				expandMaskA = _pext_u64(expandMaskA^0x5555555555555555, expandMaskA);
-				*/
+				// _pext_u32 is ideal here, but compiler can't reason that ALT_BITS constant can be re-used; _pext_u64 is a workaround
+				__mmask32 xm1 = eqMaskA;
+				__mmask32 xm2 = _pext_u64(ALT_BITS, expandMaskA >> 32);
+				__mmask32 xm3 = eqMaskB;
+				__mmask32 xm4 = _pext_u64(ALT_BITS, expandMaskB >> 32);
+# else
+				__mmask32 xm1 = _pext_u32(ALT_BITS, _pdep_u32(m1, ~ALT_BITS) | ALT_BITS);
+				__mmask32 xm2 = _pext_u32(ALT_BITS, _pdep_u32(maskA >> 16, ~ALT_BITS) | ALT_BITS);
+				__mmask32 xm3 = _pext_u32(ALT_BITS, _pdep_u32(m3, ~ALT_BITS) | ALT_BITS);
+				__mmask32 xm4 = _pext_u32(ALT_BITS, _pdep_u32(maskB >> 16, ~ALT_BITS) | ALT_BITS);
+# endif
 				
-				data1A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expand, m1), dataA);
-				data2A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expand, m2), _mm256_castsi128_si256(
+				data1A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), xm1, dataA);
+				data2A = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), xm2, _mm256_castsi128_si256(
 					_mm256_extracti128_si256(dataA, 1)
 				));
-				data1B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expand, m3), dataB);
-				data2B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), KLOAD32(lookupsVBMI2->expand, m4), _mm256_castsi128_si256(
+				data1B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), xm3, dataB);
+				data2B = _mm256_mask_expand_epi8(_mm256_set1_epi8('='), xm4, _mm256_castsi128_si256(
 					_mm256_extracti128_si256(dataB, 1)
 				));
 			} else
@@ -211,8 +209,8 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 					dataB = _mm256_add_epi8(dataB, _mm256_blendv_epi8(_mm256_set1_epi8(42), _mm256_set1_epi8(42+64), cmpB));
 				}
 				
-				m2 = (maskA >> 11) & 0x1fffe0;
-				m4 = (maskB >> 11) & 0x1fffe0;
+				unsigned int m2 = (maskA >> 11) & 0x1fffe0;
+				unsigned int m4 = (maskB >> 11) & 0x1fffe0;
 				
 				// duplicate halves
 				data1A = _mm256_inserti128_si256(dataA, _mm256_castsi256_si128(dataA), 1);
@@ -258,36 +256,44 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				uint64_t eqMask;
 				int shiftAmt = (int)(maskBitsB + YMM_SIZE -1 - col);
 				if(HEDLEY_UNLIKELY(shiftAmt < 0)) {
-					uint32_t eqMask1, eqMask2;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 					if(use_isa >= ISA_LEVEL_VBMI2) {
-						eqMask1 = lookupsVBMI2->expand[m1];
-						eqMask2 = lookupsVBMI2->expand[m2];
+# ifdef PLATFORM_AMD64
+						eqMask = eqMaskA;
+# else
+						uint32_t eqMask1 = _pext_u32(ALT_BITS, _pdep_u32(m1, ~ALT_BITS) | ALT_BITS);
+						uint32_t eqMask2 = _pext_u32(ALT_BITS, _pdep_u32(maskA >> 16, ~ALT_BITS) | ALT_BITS);
+						eqMask = eqMask1 | ((uint64_t)eqMask2 << shuf1Len);
+# endif
 					} else
 #endif
 					{
-						eqMask1 = (uint32_t)_mm256_movemask_epi8(shuf1A);
-						eqMask2 = (uint32_t)_mm256_movemask_epi8(shuf2A);
+						uint32_t eqMask1 = (uint32_t)_mm256_movemask_epi8(shuf1A);
+						uint32_t eqMask2 = (uint32_t)_mm256_movemask_epi8(shuf2A);
+						eqMask = eqMask1 | ((uint64_t)eqMask2 << shuf1Len);
 					}
-					eqMask = eqMask1 | ((uint64_t)eqMask2 << shuf1Len);
 					if(use_isa < ISA_LEVEL_VBMI2)
 						i += (uintptr_t)maskBitsB;
 					else
 						i -= YMM_SIZE;
 					shiftAmt += outputBytesA;
 				} else {
-					uint32_t eqMask3, eqMask4;
 #if defined(__AVX512VBMI2__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 					if(use_isa >= ISA_LEVEL_VBMI2) {
-						eqMask3 = lookupsVBMI2->expand[m3];
-						eqMask4 = lookupsVBMI2->expand[m4];
+# ifdef PLATFORM_AMD64
+						eqMask = eqMaskB;
+# else
+						uint32_t eqMask3 = _pext_u32(ALT_BITS, _pdep_u32(m3, ~ALT_BITS) | ALT_BITS);
+						uint32_t eqMask4 = _pext_u32(ALT_BITS, _pdep_u32(maskB >> 16, ~ALT_BITS) | ALT_BITS);
+						eqMask = eqMask3 | ((uint64_t)eqMask4 << shuf3Len);
+# endif
 					} else
 #endif
 					{
-						eqMask3 = (uint32_t)_mm256_movemask_epi8(shuf1B);
-						eqMask4 = (uint32_t)_mm256_movemask_epi8(shuf2B);
+						uint32_t eqMask3 = (uint32_t)_mm256_movemask_epi8(shuf1B);
+						uint32_t eqMask4 = (uint32_t)_mm256_movemask_epi8(shuf2B);
+						eqMask = eqMask3 | ((uint64_t)eqMask4 << shuf3Len);
 					}
-					eqMask = eqMask3 | ((uint64_t)eqMask4 << shuf3Len);
 				}
 				
 #if defined(__GNUC__) && defined(PLATFORM_AMD64)

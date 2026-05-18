@@ -295,14 +295,12 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				
 				/* alternative no-LUT 64-bit only version
 				 * LUT generally seems to be faster though
-				//uint64_t expandMask = _pdep_u64(mask, 0x5555555555555555); // expand bits
-				//expandMask = ~_pext_u64(expandMask, expandMask|~0x5555555555555555);
-				uint64_t expandMask = ~_pdep_u64(~mask, 0x5555555555555555); // expand bits, with bits set
-				expandMask = _pext_u64(expandMask^0x5555555555555555, expandMask);
-				data2A = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandMask>>16, _mm_srli_si128(dataA, 8));
-				data1A = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandMask    , dataA);
-				data2B = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandMask>>48, _mm_srli_si128(dataB, 8));
-				data1B = _mm_mask_expand_epi8(_mm_set1_epi8('='), expandMask>>32, dataB);
+				const uint64_t ALT_BITS = 0xaaaaaaaaaaaaaaaa;
+				uint64_t expandMask = _pdep_u64(mask, ~ALT_BITS) | ALT_BITS;
+				data2A = _mm_mask_expand_epi8(_mm_set1_epi8('='), _pext_u64(ALT_BITS, expandMask>>16), _mm_srli_si128(dataA, 8));
+				data1A = _mm_mask_expand_epi8(_mm_set1_epi8('='), _pext_u64(ALT_BITS, expandMask    ), dataA);
+				data2B = _mm_mask_expand_epi8(_mm_set1_epi8('='), _pext_u64(ALT_BITS, expandMask>>48), _mm_srli_si128(dataB, 8));
+				data1B = _mm_mask_expand_epi8(_mm_set1_epi8('='), _pext_u64(ALT_BITS, expandMask>>32), dataB);
 				*/
 				data2A = _mm_mask_expand_epi8(_mm_set1_epi8('='), KLOAD16(lookups->expandMask, m2), _mm_srli_si128(dataA, 8));
 				data1A = _mm_mask_expand_epi8(_mm_set1_epi8('='), KLOAD16(lookups->expandMask, m1), dataA);
