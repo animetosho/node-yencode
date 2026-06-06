@@ -6,7 +6,6 @@ namespace RapidYenc {
 	void decoder_set_avx_funcs();
 	void decoder_set_avx2_funcs();
 	void decoder_set_vbmi2_funcs();
-	extern const bool decoder_has_avx10;
 	void decoder_set_neon_funcs();
 	void decoder_set_rvv_funcs();
 	

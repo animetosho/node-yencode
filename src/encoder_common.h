@@ -7,7 +7,6 @@ namespace RapidYenc {
 	void encoder_avx_init();
 	void encoder_avx2_init();
 	void encoder_vbmi2_init();
-	extern const bool encoder_has_avx10;
 	void encoder_neon_init();
 	void encoder_rvv_init();
 	

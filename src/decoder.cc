@@ -406,7 +406,7 @@ void RapidYenc::decoder_init() {
 	decoder_set_native_funcs();
 # else
 	int use_isa = cpu_supports_isa();
-	if(use_isa >= ISA_LEVEL_VBMI2 && (decoder_has_avx10 || (use_isa & ISA_FEATURE_EVEX512)))
+	if(use_isa >= ISA_LEVEL_VBMI2)
 		decoder_set_vbmi2_funcs();
 	else if(use_isa >= ISA_LEVEL_AVX2)
 		decoder_set_avx2_funcs();
