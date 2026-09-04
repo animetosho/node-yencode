@@ -175,16 +175,19 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 		uint8_t c = es[i++];
 		if(col == 0) {
 			uint32_t eolChar = lookups->eolLastChar[c];
-			*(uint32_t*)p = eolChar;
+			memcpy(p, &eolChar, sizeof(eolChar));
 			p += 3 + (eolChar>>27);
 			col = -line_size+1;
 		} else {
+			uint32_t w;
 			if (LIKELIHOOD(0.0273, escapedLUT[c]!=0)) {
-				*(uint32_t*)p = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+				w = UINT32_16_PACK(UINT16_PACK('\r', '\n'), (uint32_t)escapedLUT[c]);
+				memcpy(p, &w, sizeof(w));
 				p += 4;
 				col = 2-line_size + 1;
 			} else {
-				*(uint32_t*)p = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+				w = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+				memcpy(p, &w, sizeof(w));
 				p += 3;
 				col = 2-line_size;
 			}
@@ -193,7 +196,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 	if (HEDLEY_LIKELY(col == -line_size+1)) {
 		uint8_t c = es[i++];
 		if (LIKELIHOOD(0.0273, escapedLUT[c] != 0)) {
-			*(uint16_t*)p = escapedLUT[c];
+			memcpy(p, escapedLUT + c, 2);
 			p += 2;
 			col += 2;
 		} else {
@@ -620,7 +623,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_sse(int line_size, int* colOffset, const uin
 				
 				_encode_eol_handle_pre:
 				uint32_t eolChar = lookups->eolLastChar[es[i]];
-				*(uint32_t*)p = eolChar;
+				memcpy(p, &eolChar, sizeof(eolChar));
 				p += 3 + (eolChar>>27);
 				col = lineSizeOffset;
 				
