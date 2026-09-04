@@ -1,4 +1,5 @@
 #include "decoder.h"
+#include <string.h>
 
 namespace RapidYenc {
 	void decoder_set_sse2_funcs();
@@ -21,6 +22,12 @@ namespace RapidYenc {
 // TODO: need to support max output length somehow
 
 
+template<typename T>
+static inline T load_unaligned(const void* p) {
+	T v;
+	memcpy(&v, p, sizeof(T));
+	return v;
+}
 
 template<bool isRaw, bool searchEnd, void(&kernel)(const uint8_t*, long&, unsigned char*&, unsigned char&, uint16_t&)>
 static inline RapidYenc::YencDecoderEnd _do_decode_simd(size_t width, const unsigned char** src, unsigned char** dest, size_t len, RapidYenc::YencDecoderState* state) {
@@ -52,50 +59,50 @@ static inline RapidYenc::YencDecoderEnd _do_decode_simd(size_t width, const unsi
 			case YDEC_STATE_CRLF:
 				if(isRaw && **src == '.') {
 					nextMask = 1;
-					if(searchEnd && *(uint16_t*)(*src +1) == UINT16_PACK('\r','\n')) {
+					if(searchEnd && load_unaligned<uint16_t>(*src +1) == UINT16_PACK('\r','\n')) {
 						(*src) += 3;
 						*pState = YDEC_STATE_CRLF;
 						return YDEC_END_ARTICLE;
 					}
-					if(searchEnd && *(uint16_t*)(*src +1) == UINT16_PACK('=','y')) {
+					if(searchEnd && load_unaligned<uint16_t>(*src +1) == UINT16_PACK('=','y')) {
 						(*src) += 3;
 						*pState = YDEC_STATE_NONE;
 						return YDEC_END_CONTROL;
 					}
 				}
-				else if(searchEnd && *(uint16_t*)(*src) == UINT16_PACK('=','y')) {
+				else if(searchEnd && load_unaligned<uint16_t>(*src) == UINT16_PACK('=','y')) {
 					(*src) += 2;
 					*pState = YDEC_STATE_NONE;
 					return YDEC_END_CONTROL;
 				}
 				break;
 			case YDEC_STATE_CR:
-				if(isRaw && *(uint16_t*)(*src) == UINT16_PACK('\n','.')) {
+				if(isRaw && load_unaligned<uint16_t>(*src) == UINT16_PACK('\n','.')) {
 					nextMask = 2;
-					if(searchEnd && *(uint16_t*)(*src +2) == UINT16_PACK('\r','\n')) {
+					if(searchEnd && load_unaligned<uint16_t>(*src +2) == UINT16_PACK('\r','\n')) {
 						(*src) += 4;
 						*pState = YDEC_STATE_CRLF;
 						return YDEC_END_ARTICLE;
 					}
-					if(searchEnd && *(uint16_t*)(*src +2) == UINT16_PACK('=','y')) {
+					if(searchEnd && load_unaligned<uint16_t>(*src +2) == UINT16_PACK('=','y')) {
 						(*src) += 4;
 						*pState = YDEC_STATE_NONE;
 						return YDEC_END_CONTROL;
 					}
 				}
-				else if(searchEnd && (*(uint32_t*)(*src) & 0xffffff) == UINT32_PACK('\n','=','y',0)) {
+				else if(searchEnd && (load_unaligned<uint32_t>(*src) & 0xffffff) == UINT32_PACK('\n','=','y',0)) {
 					(*src) += 3;
 					*pState = YDEC_STATE_NONE;
 					return YDEC_END_CONTROL;
 				}
 				break;
 			case YDEC_STATE_CRLFDT:
-				if(searchEnd && isRaw && *(uint16_t*)(*src) == UINT16_PACK('\r','\n')) {
+				if(searchEnd && isRaw && load_unaligned<uint16_t>(*src) == UINT16_PACK('\r','\n')) {
 					(*src) += 2;
 					*pState = YDEC_STATE_CRLF;
 					return YDEC_END_ARTICLE;
 				}
-				if(searchEnd && isRaw && *(uint16_t*)(*src) == UINT16_PACK('=','y')) {
+				if(searchEnd && isRaw && load_unaligned<uint16_t>(*src) == UINT16_PACK('=','y')) {
 					(*src) += 2;
 					*pState = YDEC_STATE_NONE;
 					return YDEC_END_CONTROL;
