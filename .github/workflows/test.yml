@@ -64,11 +64,11 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           architecture: ${{ matrix.arch }}
-          node-version: '20.11.0'
+          node-version: '24.15.0'
       # TODO: consider SDE
-      - run: npx node-gyp rebuild --arch=${{ matrix.arch }} --target=v20.11.0 -v
+      - run: npx node-gyp rebuild --arch=${{ matrix.arch }} --target=v24.15.0 -v
         if: ${{ matrix.arch != 'x86' }}
-      - run: npx node-gyp rebuild --arch=ia32 --target=v20.11.0
+      - run: npx node-gyp rebuild --arch=ia32 --target=v24.15.0
         if: ${{ matrix.arch == 'x86' }}
       - uses: ./.github/actions/run_tests
   
