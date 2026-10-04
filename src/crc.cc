@@ -207,7 +207,8 @@ namespace RapidYenc {
 #   if defined(__FreeBSD__) || defined(__OpenBSD__)
 static unsigned long getauxval(unsigned long cap) {
 	unsigned long ret;
-	elf_aux_info(cap, &ret, sizeof(ret));
+	if (elf_aux_info(cap, &ret, sizeof(ret)) != 0)
+		ret = 0;
 	return ret;
 }
 #   endif
