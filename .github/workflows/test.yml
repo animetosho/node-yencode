@@ -56,20 +56,22 @@ jobs:
       fail-fast: false
       matrix:
         win_ver: [2022]  # correlates with MSVC version
-        arch: [x86, x64]
-    name: Test on Windows ${{ matrix.win_ver }}, MSVC ${{ matrix.arch }}
+        arch:
+        - {a: x86, node: '22.23.3'} # node doesn't provide win32 builds in v23
+        - {a: x64, node: '24.15.0'}
+    name: Test on Windows ${{ matrix.win_ver }}, MSVC ${{ matrix.arch.a }}
     runs-on: windows-${{ matrix.win_ver }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
-          architecture: ${{ matrix.arch }}
-          node-version: '24.15.0'
+          architecture: ${{ matrix.arch.a }}
+          node-version: ${{ matrix.arch.node }}
       # TODO: consider SDE
-      - run: npx node-gyp rebuild --arch=${{ matrix.arch }} --target=v24.15.0 -v
-        if: ${{ matrix.arch != 'x86' }}
-      - run: npx node-gyp rebuild --arch=ia32 --target=v24.15.0
-        if: ${{ matrix.arch == 'x86' }}
+      - run: npx node-gyp rebuild --arch=${{ matrix.arch.a }} --target=v${{ matrix.arch.node }} -v
+        if: ${{ matrix.arch.a != 'x86' }}
+      - run: npx node-gyp rebuild --arch=ia32 --target=v${{ matrix.arch.node }}
+        if: ${{ matrix.arch.a == 'x86' }}
       - uses: ./.github/actions/run_tests
   
   #MSVC ARM?
