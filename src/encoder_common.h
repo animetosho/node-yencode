@@ -78,7 +78,7 @@ static size_t do_encode_simd(int line_size, int* colOffset, const unsigned char*
 				p += 4;
 				*colOffset = 2;
 			} else {
-				uint32_t w = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+				uint32_t w = UINT32_PACK('\r', '\n', (uint32_t)((c+42) & 0xff), 0);
 				memcpy(p, &w, sizeof(w));
 				p += 3;
 				*colOffset = 1;

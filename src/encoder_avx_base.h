@@ -106,7 +106,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_avx2(int line_size, int* colOffset, const ui
 				p += 4;
 				col = 2-line_size + 1;
 			} else {
-				w = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+				w = UINT32_PACK('\r', '\n', (uint32_t)((c+42) & 0xff), 0);
 				memcpy(p, &w, sizeof(w));
 				p += 3;
 				col = 2-line_size;

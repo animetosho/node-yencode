@@ -296,7 +296,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_neon(int line_size, int* colOffset, const ui
 				p += 4;
 				col = 2-line_size + 1;
 			} else {
-				uint32_t v = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+				uint32_t v = UINT32_PACK('\r', '\n', (uint32_t)((c+42) & 0xff), 0);
 				memcpy(p, &v, sizeof(v));
 				p += 3;
 				col = 2-line_size;

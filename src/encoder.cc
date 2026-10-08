@@ -122,7 +122,7 @@ size_t RapidYenc::do_encode_generic(int line_size, int* colOffset, const unsigne
 			col = 2;
 		} else {
 			// another option may be to just write the EOL and let the first char be handled by the faster methods above, but it appears that writing the extra byte here is generally faster...
-			uint32_t w = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+			uint32_t w = UINT32_PACK('\r', '\n', (uint32_t)((c+42) & 0xff), 0);
 			memcpy(p, &w, sizeof(w));
 			p += 3;
 			col = 1;

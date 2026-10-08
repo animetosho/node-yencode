@@ -22,7 +22,7 @@ static HEDLEY_ALWAYS_INLINE void encode_eol_handle_pre(const uint8_t* HEDLEY_RES
 		outp += 4;
 		col = lineSizeOffset + 2;
 	} else {
-		uint32_t w = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+		uint32_t w = UINT32_PACK('\r', '\n', (uint32_t)((c+42) & 0xff), 0);
 		memcpy(outp, &w, sizeof(w));
 		outp += 3;
 		col = lineSizeOffset + 1;
@@ -69,7 +69,7 @@ HEDLEY_ALWAYS_INLINE void do_encode_rvv(int line_size, int* colOffset, const uin
 				outp += 4;
 				col = 2-line_size + 1;
 			} else {
-				uint32_t v = UINT32_PACK('\r', '\n', (uint32_t)(c+42), 0);
+				uint32_t v = UINT32_PACK('\r', '\n', (uint32_t)((c+42) & 0xff), 0);
 				memcpy(outp, &v, sizeof(v));
 				outp += 3;
 				col = 2-line_size;
